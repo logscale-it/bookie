@@ -38,5 +38,5 @@ jobs:
             src-tauri/target
           key: cargo-build-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: cargo-build-${{ runner.os }}-
-      - run: bun install --frozen-lockfile
+      - run: bun install 
       - run: bun run tauri build
