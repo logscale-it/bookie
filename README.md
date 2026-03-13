@@ -1,3 +1,6 @@
+<p align="center">
+  <img src="static/bookie.svg" alt="Bookie Logo" width="200">
+</p>
 # Bookie - A small buisness accounting app
 
 Bookie is a minimalistic app that helps you store and create invoices. Fully local and compliant with the german Law.
