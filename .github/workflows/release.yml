@@ -99,12 +99,10 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           draft: true
           generate_release_notes: true
-          body: |
-            ## macOS Users
-            macOS may show "app is damaged" since the app is not notarized. Run this in Terminal after installing:
-```
-            xattr -cr /Applications/bookie.app
-```
+          body: >
+            **macOS Users:** macOS may show "app is damaged" since the app is
+            not notarized. Run this in Terminal after installing:
+            `xattr -cr /Applications/YourAppName.app`
           files: |
             dist/**/*.deb
             dist/**/*.AppImage
