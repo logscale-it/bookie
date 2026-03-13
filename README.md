@@ -24,7 +24,7 @@ Bookie is a minimalistic app that helps you store and create invoices. Fully loc
 
 ## For non technical users 
 - You can download the executable programm from releases
-- A cloud managed version for a small fee to cover the cost is available
+- (Coming soon) A cloud managed version for a small fee to cover the cost is available
 It contains the same features as with the s3 bucket. But you dont have to set up your bucket yourself and we do all the work for you
 
 [![GitHub stars](https://img.shields.io/github/stars/Ranelkin/bookie.svg?style=social&label=Star)](https://github.com/Ranelkin/bookie)
