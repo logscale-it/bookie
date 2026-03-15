@@ -58,6 +58,12 @@ export default {
 		vatPayable: 'USt.-Zahllast',
 		period: 'Zeitraum',
 		loadingData: 'Daten werden geladen…',
+		exports: 'Exporte',
+		exportUstva: 'UStVA als CSV exportieren',
+		exportEuer: 'EÜR als CSV exportieren',
+		exporting: 'Exportiert…',
+		exportSuccess: 'Export erfolgreich gespeichert.',
+		exportError: 'Export fehlgeschlagen',
 		months: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
 	},
 	invoices: {

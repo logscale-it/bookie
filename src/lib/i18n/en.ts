@@ -58,6 +58,12 @@ export default {
 		vatPayable: 'VAT payable',
 		period: 'Period',
 		loadingData: 'Loading data…',
+		exports: 'Exports',
+		exportUstva: 'Export VAT return as CSV',
+		exportEuer: 'Export EÜR as CSV',
+		exporting: 'Exporting…',
+		exportSuccess: 'Export saved successfully.',
+		exportError: 'Export failed',
 		months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 	},
 	invoices: {

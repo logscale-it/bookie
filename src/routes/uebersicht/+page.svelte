@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { getDashboardData, type GroupBy, type PeriodRow } from '$lib/db/dashboard';
+	import { getOrganizationSettings } from '$lib/db/settings';
+	import { getUstvaData, getEuerData } from '$lib/db/tax-reports';
+	import { generateUstvaCsv } from '$lib/csv/ustva-csv';
+	import { generateEuerCsv } from '$lib/csv/euer-csv';
+	import { saveCsvFile } from '$lib/csv/csv-writer';
 	import { t, tp, translations } from '$lib/i18n';
 
 	let loading = $state(true);
@@ -107,6 +112,44 @@
 		revenue = data.revenue;
 		costs = data.costs;
 		loading = false;
+	}
+
+	let exportingUstva = $state(false);
+	let exportingEuer = $state(false);
+	let exportMessage = $state('');
+
+	async function exportUstva() {
+		exportingUstva = true;
+		exportMessage = '';
+		try {
+			const companyId = await ensureCompanyId();
+			const org = await getOrganizationSettings();
+			const data = await getUstvaData(companyId, year, groupBy);
+			const csv = generateUstvaCsv(data, org.name, year, org.vatin);
+			const saved = await saveCsvFile(csv, `UStVA-${year}-${groupBy}.csv`);
+			if (saved) exportMessage = t('overview.exportSuccess');
+		} catch (err) {
+			exportMessage = `${t('overview.exportError')}: ${err}`;
+		} finally {
+			exportingUstva = false;
+		}
+	}
+
+	async function exportEuer() {
+		exportingEuer = true;
+		exportMessage = '';
+		try {
+			const companyId = await ensureCompanyId();
+			const org = await getOrganizationSettings();
+			const data = await getEuerData(companyId, year, groupBy);
+			const csv = generateEuerCsv(data, org.name, year, org.vatin);
+			const saved = await saveCsvFile(csv, `EUER-${year}-${groupBy}.csv`);
+			if (saved) exportMessage = t('overview.exportSuccess');
+		} catch (err) {
+			exportMessage = `${t('overview.exportError')}: ${err}`;
+		} finally {
+			exportingEuer = false;
+		}
 	}
 </script>
 
@@ -226,6 +269,32 @@
 						</tbody>
 					</table>
 				</div>
+			{/if}
+		</div>
+
+		<!-- Exporte -->
+		<div class="card space-y-4">
+			<h2 class="text-lg font-semibold tracking-tight">{t('overview.exports')}</h2>
+
+			<div class="flex flex-wrap gap-3">
+				<button
+					onclick={exportUstva}
+					disabled={exportingUstva}
+					class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+				>
+					{exportingUstva ? t('overview.exporting') : t('overview.exportUstva')}
+				</button>
+				<button
+					onclick={exportEuer}
+					disabled={exportingEuer}
+					class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+				>
+					{exportingEuer ? t('overview.exporting') : t('overview.exportEuer')}
+				</button>
+			</div>
+
+			{#if exportMessage}
+				<p class="text-sm text-zinc-600 dark:text-zinc-400">{exportMessage}</p>
 			{/if}
 		</div>
 	{/if}

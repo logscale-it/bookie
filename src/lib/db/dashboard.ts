@@ -16,7 +16,7 @@ export interface DashboardData {
   costs: PeriodRow[];
 }
 
-function periodExpr(groupBy: GroupBy, dateCol: string): string {
+export function periodExpr(groupBy: GroupBy, dateCol: string): string {
   switch (groupBy) {
     case "month":
       return `strftime('%Y-%m', ${dateCol})`;
