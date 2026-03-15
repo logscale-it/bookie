@@ -2,6 +2,8 @@
   <img src="static/bookie.svg" alt="Bookie Logo" width="200">
 </p>
 
+[![Release](https://github.com/Ranelkin/bookie/actions/workflows/release.yml/badge.svg?branch=master)](https://github.com/Ranelkin/bookie/actions/workflows/release.yml)
+
 # Bookie - A small buisness accounting app
 
 Bookie is a minimalistic app that helps you store and create invoices. Fully local and compliant with the german Law.
