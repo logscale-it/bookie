@@ -209,6 +209,18 @@ fn app_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0014_down/01_locale_and_legal.sql"),
             kind: MigrationKind::Down,
         },
+        Migration {
+            version: 15,
+            description: "money_cents_columns_up",
+            sql: include_str!("../migrations/0015/01_money_cents_columns.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 15,
+            description: "money_cents_columns_down",
+            sql: include_str!("../migrations/0015_down/01_money_cents_columns.sql"),
+            kind: MigrationKind::Down,
+        },
     ]
 }
 
