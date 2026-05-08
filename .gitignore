@@ -11,3 +11,5 @@ vite.config.ts.timestamp-*
 *.db
 Cargo.lock
 .vscode
+*.sh
+.claude_cron_logs/
