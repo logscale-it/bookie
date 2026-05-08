@@ -13,3 +13,4 @@ Cargo.lock
 .vscode
 *.sh
 .claude_cron_logs/
+.*
