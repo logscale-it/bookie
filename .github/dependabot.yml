@@ -5,20 +5,34 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "frontend"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "backend"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
