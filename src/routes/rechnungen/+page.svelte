@@ -123,7 +123,7 @@
 						<div class="truncate px-4 py-2">{invoice.invoice_number}</div>
 						<div class="truncate px-4 py-2">{invoice.customer_name ?? '—'}</div>
 						<div class="truncate px-4 py-2">{formatDate(invoice.issue_date)}</div>
-						<div class="truncate px-4 py-2">{formatAmount(invoice.gross_amount, invoice.currency)}</div>
+						<div class="truncate px-4 py-2">{formatAmount(invoice.gross_cents / 100, invoice.currency)}</div>
 						<div class="px-4 py-2">
 							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<select

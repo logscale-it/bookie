@@ -3,13 +3,19 @@ import type { Invoice } from "./types";
 
 export type InvoiceWithCustomer = Invoice & { customer_name: string | null };
 
-// `*_cents` fields are readable on the `Invoice` type (DAT-1.b) but the write
-// path is not yet repointed to them — that is DAT-1.d (#54). Until then they
-// are derived from the REAL columns by the migration / write path, so they
-// must be excluded from the Create/Update payload shape.
+// DAT-1.d (#54): writes are repointed to `*_cents` (INTEGER minor units).
+// The legacy REAL columns (`net_amount`, `tax_amount`, `gross_amount`) are
+// kept in the read shape for compatibility but are no longer written here —
+// they fall back to their `DEFAULT 0` from migration 0001 and are dropped
+// in DAT-1.e (#55).
 type CreateInvoice = Omit<
   Invoice,
-  "id" | "created_at" | "updated_at" | "net_cents" | "tax_cents" | "gross_cents"
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "net_amount"
+  | "tax_amount"
+  | "gross_amount"
 >;
 type UpdateInvoice = Partial<CreateInvoice>;
 
@@ -25,9 +31,9 @@ const ALLOWED_COLUMNS = [
   "service_period_start",
   "service_period_end",
   "currency",
-  "net_amount",
-  "tax_amount",
-  "gross_amount",
+  "net_cents",
+  "tax_cents",
+  "gross_cents",
   "due_surcharge",
   "issuer_name",
   "issuer_tax_number",
@@ -82,8 +88,11 @@ export async function getInvoiceById(id: number): Promise<Invoice | undefined> {
 
 export async function createInvoice(data: CreateInvoice): Promise<number> {
   const db = await getDb();
+  // Money columns: only the integer-cent columns are written. The legacy REAL
+  // columns (`net_amount`, `tax_amount`, `gross_amount`) keep their migration
+  // default of 0 — DAT-1.e (#55) drops them entirely.
   const result = await db.execute(
-    `INSERT INTO invoices (company_id, customer_id, project_id, invoice_number, status, issue_date, due_date, service_period_start, service_period_end, currency, net_amount, tax_amount, gross_amount, issuer_name, issuer_tax_number, issuer_vat_id, issuer_bank_account_holder, issuer_bank_iban, issuer_bank_bic, issuer_bank_name, recipient_name, recipient_street, recipient_postal_code, recipient_city, recipient_country_code, notes)
+    `INSERT INTO invoices (company_id, customer_id, project_id, invoice_number, status, issue_date, due_date, service_period_start, service_period_end, currency, net_cents, tax_cents, gross_cents, issuer_name, issuer_tax_number, issuer_vat_id, issuer_bank_account_holder, issuer_bank_iban, issuer_bank_bic, issuer_bank_name, recipient_name, recipient_street, recipient_postal_code, recipient_city, recipient_country_code, notes)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
     [
       data.company_id,
@@ -96,9 +105,9 @@ export async function createInvoice(data: CreateInvoice): Promise<number> {
       data.service_period_start,
       data.service_period_end,
       data.currency,
-      data.net_amount,
-      data.tax_amount,
-      data.gross_amount,
+      data.net_cents,
+      data.tax_cents,
+      data.gross_cents,
       data.issuer_name,
       data.issuer_tax_number,
       data.issuer_vat_id,

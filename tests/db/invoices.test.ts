@@ -28,7 +28,7 @@ function blankInvoice(
   companyId: number,
   customerId: number,
   invoiceNumber: string,
-  overrides: Partial<{ status: string; net: number; tax: number; gross: number }> = {},
+  overrides: Partial<{ status: string; netCents: number; taxCents: number; grossCents: number }> = {},
 ) {
   return {
     company_id: companyId,
@@ -41,9 +41,9 @@ function blankInvoice(
     service_period_start: null,
     service_period_end: null,
     currency: "EUR",
-    net_amount: overrides.net ?? 0,
-    tax_amount: overrides.tax ?? 0,
-    gross_amount: overrides.gross ?? 0,
+    net_cents: overrides.netCents ?? 0,
+    tax_cents: overrides.taxCents ?? 0,
+    gross_cents: overrides.grossCents ?? 0,
     issuer_name: null, issuer_tax_number: null, issuer_vat_id: null,
     issuer_bank_account_holder: null, issuer_bank_iban: null,
     issuer_bank_bic: null, issuer_bank_name: null,
@@ -64,17 +64,17 @@ describe("invoices CRUD + items + status history", () => {
     await invoiceItems.createInvoiceItem({
       invoice_id: invId, project_id: null, time_entry_id: null,
       position: 2, description: "Second", quantity: 1, unit: "Std",
-      unit_price_net: 50, tax_rate: 19, line_total_net: 50,
+      unit_price_net_cents: 5000, tax_rate: 19, line_total_net_cents: 5000,
     });
     await invoiceItems.createInvoiceItem({
       invoice_id: invId, project_id: null, time_entry_id: null,
       position: 1, description: "First", quantity: 2, unit: "Std",
-      unit_price_net: 100, tax_rate: 19, line_total_net: 200,
+      unit_price_net_cents: 10000, tax_rate: 19, line_total_net_cents: 20000,
     });
 
     const items = (await invoiceItems.listByInvoice(invId)).rows;
     expect(items.map((i) => i.description)).toEqual(["First", "Second"]);
-    expect(items[0].line_total_net).toBe(200);
+    expect(items[0].line_total_net_cents).toBe(20000);
   });
 
   test("invoice_number UNIQUE constraint prevents duplicates", async () => {
@@ -103,6 +103,27 @@ describe("invoices CRUD + items + status history", () => {
 
     const list = (await invoices.listInvoices(a.companyId)).rows;
     expect(list.map((i) => i.invoice_number)).toEqual(["A2", "A1"]);
+  });
+
+  test("createInvoice does not write the legacy REAL columns (DAT-1.d verification)", async () => {
+    // The verification criterion for DAT-1.d (#54): newly-written rows must
+    // leave the legacy REAL columns at their migration default of 0.
+    const { companyId, customerId } = await seed();
+    const invId = await invoices.createInvoice({
+      ...blankInvoice(companyId, customerId, "INV-LEGACY-0"),
+      net_cents: 12345,
+      tax_cents: 2345,
+      gross_cents: 14690,
+    });
+    const legacy = await testDb.select<
+      { net_amount: number; tax_amount: number; gross_amount: number }[]
+    >(
+      "SELECT net_amount, tax_amount, gross_amount FROM invoices WHERE id = $1",
+      [invId],
+    );
+    expect(legacy[0].net_amount).toBe(0);
+    expect(legacy[0].tax_amount).toBe(0);
+    expect(legacy[0].gross_amount).toBe(0);
   });
 
   test("updateInvoiceStatus writes status AND appends to history transactionally", async () => {
@@ -148,7 +169,7 @@ describe("invoices CRUD + items + status history", () => {
     await invoiceItems.createInvoiceItem({
       invoice_id: invId, project_id: null, time_entry_id: null,
       position: 1, description: "X", quantity: 1, unit: null,
-      unit_price_net: 10, tax_rate: 19, line_total_net: 10,
+      unit_price_net_cents: 1000, tax_rate: 19, line_total_net_cents: 1000,
     });
     // History row created without leaving draft, so the immutability trigger
     // (which forbids deleting non-draft invoices) does not apply.

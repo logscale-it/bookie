@@ -24,7 +24,7 @@ async function seedInvoice(): Promise<number> {
     invoice_number: `INV-${counter}`, status: "issued",
     issue_date: "2026-05-01", due_date: "2026-05-31",
     service_period_start: null, service_period_end: null,
-    currency: "EUR", net_amount: 1000, tax_amount: 190, gross_amount: 1190,
+    currency: "EUR", net_cents: 100000, tax_cents: 19000, gross_cents: 119000,
     issuer_name: null, issuer_tax_number: null, issuer_vat_id: null,
     issuer_bank_account_holder: null, issuer_bank_iban: null,
     issuer_bank_bic: null, issuer_bank_name: null,
@@ -39,11 +39,11 @@ describe("payments", () => {
   test("create + list ordered by payment_date DESC", async () => {
     const invId = await seedInvoice();
     await payments.createPayment({
-      invoice_id: invId, payment_date: "2026-05-10", amount: 500,
+      invoice_id: invId, payment_date: "2026-05-10", amount_cents: 50000,
       method: "bank_transfer", reference: "REF-1", note: null,
     });
     await payments.createPayment({
-      invoice_id: invId, payment_date: "2026-05-20", amount: 690,
+      invoice_id: invId, payment_date: "2026-05-20", amount_cents: 69000,
       method: "bank_transfer", reference: "REF-2", note: null,
     });
 
@@ -51,11 +51,11 @@ describe("payments", () => {
     expect(list.map((p) => p.reference)).toEqual(["REF-2", "REF-1"]);
   });
 
-  test("CHECK: amount must be > 0", async () => {
+  test("CHECK: amount_cents must be > 0", async () => {
     const invId = await seedInvoice();
     await expect(
       payments.createPayment({
-        invoice_id: invId, payment_date: "2026-05-10", amount: 0,
+        invoice_id: invId, payment_date: "2026-05-10", amount_cents: 0,
         method: null, reference: null, note: null,
       }),
     ).rejects.toThrow();
@@ -64,7 +64,7 @@ describe("payments", () => {
   test("RESTRICT: cannot delete invoice that has payments", async () => {
     const invId = await seedInvoice();
     await payments.createPayment({
-      invoice_id: invId, payment_date: "2026-05-10", amount: 100,
+      invoice_id: invId, payment_date: "2026-05-10", amount_cents: 10000,
       method: null, reference: null, note: null,
     });
     await expect(invoices.deleteInvoice(invId)).rejects.toThrow();
@@ -75,7 +75,7 @@ describe("payments", () => {
     // Step back to 'draft' so the immutability trigger lets us delete.
     await invoices.updateInvoiceStatus(invId, "issued", "draft");
     const payId = await payments.createPayment({
-      invoice_id: invId, payment_date: "2026-05-10", amount: 100,
+      invoice_id: invId, payment_date: "2026-05-10", amount_cents: 10000,
       method: null, reference: null, note: null,
     });
     await payments.deletePayment(payId);

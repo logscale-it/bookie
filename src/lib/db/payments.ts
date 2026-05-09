@@ -1,12 +1,13 @@
 import { getDb } from "./connection";
 import type { Payment } from "./types";
 
-// `amount_cents` is readable on `Payment` (DAT-1.b) but the write path is not
-// yet repointed — that is DAT-1.d (#54). Exclude it from the Create payload
-// shape until then.
+// DAT-1.d (#54): writes are repointed to `amount_cents`. The legacy REAL
+// `amount` column has `CHECK (amount > 0)` (see migration 0001/07_payments.sql)
+// so it cannot be left at 0; we derive its value from `amount_cents / 100` as
+// a transitional placeholder until DAT-1.e (#55) drops the column.
 type CreatePayment = Omit<
   Payment,
-  "id" | "created_at" | "updated_at" | "amount_cents"
+  "id" | "created_at" | "updated_at" | "amount"
 >;
 
 export interface PageResult<T> {
@@ -35,13 +36,18 @@ export async function listByInvoice(
 
 export async function createPayment(data: CreatePayment): Promise<number> {
   const db = await getDb();
+  // `amount_cents` carries the source-of-truth value. The legacy `amount`
+  // column has a `CHECK (amount > 0)` constraint and cannot be left at 0; we
+  // derive it from cents until DAT-1.e (#55) drops the column.
+  const legacyAmount = data.amount_cents / 100;
   const result = await db.execute(
-    `INSERT INTO payments (invoice_id, payment_date, amount, method, reference, note)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
+    `INSERT INTO payments (invoice_id, payment_date, amount, amount_cents, method, reference, note)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [
       data.invoice_id,
       data.payment_date,
-      data.amount,
+      legacyAmount,
+      data.amount_cents,
       data.method,
       data.reference,
       data.note,

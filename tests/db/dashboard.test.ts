@@ -25,13 +25,14 @@ async function seedCompany() {
 
 function makeInvoice(
   companyId: number, customerId: number, num: string,
-  issueDate: string, status: string, net: number, tax: number,
+  issueDate: string, status: string, netCents: number, taxCents: number,
 ) {
   return {
     company_id: companyId, customer_id: customerId, project_id: null,
     invoice_number: num, status, issue_date: issueDate,
     due_date: null, service_period_start: null, service_period_end: null,
-    currency: "EUR", net_amount: net, tax_amount: tax, gross_amount: net + tax,
+    currency: "EUR",
+    net_cents: netCents, tax_cents: taxCents, gross_cents: netCents + taxCents,
     issuer_name: null, issuer_tax_number: null, issuer_vat_id: null,
     issuer_bank_account_holder: null, issuer_bank_iban: null,
     issuer_bank_bic: null, issuer_bank_name: null,
@@ -52,13 +53,13 @@ describe("dashboard aggregates", () => {
   test("revenue groups by month, only counts sent/paid invoices in given year", async () => {
     const { companyId, customerId } = await seedCompany();
     // Drafts MUST NOT count
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "D1", "2026-01-15", "draft", 9999, 1899));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "D1", "2026-01-15", "draft", 999900, 189900));
     // Sent + paid count
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "S1", "2026-01-15", "sent", 100, 19));
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "S2", "2026-01-20", "paid", 200, 38));
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "S3", "2026-03-01", "paid", 50, 9.5));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "S1", "2026-01-15", "sent", 10000, 1900));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "S2", "2026-01-20", "paid", 20000, 3800));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "S3", "2026-03-01", "paid", 5000, 950));
     // Different year MUST NOT count
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "X1", "2025-01-15", "paid", 7777, 1477));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "X1", "2025-01-15", "paid", 777700, 147700));
 
     const rows = await dashboard.getRevenueByPeriod(companyId, 2026, "month");
     expect(rows).toEqual([
@@ -70,8 +71,8 @@ describe("dashboard aggregates", () => {
   test("revenue is scoped per company", async () => {
     const a = await seedCompany();
     const b = await seedCompany();
-    await invoices.createInvoice(makeInvoice(a.companyId, a.customerId, "A1", "2026-01-15", "paid", 100, 19));
-    await invoices.createInvoice(makeInvoice(b.companyId, b.customerId, "B1", "2026-01-15", "paid", 999, 189));
+    await invoices.createInvoice(makeInvoice(a.companyId, a.customerId, "A1", "2026-01-15", "paid", 10000, 1900));
+    await invoices.createInvoice(makeInvoice(b.companyId, b.customerId, "B1", "2026-01-15", "paid", 99900, 18900));
 
     const rowsA = await dashboard.getRevenueByPeriod(a.companyId, 2026, "month");
     expect(rowsA).toEqual([{ period: "2026-01", total_net: 100, total_tax: 19 }]);
@@ -82,13 +83,13 @@ describe("dashboard aggregates", () => {
     await ii.createIncomingInvoice({
       company_id: companyId, supplier_id: customerId,
       invoice_number: "IN-1", invoice_date: "2026-02-10",
-      net_amount: 500, tax_amount: 95, status: "offen",
+      net_cents: 50000, tax_cents: 9500, status: "offen",
       file_data: null, file_name: null, file_type: null, s3_key: null, notes: null,
     });
     await ii.createIncomingInvoice({
       company_id: companyId, supplier_id: customerId,
       invoice_number: "IN-2", invoice_date: "2026-02-20",
-      net_amount: 100, tax_amount: 19, status: "offen",
+      net_cents: 10000, tax_cents: 1900, status: "offen",
       file_data: null, file_name: null, file_type: null, s3_key: null, notes: null,
     });
 
@@ -98,11 +99,11 @@ describe("dashboard aggregates", () => {
 
   test("getDashboardData returns both revenue and costs", async () => {
     const { companyId, customerId } = await seedCompany();
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "R1", "2026-01-15", "paid", 100, 19));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "R1", "2026-01-15", "paid", 10000, 1900));
     await ii.createIncomingInvoice({
       company_id: companyId, supplier_id: customerId,
       invoice_number: "IN-1", invoice_date: "2026-01-10",
-      net_amount: 50, tax_amount: 9.5, status: "offen",
+      net_cents: 5000, tax_cents: 950, status: "offen",
       file_data: null, file_name: null, file_type: null, s3_key: null, notes: null,
     });
 
@@ -113,9 +114,9 @@ describe("dashboard aggregates", () => {
 
   test("quarter grouping puts March in Q1", async () => {
     const { companyId, customerId } = await seedCompany();
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "Q1a", "2026-01-15", "paid", 10, 2));
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "Q1b", "2026-03-25", "paid", 20, 4));
-    await invoices.createInvoice(makeInvoice(companyId, customerId, "Q2a", "2026-04-05", "paid", 30, 6));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "Q1a", "2026-01-15", "paid", 1000, 200));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "Q1b", "2026-03-25", "paid", 2000, 400));
+    await invoices.createInvoice(makeInvoice(companyId, customerId, "Q2a", "2026-04-05", "paid", 3000, 600));
 
     const rows = await dashboard.getRevenueByPeriod(companyId, 2026, "quarter");
     expect(rows).toEqual([

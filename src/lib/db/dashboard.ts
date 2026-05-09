@@ -27,6 +27,11 @@ export function periodExpr(groupBy: GroupBy, dateCol: string): string {
   }
 }
 
+// DAT-1.d (#54): aggregations now read the integer-cent columns and divide
+// by 100.0 at the SQL boundary so the consumer-facing API still returns
+// `total_net` / `total_tax` in major units (euros). The legacy REAL columns
+// are no longer populated by writes and would return 0 if queried.
+
 export async function getRevenueByPeriod(
   companyId: number,
   year: number,
@@ -35,7 +40,9 @@ export async function getRevenueByPeriod(
   const db = await getDb();
   const expr = periodExpr(groupBy, "issue_date");
   const rows = await db.select<PeriodRow[]>(
-    `SELECT ${expr} as period, COALESCE(SUM(net_amount), 0) as total_net, COALESCE(SUM(tax_amount), 0) as total_tax
+    `SELECT ${expr} as period,
+            COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
+            COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM invoices
      WHERE company_id = $1 AND strftime('%Y', issue_date) = $2 AND status IN ('sent', 'paid')
      GROUP BY period ORDER BY period`,
@@ -53,7 +60,9 @@ export async function getCostsByPeriod(
   const db = await getDb();
   const expr = periodExpr(groupBy, "invoice_date");
   const rows = await db.select<PeriodRow[]>(
-    `SELECT ${expr} as period, COALESCE(SUM(net_amount), 0) as total_net, COALESCE(SUM(tax_amount), 0) as total_tax
+    `SELECT ${expr} as period,
+            COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
+            COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM incoming_invoices
      WHERE company_id = $1 AND strftime('%Y', invoice_date) = $2
      GROUP BY period ORDER BY period`,
