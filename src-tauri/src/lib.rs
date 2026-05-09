@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::{Builder as RollingBuilder, Rotation};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 const DB_URL: &str = "sqlite:bookie.db";
 const DB_FILE_NAME: &str = "bookie.db";
@@ -630,7 +633,7 @@ fn next_rand_u64() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     thread_local! {
-        static STATE: Cell<u64> = Cell::new(0);
+        static STATE: Cell<u64> = const { Cell::new(0) };
     }
 
     STATE.with(|cell| {
@@ -969,9 +972,7 @@ async fn restore_db_backup(
                     warn!("Sidecar missing for key={key}; aborting (no unsafe override)");
                     return Err(BookieError::BackupSidecarMissing);
                 }
-                warn!(
-                    "Sidecar missing for key={key}; proceeding under user-confirmed unsafe path"
-                );
+                warn!("Sidecar missing for key={key}; proceeding under user-confirmed unsafe path");
                 None
             } else {
                 cleanup_tmp(&tmp_file);
@@ -993,9 +994,7 @@ async fn restore_db_backup(
         let actual = sha256_hex(&tmp_bytes);
         if actual != expected {
             cleanup_tmp(&tmp_file);
-            error!(
-                "Sidecar SHA-256 mismatch: expected={expected}, actual={actual}, key={key}"
-            );
+            error!("Sidecar SHA-256 mismatch: expected={expected}, actual={actual}, key={key}");
             return Err(BookieError::BackupSidecarMismatch);
         }
         info!("Sidecar SHA-256 verified for key={key}");
@@ -1479,11 +1478,70 @@ mod s3_round_trip {
     }
 }
 
+/// Initialise the global `tracing` subscriber with two layers:
+///
+/// 1. A human-readable fmt layer that writes to stdout (so `bun run tauri dev`
+///    keeps showing logs in the terminal).
+/// 2. A JSON-line layer that writes to a daily-rotating file in `app_log_dir`,
+///    retaining the last 14 files. The file layout produced by
+///    `RollingFileAppender::builder()` is
+///    `<app_log_dir>/bookie.<YYYY-MM-DD>.log`.
+///
+/// `RUST_LOG` controls verbosity; absent, we default to `info,bookie=debug`.
+///
+/// Existing `log::info!`/`log::warn!`/`log::error!` calls are bridged into
+/// `tracing` via the `tracing-log` feature of `tracing-subscriber` (enabled
+/// transitively by the explicit `tracing-log` dependency and by
+/// `LogTracer::init()`), so adding this subscriber does not require touching
+/// every call site.
+///
+/// Returns the `WorkerGuard` of the non-blocking file writer; the caller MUST
+/// keep it alive for the lifetime of the app (we stash it in Tauri-managed
+/// state) — dropping it flushes and stops the background writer thread.
+fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::error::Error>> {
+    fs::create_dir_all(log_dir)?;
+
+    let file_appender = RollingBuilder::new()
+        .filename_prefix("bookie")
+        .filename_suffix("log")
+        .rotation(Rotation::DAILY)
+        .max_log_files(14)
+        .build(log_dir)?;
+
+    let (nb_writer, guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = || {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,bookie=debug"))
+    };
+
+    let stdout_layer = tracing_subscriber::fmt::layer()
+        .with_target(true)
+        .with_writer(std::io::stdout)
+        .with_filter(env_filter());
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_current_span(true)
+        .with_span_list(false)
+        .with_writer(nb_writer)
+        .with_filter(env_filter());
+
+    // Bridge classic `log` macros into `tracing` so existing call sites in this
+    // crate (and dependencies that emit through `log`) flow into both layers.
+    // Best-effort: if another component already installed a `log` logger we
+    // keep going rather than panicking on startup.
+    let _ = tracing_log::LogTracer::init();
+
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(file_layer)
+        .try_init()?;
+
+    Ok(guard)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
-    info!("Bookie starting");
-
     tauri::Builder::default()
         .plugin(
             tauri_plugin_sql::Builder::new()
@@ -1492,6 +1550,39 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // OBS-1.a: install the tracing subscriber as early as possible so
+            // that subsequent setup work and command handlers land in the file
+            // sink. The panic hook (OBS-1.b) and the frontend log bridge
+            // (OBS-1.c) layer on top of this; they are intentionally out of
+            // scope here.
+            match app
+                .path()
+                .app_log_dir()
+                .map_err(|e| e.to_string())
+                .and_then(|dir| {
+                    init_tracing(&dir)
+                        .map(|guard| (dir, guard))
+                        .map_err(|e| e.to_string())
+                }) {
+                Ok((log_dir, guard)) => {
+                    // Hold the WorkerGuard for the lifetime of the app via
+                    // Tauri-managed state. Dropping it flushes the non-blocking
+                    // writer; we want that to happen at process shutdown only.
+                    app.manage(guard);
+                    info!("Bookie starting (log_dir={})", log_dir.display());
+                }
+                Err(err) => {
+                    // Logger setup failed — fall back to env_logger so the app
+                    // is still observable on stdout. We surface the failure on
+                    // stderr because no logger is installed yet at this point.
+                    eprintln!("tracing init failed, falling back to env_logger: {err}");
+                    let _ = env_logger::try_init();
+                    info!("Bookie starting (file logging disabled)");
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             backup_database,
             restore_database,
