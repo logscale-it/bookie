@@ -33,6 +33,7 @@ pub enum BookieError {
     S3EndpointInvalid,
     BackupCorrupt,
     BackupSidecarMismatch,
+    BackupSidecarMissing,
     KeyringUnavailable,
     MigrationOutOfDate,
     InvoiceImmutable,
@@ -49,6 +50,7 @@ impl std::fmt::Display for BookieError {
             BookieError::S3EndpointInvalid => write!(f, "S3 endpoint URL is invalid"),
             BookieError::BackupCorrupt => write!(f, "Backup file is corrupt"),
             BookieError::BackupSidecarMismatch => write!(f, "Backup sidecar checksum mismatch"),
+            BookieError::BackupSidecarMissing => write!(f, "Backup sidecar (.sha256) not found"),
             BookieError::KeyringUnavailable => write!(f, "OS keyring is unavailable"),
             BookieError::MigrationOutOfDate => write!(f, "Database migration is out of date"),
             BookieError::InvoiceImmutable => write!(f, "Invoice cannot be modified"),
@@ -677,6 +679,213 @@ async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, Stri
     Ok(bytes.to_vec())
 }
 
+/// Restore the live SQLite database from an S3 backup with SHA-256 sidecar
+/// verification.
+///
+/// Flow (REL-1.b):
+///   1. Download the backup at `key` from S3 into `<dbpath>.restore.tmp`
+///      (NOT in place — never touch the live file until verification passes).
+///   2. Fetch the sidecar at `<key>.sha256`. If missing and
+///      `allow_missing_sidecar == false`, return `BackupSidecarMissing` so the
+///      frontend can prompt the user to confirm an unsafe restore.
+///   3. If a sidecar is present, compute SHA-256 of the .tmp file and compare
+///      against the sidecar contents. Abort with `BackupSidecarMismatch` on
+///      any disagreement; the .tmp file is removed before returning.
+///   4. Validate the SQLite magic header on the .tmp file.
+///   5. Swap the .tmp file into place over the live DB.
+///
+/// Step 5 is intentionally still an in-place overwrite (matching the existing
+/// `restore_database` semantics) and currently does NOT verify that the
+/// sql plugin's connections are closed nor fsync before reopen. Both of those
+/// — plus a true atomic rename — are REL-1.c's scope (issue #44). This ticket
+/// (REL-1.b) is only the download-to-tmp + SHA verification step.
+#[tauri::command]
+async fn restore_db_backup(
+    app: AppHandle,
+    config: S3Config,
+    key: String,
+    allow_missing_sidecar: bool,
+) -> Result<(), BookieError> {
+    info!("Restore from S3: key={key}, allow_missing_sidecar={allow_missing_sidecar}");
+
+    let db_file = db_path(&app).map_err(|message| BookieError::IoError { message })?;
+    let tmp_file = db_file.with_extension("db.restore.tmp");
+
+    // Best-effort cleanup of any leftover .tmp from a previous failed run.
+    if tmp_file.exists() {
+        let _ = fs::remove_file(&tmp_file);
+    }
+
+    let client = config.build_client();
+
+    // 1. Download the backup into the .tmp file.
+    let backup_resp = client
+        .get_object()
+        .bucket(&config.bucket_name)
+        .key(&key)
+        .send()
+        .await
+        .map_err(|e| {
+            let msg = format_s3_error(&e);
+            error!("S3 download failed: key={key}, {msg}");
+            BookieError::S3Unreachable
+        })?;
+
+    let backup_bytes = backup_resp
+        .body
+        .collect()
+        .await
+        .map_err(|e| BookieError::IoError {
+            message: format!("S3 download read error: {e}"),
+        })?
+        .into_bytes();
+
+    if backup_bytes.is_empty() {
+        return Err(BookieError::BackupCorrupt);
+    }
+
+    fs::write(&tmp_file, backup_bytes.as_ref()).map_err(|err| {
+        error!("Failed to write restore tmp: {err}");
+        BookieError::IoError {
+            message: format!("Failed to write restore tmp: {err}"),
+        }
+    })?;
+
+    // Helper: clean up the .tmp file on any abort path.
+    let cleanup_tmp = |path: &PathBuf| {
+        if path.exists() {
+            if let Err(e) = fs::remove_file(path) {
+                warn!("Failed to clean up restore tmp file: {e}");
+            }
+        }
+    };
+
+    // 2. Fetch the sidecar.
+    let sidecar_key = format!("{key}.sha256");
+    let sidecar_resp = client
+        .get_object()
+        .bucket(&config.bucket_name)
+        .key(&sidecar_key)
+        .send()
+        .await;
+
+    let expected_digest: Option<String> = match sidecar_resp {
+        Ok(resp) => {
+            let body = resp.body.collect().await.map_err(|e| {
+                cleanup_tmp(&tmp_file);
+                BookieError::IoError {
+                    message: format!("S3 sidecar read error: {e}"),
+                }
+            })?;
+            let bytes = body.into_bytes();
+            let text = std::str::from_utf8(bytes.as_ref())
+                .map_err(|_| {
+                    cleanup_tmp(&tmp_file);
+                    BookieError::BackupSidecarMismatch
+                })?
+                .trim()
+                .to_string();
+            // A valid sidecar is exactly 64 lowercase hex chars (per REL-1.a:
+            // sha256_hex always emits lowercase). Reject anything else.
+            let valid_shape = text.len() == 64
+                && text
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
+            if !valid_shape {
+                cleanup_tmp(&tmp_file);
+                error!("Sidecar contents are not a valid lowercase SHA-256 hex digest");
+                return Err(BookieError::BackupSidecarMismatch);
+            }
+            Some(text)
+        }
+        Err(e) => {
+            // Distinguish "key not found" (HTTP 404 / NoSuchKey) from other S3
+            // errors so we can honour `allow_missing_sidecar` only for the
+            // former. We match on the 404 status alone for robustness across
+            // SDK error-variant shapes.
+            let is_missing = matches!(
+                &e,
+                aws_sdk_s3::error::SdkError::ServiceError(ctx)
+                    if ctx.raw().status().as_u16() == 404
+            );
+            if is_missing {
+                if !allow_missing_sidecar {
+                    cleanup_tmp(&tmp_file);
+                    warn!("Sidecar missing for key={key}; aborting (no unsafe override)");
+                    return Err(BookieError::BackupSidecarMissing);
+                }
+                warn!(
+                    "Sidecar missing for key={key}; proceeding under user-confirmed unsafe path"
+                );
+                None
+            } else {
+                cleanup_tmp(&tmp_file);
+                let msg = format_s3_error(&e);
+                error!("S3 sidecar fetch failed: key={sidecar_key}, {msg}");
+                return Err(BookieError::S3Unreachable);
+            }
+        }
+    };
+
+    // 3. Verify the .tmp file's SHA-256 matches the sidecar.
+    if let Some(expected) = expected_digest.as_deref() {
+        let tmp_bytes = fs::read(&tmp_file).map_err(|err| {
+            cleanup_tmp(&tmp_file);
+            BookieError::IoError {
+                message: format!("Failed to re-read restore tmp: {err}"),
+            }
+        })?;
+        let actual = sha256_hex(&tmp_bytes);
+        if actual != expected {
+            cleanup_tmp(&tmp_file);
+            error!(
+                "Sidecar SHA-256 mismatch: expected={expected}, actual={actual}, key={key}"
+            );
+            return Err(BookieError::BackupSidecarMismatch);
+        }
+        info!("Sidecar SHA-256 verified for key={key}");
+    }
+
+    // 4. Sanity-check the SQLite magic header on the verified .tmp file.
+    if !is_sqlite_backup(backup_bytes.as_ref()) {
+        cleanup_tmp(&tmp_file);
+        error!("Restored bytes failed SQLite magic-header check: key={key}");
+        return Err(BookieError::BackupCorrupt);
+    }
+
+    // 5. Swap the .tmp file into place. NOTE: REL-1.c (issue #44) will replace
+    // this with a true atomic rename plus connection-quiesce + fsync. For now
+    // we keep the existing in-place overwrite semantics so this PR's diff stays
+    // focused on the SHA-verification half of REL-1.
+    let backup_file = db_file.with_extension("db.pre-restore-backup");
+    if db_file.exists() {
+        let _ = fs::copy(&db_file, &backup_file);
+    }
+
+    let wal_file = db_file.with_extension("db-wal");
+    let shm_file = db_file.with_extension("db-shm");
+    if wal_file.exists() {
+        let _ = fs::remove_file(&wal_file);
+    }
+    if shm_file.exists() {
+        let _ = fs::remove_file(&shm_file);
+    }
+
+    fs::write(&db_file, backup_bytes.as_ref()).map_err(|err| {
+        cleanup_tmp(&tmp_file);
+        error!("Failed to overwrite live DB during restore: {err}");
+        BookieError::IoError {
+            message: format!("Failed to overwrite live DB: {err}"),
+        }
+    })?;
+
+    // Restore-tmp is no longer needed once the live DB is written.
+    cleanup_tmp(&tmp_file);
+
+    info!("Database restored successfully from S3: key={key}");
+    Ok(())
+}
+
 #[tauri::command]
 async fn s3_delete_file(config: S3Config, key: String) -> Result<(), String> {
     info!("S3 delete: key={key}");
@@ -1135,6 +1344,7 @@ pub fn run() {
             s3_test_connection,
             s3_upload_file,
             s3_download_file,
+            restore_db_backup,
             s3_delete_file,
             s3_presign_download_url,
             store_s3_credentials,
