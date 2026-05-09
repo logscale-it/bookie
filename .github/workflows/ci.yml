@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}
+          restore-keys: cargo-audit-
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+      - name: Run cargo audit
+        working-directory: src-tauri
+        # cargo-audit auto-discovers .cargo/audit.toml relative to cwd, so
+        # the project-local allowlist (src-tauri/.cargo/audit.toml) is
+        # picked up here.
+        run: cargo audit --deny warnings
