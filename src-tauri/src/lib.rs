@@ -665,6 +665,8 @@ fn next_rand_u64() -> u64 {
 /// - `https://` is always allowed
 /// - `http://` is allowed only for localhost, 127.0.0.1, or ::1
 /// - Any other scheme or malformed URL is rejected
+// Wired into S3Config builder in SEC-2.b (#37 → #38).
+#[allow(dead_code)]
 fn validate_endpoint(url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url)
         .map_err(|_| format!("Invalid URL: '{}' does not parse as a valid URL", url))?;
@@ -678,7 +680,7 @@ fn validate_endpoint(url: &str) -> Result<(), String> {
                 .to_lowercase();
 
             match host.as_str() {
-                "localhost" | "127.0.0.1" | "::1" => Ok(()),
+                "localhost" | "127.0.0.1" | "::1" | "[::1]" => Ok(()),
                 _ => Err(format!(
                     "http:// is only allowed for localhost, 127.0.0.1, or ::1; got '{}'",
                     host
