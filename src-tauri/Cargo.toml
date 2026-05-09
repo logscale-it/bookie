@@ -29,6 +29,7 @@ aws-credential-types = "1"
 log = "0.4"
 env_logger = "0.11"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+sha2 = "0.10"
 
 [profile.release]
 panic = "abort" # Strip expensive panic clean-up logic

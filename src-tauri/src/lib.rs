@@ -6,6 +6,7 @@ use aws_sdk_s3::{
 };
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
@@ -411,6 +412,56 @@ async fn s3_test_connection(config: S3Config) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns true if `data` looks like a SQLite database file based on its magic header.
+///
+/// SQLite files always start with the 16-byte string "SQLite format 3\0".
+/// This is used to gate sidecar SHA-256 emission on backup uploads without
+/// touching unrelated upload paths (e.g. invoice PDFs).
+fn is_sqlite_backup(data: &[u8]) -> bool {
+    data.len() >= SQLITE_MAGIC.len() && &data[..SQLITE_MAGIC.len()] == SQLITE_MAGIC
+}
+
+/// Lowercase hex SHA-256 digest of `data`.
+fn sha256_hex(data: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest.as_slice() {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+/// Uploads a `<key>.sha256` sidecar containing the lowercase hex digest of the
+/// just-uploaded backup. Failures here are logged but do NOT propagate: a flaky
+/// sidecar must never roll back a successful main upload. The matching
+/// download-side verification lives in REL-1.b/REL-1.c.
+async fn upload_sha256_sidecar(client: &S3Client, bucket: &str, key: &str, digest_hex: &str) {
+    let sidecar_key = format!("{key}.sha256");
+    let body = digest_hex.as_bytes().to_vec();
+    let body_len = body.len() as i64;
+
+    match client
+        .put_object()
+        .bucket(bucket)
+        .key(&sidecar_key)
+        .body(ByteStream::from(body))
+        .content_length(body_len)
+        .content_type("text/plain")
+        .send()
+        .await
+    {
+        Ok(_) => info!("S3 sidecar upload successful: key={sidecar_key}"),
+        Err(e) => {
+            let msg = format_s3_error(&e);
+            // Intentionally not propagating: see function docstring.
+            warn!("S3 sidecar upload failed (non-fatal): key={sidecar_key}, {msg}");
+        }
+    }
+}
+
 #[tauri::command]
 async fn s3_upload_file(
     config: S3Config,
@@ -429,6 +480,15 @@ async fn s3_upload_file(
     info!("S3 upload: key={key}, size={}", data.len());
     let client = config.build_client();
 
+    // Detect SQLite backups by magic header so we can attach a SHA-256 sidecar.
+    // Other upload paths (invoice PDFs, connection-test blobs) are unaffected.
+    let is_backup = is_sqlite_backup(&data);
+    let digest_hex = if is_backup {
+        Some(sha256_hex(&data))
+    } else {
+        None
+    };
+
     let data_len = data.len() as i64;
     client
         .put_object()
@@ -446,6 +506,11 @@ async fn s3_upload_file(
         })?;
 
     info!("S3 upload successful: key={key}");
+
+    if let Some(digest) = digest_hex {
+        upload_sha256_sidecar(&client, &config.bucket_name, &key, &digest).await;
+    }
+
     Ok(key)
 }
 
