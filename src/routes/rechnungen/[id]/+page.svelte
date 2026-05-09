@@ -33,7 +33,7 @@
 			return;
 		}
 		invoice = inv;
-		existingItems = await listByInvoice(id);
+		existingItems = (await listByInvoice(id)).rows;
 		loading = false;
 	}
 

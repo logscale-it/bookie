@@ -16,12 +16,28 @@ const ALLOWED_COLUMNS = [
   "billable",
 ] as const;
 
-export async function listTimeEntries(companyId: number): Promise<TimeEntry[]> {
+export interface PageResult<T> {
+  rows: T[];
+  totalCount: number;
+}
+
+export async function listTimeEntries(
+  companyId: number,
+  opts?: { limit?: number; offset?: number },
+): Promise<PageResult<TimeEntry>> {
+  // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
+  const limit = opts?.limit ?? 200;
+  const offset = opts?.offset ?? 0;
   const db = await getDb();
-  return db.select(
-    "SELECT * FROM time_entries WHERE company_id = $1 ORDER BY entry_date DESC",
-    [companyId],
+  const raw = await db.select<(TimeEntry & { _total_count: number })[]>(
+    `SELECT *, COUNT(*) OVER() AS _total_count
+     FROM time_entries WHERE company_id = $1
+     ORDER BY entry_date DESC LIMIT $2 OFFSET $3`,
+    [companyId, limit, offset],
   );
+  const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
+  const rows = raw.map(({ _total_count: _, ...rest }) => rest as TimeEntry);
+  return { rows, totalCount };
 }
 
 export async function getTimeEntryById(

@@ -126,10 +126,12 @@
 	async function loadData() {
 		loading = true;
 		const companyId = await ensureCompanyId();
-		[invoices, suppliers] = await Promise.all([
+		const [invoicesResult, suppliersResult] = await Promise.all([
 			listIncomingInvoices(companyId),
 			listSuppliers(companyId)
 		]);
+		invoices = invoicesResult.rows;
+		suppliers = suppliersResult;
 		loading = false;
 	}
 

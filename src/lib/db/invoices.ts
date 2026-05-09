@@ -40,12 +40,28 @@ const ALLOWED_COLUMNS = [
   "legal_country_code",
 ] as const;
 
-export async function listInvoices(companyId: number): Promise<Invoice[]> {
+export interface PageResult<T> {
+  rows: T[];
+  totalCount: number;
+}
+
+export async function listInvoices(
+  companyId: number,
+  opts?: { limit?: number; offset?: number },
+): Promise<PageResult<Invoice>> {
+  // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
+  const limit = opts?.limit ?? 200;
+  const offset = opts?.offset ?? 0;
   const db = await getDb();
-  return db.select(
-    "SELECT * FROM invoices WHERE company_id = $1 ORDER BY issue_date DESC",
-    [companyId],
+  const raw = await db.select<(Invoice & { _total_count: number })[]>(
+    `SELECT *, COUNT(*) OVER() AS _total_count
+     FROM invoices WHERE company_id = $1
+     ORDER BY issue_date DESC LIMIT $2 OFFSET $3`,
+    [companyId, limit, offset],
   );
+  const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
+  const rows = raw.map(({ _total_count: _, ...rest }) => rest as Invoice);
+  return { rows, totalCount };
 }
 
 export async function getInvoiceById(id: number): Promise<Invoice | undefined> {
@@ -118,14 +134,27 @@ export async function deleteInvoice(id: number): Promise<void> {
   await db.execute("DELETE FROM invoices WHERE id = $1", [id]);
 }
 
-export async function listAllInvoices(): Promise<InvoiceWithCustomer[]> {
+export async function listAllInvoices(opts?: {
+  limit?: number;
+  offset?: number;
+}): Promise<PageResult<InvoiceWithCustomer>> {
+  // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
+  const limit = opts?.limit ?? 200;
+  const offset = opts?.offset ?? 0;
   const db = await getDb();
-  return db.select<InvoiceWithCustomer[]>(`
-		SELECT i.*, c.name AS customer_name
+  const raw = await db.select<
+    (InvoiceWithCustomer & { _total_count: number })[]
+  >(`
+		SELECT i.*, c.name AS customer_name, COUNT(*) OVER() AS _total_count
 		FROM invoices i
 		LEFT JOIN customers c ON i.customer_id = c.id
-		ORDER BY i.issue_date DESC
+		ORDER BY i.issue_date DESC LIMIT ${limit} OFFSET ${offset}
 	`);
+  const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
+  const rows = raw.map(
+    ({ _total_count: _, ...rest }) => rest as InvoiceWithCustomer,
+  );
+  return { rows, totalCount };
 }
 
 export async function updateInvoiceStatus(

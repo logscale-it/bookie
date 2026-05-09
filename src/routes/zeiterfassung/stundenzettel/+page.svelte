@@ -115,12 +115,12 @@
 	async function loadData() {
 		loading = true;
 		const companyId = await ensureCompanyId();
-		const [entries, customerRows] = await Promise.all([listTimeEntries(companyId), listClients(companyId)]);
+		const [entriesResult, customerRows] = await Promise.all([listTimeEntries(companyId), listClients(companyId)]);
 
 		customers = customerRows;
 		const customerMap = new Map(customerRows.map((customer) => [customer.id, customer.name]));
 
-		rows = entries.map((entry) => ({
+		rows = entriesResult.rows.map((entry) => ({
 			...entry,
 			customerName: entry.customer_id ? (customerMap.get(entry.customer_id) ?? '—') : '—'
 		}));

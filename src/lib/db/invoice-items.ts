@@ -16,12 +16,28 @@ const ALLOWED_COLUMNS = [
   "line_total_net",
 ] as const;
 
-export async function listByInvoice(invoiceId: number): Promise<InvoiceItem[]> {
+export interface PageResult<T> {
+  rows: T[];
+  totalCount: number;
+}
+
+export async function listByInvoice(
+  invoiceId: number,
+  opts?: { limit?: number; offset?: number },
+): Promise<PageResult<InvoiceItem>> {
+  // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
+  const limit = opts?.limit ?? 200;
+  const offset = opts?.offset ?? 0;
   const db = await getDb();
-  return db.select(
-    "SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY position",
-    [invoiceId],
+  const raw = await db.select<(InvoiceItem & { _total_count: number })[]>(
+    `SELECT *, COUNT(*) OVER() AS _total_count
+     FROM invoice_items WHERE invoice_id = $1
+     ORDER BY position LIMIT $2 OFFSET $3`,
+    [invoiceId, limit, offset],
   );
+  const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
+  const rows = raw.map(({ _total_count: _, ...rest }) => rest as InvoiceItem);
+  return { rows, totalCount };
 }
 
 export async function createInvoiceItem(

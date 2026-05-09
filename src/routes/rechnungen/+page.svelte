@@ -18,7 +18,8 @@
 
 	async function loadInvoices() {
 		loading = true;
-		invoices = await listAllInvoices();
+		const result = await listAllInvoices();
+		invoices = result.rows;
 		loading = false;
 	}
 

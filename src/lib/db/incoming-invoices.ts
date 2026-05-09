@@ -25,21 +25,37 @@ export interface IncomingInvoiceWithSupplier extends IncomingInvoice {
   supplier_name: string | null;
 }
 
+export interface PageResult<T> {
+  rows: T[];
+  totalCount: number;
+}
+
 export async function listIncomingInvoices(
   companyId: number,
-): Promise<IncomingInvoiceWithSupplier[]> {
+  opts?: { limit?: number; offset?: number },
+): Promise<PageResult<IncomingInvoiceWithSupplier>> {
+  // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
+  const limit = opts?.limit ?? 200;
+  const offset = opts?.offset ?? 0;
   const db = await getDb();
-  return db.select(
+  const raw = await db.select<
+    (IncomingInvoiceWithSupplier & { _total_count: number })[]
+  >(
     `SELECT ii.id, ii.company_id, ii.supplier_id, ii.invoice_number, ii.invoice_date,
 		        ii.net_amount, ii.tax_amount, ii.gross_amount, ii.status,
 		        ii.file_name, ii.file_type, ii.s3_key, ii.notes, ii.created_at, ii.updated_at,
-		        c.name as supplier_name
+		        c.name as supplier_name, COUNT(*) OVER() AS _total_count
 		 FROM incoming_invoices ii
 		 LEFT JOIN customers c ON ii.supplier_id = c.id
 		 WHERE ii.company_id = $1
-		 ORDER BY ii.invoice_date DESC`,
-    [companyId],
+		 ORDER BY ii.invoice_date DESC LIMIT $2 OFFSET $3`,
+    [companyId, limit, offset],
   );
+  const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
+  const rows = raw.map(
+    ({ _total_count: _, ...rest }) => rest as IncomingInvoiceWithSupplier,
+  );
+  return { rows, totalCount };
 }
 
 export async function getIncomingInvoiceById(
@@ -122,9 +138,7 @@ export async function deleteIncomingInvoice(id: number): Promise<void> {
   await db.execute("DELETE FROM incoming_invoices WHERE id = $1", [id]);
 }
 
-export async function getIncomingInvoiceFile(
-  id: number,
-): Promise<
+export async function getIncomingInvoiceFile(id: number): Promise<
   | {
       file_data: number[] | null;
       file_name: string | null;
