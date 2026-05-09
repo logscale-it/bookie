@@ -4,9 +4,10 @@
  */
 
 import { PDFDocument, StandardFonts, rgb, PDFPage, PDFFont } from 'pdf-lib';
-import { fmtCurrency, fmtDate, fmtNumber, type InvoicePdfData } from './invoice-pdf';
+import { fmtDate, fmtNumber, type InvoicePdfData } from './invoice-pdf';
 import { translationsFor } from '$lib/i18n';
 import { getLegalProfile } from '$lib/legal';
+import { formatCents } from '$lib/shared/money';
 
 // -- A4 dimensions & margins (mm) --
 const PW = 210;
@@ -213,9 +214,9 @@ export async function createInvoicePdf(data: InvoicePdfData): Promise<Uint8Array
 		}
 		drawTextRight(page, fmtNumber(item.quantity, numberLocale), colX.qty + colW.qty - 1, y, font, tdSize, C.dark);
 		drawText(page, item.unit, colX.unit + 2, y, font, tdSize, C.dark);
-		drawTextRight(page, fmtCurrency(item.unitPriceNet, data.currency, numberLocale), colX.price + colW.price - 1, y, font, tdSize, C.dark);
+		drawTextRight(page, formatCents(item.unitPriceNetCents, numberLocale, data.currency), colX.price + colW.price - 1, y, font, tdSize, C.dark);
 		drawTextRight(page, `${item.taxRate.toFixed(0)} %`, colX.tax + colW.tax - 1, y, font, tdSize, C.dark);
-		drawTextRight(page, fmtCurrency(item.lineTotalNet, data.currency, numberLocale), colX.total + colW.total - 1, y, fontBold, tdSize, C.dark);
+		drawTextRight(page, formatCents(item.lineTotalNetCents, numberLocale, data.currency), colX.total + colW.total - 1, y, fontBold, tdSize, C.dark);
 
 		y += rowH;
 		const borderW = i === data.items.length - 1 ? 1 : 0.35;
@@ -254,10 +255,10 @@ export async function createInvoicePdf(data: InvoicePdfData): Promise<Uint8Array
 	const sumSize = 6.75;
 	for (const g of data.taxGroups) {
 		drawText(page, `${tr.netAmount} ${g.rate.toFixed(0)} %`, rightX, sumY, font, sumSize, C.summary);
-		drawTextRight(page, fmtCurrency(g.netAmount, data.currency, numberLocale), rightX + rightW, sumY, font, sumSize, C.summary);
+		drawTextRight(page, formatCents(g.netAmountCents, numberLocale, data.currency), rightX + rightW, sumY, font, sumSize, C.summary);
 		sumY += 3;
 		drawText(page, `${tr.vat} ${g.rate.toFixed(0)} %`, rightX, sumY, font, sumSize, C.summary);
-		drawTextRight(page, fmtCurrency(g.amount, data.currency, numberLocale), rightX + rightW, sumY, font, sumSize, C.summary);
+		drawTextRight(page, formatCents(g.amountCents, numberLocale, data.currency), rightX + rightW, sumY, font, sumSize, C.summary);
 		sumY += 3;
 	}
 
@@ -265,7 +266,7 @@ export async function createInvoicePdf(data: InvoicePdfData): Promise<Uint8Array
 	drawLine(page, rightX, sumY, rightX + rightW, C.text, 1);
 	sumY += 3;
 	drawText(page, tr.grossTotal, rightX, sumY, fontBold, 9, C.text);
-	drawTextRight(page, fmtCurrency(data.total, data.currency, numberLocale), rightX + rightW, sumY, fontBold, 9, C.text);
+	drawTextRight(page, formatCents(data.totalCents, numberLocale, data.currency), rightX + rightW, sumY, fontBold, 9, C.text);
 	sumY += 5;
 
 	y = Math.max(notesY, sumY) + 2;
