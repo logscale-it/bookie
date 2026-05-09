@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, time::Duration};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use aws_credential_types::Credentials;
 use aws_sdk_s3::{
@@ -8,7 +12,7 @@ use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
-use tauri_plugin_sql::{Migration, MigrationKind};
+use tauri_plugin_sql::{DbInstances, Migration, MigrationKind};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{Builder as RollingBuilder, Rotation};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -776,6 +780,136 @@ fn sha256_hex(data: &[u8]) -> String {
     out
 }
 
+// --- REL-1.c: atomic-restore helpers ----------------------------------------
+
+/// Suffix for the temporary restore file. The verified bytes are written here
+/// and then atomically renamed onto the live DB path. The suffix is appended
+/// to the full file name (NOT replacing the existing extension) so that for
+/// `bookie.db` we get `bookie.db.restore.tmp` in the same parent directory —
+/// this is critical because `rename(2)` is only atomic when source and target
+/// are on the same filesystem.
+const RESTORE_TMP_SUFFIX: &str = ".restore.tmp";
+
+/// Compute the temporary file path used during restore for a given live DB
+/// path. The tmp file lives in the same parent directory as the live DB so
+/// that the subsequent rename is atomic.
+fn restore_tmp_path(db_path: &Path) -> PathBuf {
+    let mut name = db_path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(RESTORE_TMP_SUFFIX);
+    match db_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(name),
+        _ => PathBuf::from(name),
+    }
+}
+
+/// Compute the WAL and SHM sibling paths for a given live SQLite DB path.
+/// SQLite uses `<db>-wal` and `<db>-shm` (suffix on the full file name, not
+/// an extension swap), so for `bookie.db` we expect `bookie.db-wal` and
+/// `bookie.db-shm`.
+fn wal_shm_sibling_paths(db_path: &Path) -> (PathBuf, PathBuf) {
+    let mut wal_name = db_path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    wal_name.push("-wal");
+    let mut shm_name = db_path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    shm_name.push("-shm");
+    let wal = match db_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(&wal_name),
+        _ => PathBuf::from(&wal_name),
+    };
+    let shm = match db_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(&shm_name),
+        _ => PathBuf::from(&shm_name),
+    };
+    (wal, shm)
+}
+
+/// Fail-safe removal: returns Ok(()) if the path does not exist.
+fn remove_if_exists(path: &Path) -> std::io::Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// fsync the parent directory of `child` so that the rename of `child` is
+/// durable across power loss.
+///
+/// On Unix this opens the parent directory and calls `sync_all`. On Windows,
+/// directory fsync is not a thing — the durability guarantee for renames is
+/// expressed through `MoveFileExW` flags. `std::fs::rename` on Windows uses
+/// `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` but does NOT pass
+/// `MOVEFILE_WRITE_THROUGH`, so on a sudden power loss the rename can be lost
+/// even after this function returns Ok. This is a known gap — see PR body
+/// for follow-up notes. We deliberately avoid pulling a heavy crate (winapi,
+/// windows-sys) just for this one call site; the SHA verification + tmp-file
+/// approach already protects against the vast majority of corruption cases.
+fn fsync_parent_dir(child: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        if let Some(parent) = child.parent() {
+            if !parent.as_os_str().is_empty() {
+                let dir = fs::File::open(parent)?;
+                dir.sync_all()?;
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child;
+        Ok(())
+    }
+}
+
+/// Atomically swap `tmp` into place over `live`. On Unix `rename(2)` is atomic
+/// provided source and target share a filesystem (which `restore_tmp_path`
+/// enforces by placing the tmp in the same parent). On Windows
+/// `std::fs::rename` translates to `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`
+/// which is also effectively atomic.
+fn atomic_swap_into_place(tmp: &Path, live: &Path) -> std::io::Result<()> {
+    fs::rename(tmp, live)
+}
+
+/// Drop the tauri-plugin-sql managed `DbPool` for `db_url`, if any.
+///
+/// Returns `true` if a pool was removed, `false` if no pool was registered for
+/// `db_url`. The plugin currently exposes no public `close()` on `DbPool`
+/// (it is `pub(crate)`); the best we can do from outside the plugin is to
+/// remove the entry from `DbInstances`, which drops the underlying
+/// `sqlx::Pool`. Dropping a `sqlx::Pool` triggers an asynchronous close of
+/// any pooled connections — it is best-effort and not synchronous.
+///
+/// Callers must instruct the frontend to re-load the database (e.g. via the
+/// JS plugin's `Database.load(db_url)`) once the live file has been swapped
+/// into place. `restore_db_backup` documents this contract on the frontend
+/// side; see the PR for REL-1.c (#44) for follow-up work to expose a true
+/// quiesce hook upstream.
+async fn quiesce_db_pool(app: &AppHandle, db_url: &str) -> bool {
+    match app.try_state::<DbInstances>() {
+        Some(instances) => {
+            let mut lock = instances.0.write().await;
+            // Removing drops the `DbPool` (and the inner `sqlx::Pool`)
+            // when the guard releases. `sqlx::Pool::Drop` triggers an
+            // async close of pooled connections — best-effort.
+            lock.remove(db_url).is_some()
+        }
+        None => {
+            // The plugin has not registered its state yet (e.g. setup is
+            // still running). Nothing to quiesce — proceeding is safe.
+            false
+        }
+    }
+}
+
 /// Uploads a `<key>.sha256` sidecar containing the lowercase hex digest of the
 /// just-uploaded backup. Failures here are logged but do NOT propagate: a flaky
 /// sidecar must never roll back a successful main upload. The matching
@@ -885,25 +1019,40 @@ async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, Stri
 }
 
 /// Restore the live SQLite database from an S3 backup with SHA-256 sidecar
-/// verification.
+/// verification and an atomic, durable swap into place.
 ///
-/// Flow (REL-1.b):
-///   1. Download the backup at `key` from S3 into `<dbpath>.restore.tmp`
-///      (NOT in place — never touch the live file until verification passes).
+/// Flow:
+///   1. Download the backup at `key` from S3 into `<dbpath>.restore.tmp` in
+///      the same parent directory as the live DB (NOT in place — never touch
+///      the live file until verification passes; same parent so that the
+///      subsequent rename is atomic on Unix).
 ///   2. Fetch the sidecar at `<key>.sha256`. If missing and
 ///      `allow_missing_sidecar == false`, return `BackupSidecarMissing` so the
-///      frontend can prompt the user to confirm an unsafe restore.
+///      frontend can prompt the user to confirm an unsafe restore (REL-1.b).
 ///   3. If a sidecar is present, compute SHA-256 of the .tmp file and compare
 ///      against the sidecar contents. Abort with `BackupSidecarMismatch` on
-///      any disagreement; the .tmp file is removed before returning.
+///      any disagreement; the .tmp file is removed before returning (REL-1.b).
 ///   4. Validate the SQLite magic header on the .tmp file.
-///   5. Swap the .tmp file into place over the live DB.
+///   5. **Quiesce** the tauri-plugin-sql pool by removing the managed
+///      `DbInstances` entry for `DB_URL`, dropping the `sqlx::Pool` so that
+///      no in-flight writers can race the swap (REL-1.c).
+///   6. Save a `<dbpath>.pre-restore-backup` snapshot of the live DB in case
+///      the user wants to undo the restore.
+///   7. Remove the OLD WAL/SHM siblings (`<dbpath>-wal`, `<dbpath>-shm`):
+///      they belong to the old DB and must not be reapplied to the new one.
+///   8. **Atomic rename** the .tmp file into place via `std::fs::rename`
+///      (atomic on Unix because tmp and live share a parent; on Windows this
+///      maps to `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`) — REL-1.c.
+///   9. **fsync** the parent directory on Unix so the rename survives a
+///      power loss before the next checkpoint (REL-1.c). See
+///      `fsync_parent_dir` for the Windows caveat.
 ///
-/// Step 5 is intentionally still an in-place overwrite (matching the existing
-/// `restore_database` semantics) and currently does NOT verify that the
-/// sql plugin's connections are closed nor fsync before reopen. Both of those
-/// — plus a true atomic rename — are REL-1.c's scope (issue #44). This ticket
-/// (REL-1.b) is only the download-to-tmp + SHA verification step.
+/// After this command returns Ok the frontend MUST call `Database.load(...)`
+/// (or restart the app) to re-open the live DB through the SQL plugin: we
+/// dropped its pool in step 5 and the plugin currently does not expose a
+/// public re-acquire hook from Rust. See the PR for REL-1.c (#44) for the
+/// upstream follow-up to add a true `pool.close()` / re-acquire hook to
+/// `tauri-plugin-sql`.
 #[tauri::command]
 async fn restore_db_backup(
     app: AppHandle,
@@ -914,12 +1063,12 @@ async fn restore_db_backup(
     info!("Restore from S3: key={key}, allow_missing_sidecar={allow_missing_sidecar}");
 
     let db_file = db_path(&app).map_err(|message| BookieError::IoError { message })?;
-    let tmp_file = db_file.with_extension("db.restore.tmp");
+    // Tmp file lives in the same parent as the live DB so that the rename in
+    // step 8 is atomic — see `restore_tmp_path`.
+    let tmp_file = restore_tmp_path(&db_file);
 
     // Best-effort cleanup of any leftover .tmp from a previous failed run.
-    if tmp_file.exists() {
-        let _ = fs::remove_file(&tmp_file);
-    }
+    let _ = remove_if_exists(&tmp_file);
 
     let client = config.build_client();
 
@@ -1054,34 +1203,69 @@ async fn restore_db_backup(
         return Err(BookieError::BackupCorrupt);
     }
 
-    // 5. Swap the .tmp file into place. NOTE: REL-1.c (issue #44) will replace
-    // this with a true atomic rename plus connection-quiesce + fsync. For now
-    // we keep the existing in-place overwrite semantics so this PR's diff stays
-    // focused on the SHA-verification half of REL-1.
+    // 5. Quiesce the SQL plugin's pool so no writer can be mid-commit while
+    // we rename the live file out from under it. See `quiesce_db_pool` for
+    // the upstream-API caveat: removing the entry drops `sqlx::Pool`, which
+    // closes connections asynchronously — there is no synchronous public
+    // close on the plugin's `DbPool`. The frontend must re-load the DB
+    // after this command returns.
+    let quiesced = quiesce_db_pool(&app, DB_URL).await;
+    if quiesced {
+        info!("Quiesced tauri-plugin-sql pool for {DB_URL} before restore swap");
+    } else {
+        info!(
+            "No active tauri-plugin-sql pool for {DB_URL} at restore time — proceeding without quiesce"
+        );
+    }
+
+    // 6. Save a snapshot of the live DB so the user can recover if step 8/9
+    // fails partway. This is best-effort; failure to copy is logged but does
+    // not abort the restore.
     let backup_file = db_file.with_extension("db.pre-restore-backup");
     if db_file.exists() {
-        let _ = fs::copy(&db_file, &backup_file);
+        if let Err(e) = fs::copy(&db_file, &backup_file) {
+            warn!("Pre-restore snapshot failed (continuing): {e}");
+        }
     }
 
-    let wal_file = db_file.with_extension("db-wal");
-    let shm_file = db_file.with_extension("db-shm");
-    if wal_file.exists() {
-        let _ = fs::remove_file(&wal_file);
+    // 7. Remove OLD WAL/SHM siblings. They belong to the live DB we are
+    // about to replace and must not be reapplied to the restored bytes.
+    let (wal_file, shm_file) = wal_shm_sibling_paths(&db_file);
+    if let Err(e) = remove_if_exists(&wal_file) {
+        warn!("Failed to remove old WAL ({}): {e}", wal_file.display());
     }
-    if shm_file.exists() {
-        let _ = fs::remove_file(&shm_file);
+    if let Err(e) = remove_if_exists(&shm_file) {
+        warn!("Failed to remove old SHM ({}): {e}", shm_file.display());
     }
 
-    fs::write(&db_file, backup_bytes.as_ref()).map_err(|err| {
+    // 8. Atomic rename: the verified bytes in `tmp_file` replace the live DB
+    // file in a single inode flip. On Unix this is the canonical durable-swap
+    // primitive; the previous in-place `fs::write` could leave a half-written
+    // DB on a crash mid-write. Note that the tmp path is in the same parent
+    // directory (see `restore_tmp_path`) — required for atomicity.
+    atomic_swap_into_place(&tmp_file, &db_file).map_err(|err| {
         cleanup_tmp(&tmp_file);
-        error!("Failed to overwrite live DB during restore: {err}");
+        error!(
+            "Atomic rename {tmp:?} -> {live:?} failed: {err}",
+            tmp = tmp_file,
+            live = db_file
+        );
         BookieError::IoError {
-            message: format!("Failed to overwrite live DB: {err}"),
+            message: format!("Atomic rename failed: {err}"),
         }
     })?;
 
-    // Restore-tmp is no longer needed once the live DB is written.
-    cleanup_tmp(&tmp_file);
+    // 9. fsync the parent directory so the rename is durable across power
+    // loss. On Windows this is a no-op (see `fsync_parent_dir`); a future
+    // hardening pass can add `MOVEFILE_WRITE_THROUGH` via `windows-sys`.
+    if let Err(e) = fsync_parent_dir(&db_file) {
+        // The rename has already been observed by the kernel page cache, so
+        // userspace sees the new DB. We log loudly but do not error — losing
+        // the rename to a power loss in the next few seconds is the worst
+        // case, which is the same risk the OS-level filesystem flush schedule
+        // imposes on every other write in the app.
+        warn!("fsync of parent dir failed after restore swap (rename succeeded): {e}");
+    }
 
     info!("Database restored successfully from S3: key={key}");
     Ok(())
@@ -1312,6 +1496,178 @@ mod pure_helper_tests {
     fn validate_restore_bytes_rejects_too_short() {
         // Less than 16 bytes can never be a valid SQLite header.
         assert!(validate_restore_bytes(b"SQLite").is_err());
+    }
+}
+
+#[cfg(test)]
+mod atomic_restore_helper_tests {
+    //! Unit tests for REL-1.c (#44) atomic-restore helpers. These cover the
+    //! pure-path / pure-IO pieces that don't require a live Tauri runtime.
+    //! The full SIGKILL-between-rename-and-fsync integration test lives in
+    //! REL-1.d (#45).
+    use super::{
+        atomic_swap_into_place, fsync_parent_dir, remove_if_exists, restore_tmp_path,
+        wal_shm_sibling_paths,
+    };
+    use std::{fs, path::PathBuf};
+
+    fn unique_tmpdir(label: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("bookie-rel1c-{label}-{nanos}"));
+        fs::create_dir_all(&dir).expect("create tmpdir");
+        dir
+    }
+
+    #[test]
+    fn restore_tmp_appends_suffix_in_same_parent() {
+        let p = PathBuf::from("/foo/bar/bookie.db");
+        let tmp = restore_tmp_path(&p);
+        assert_eq!(tmp, PathBuf::from("/foo/bar/bookie.db.restore.tmp"));
+        assert_eq!(tmp.parent(), p.parent());
+    }
+
+    #[test]
+    fn restore_tmp_does_not_replace_extension() {
+        // Critically, we must NOT use `.with_extension(...)` because that
+        // would replace `.db` with `.restore.tmp` and yield `bookie.restore.tmp`
+        // — losing the `.db` and confusing operators.
+        let p = PathBuf::from("/var/lib/app/bookie.db");
+        let tmp = restore_tmp_path(&p);
+        assert!(
+            tmp.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with(".db.restore.tmp"),
+            "expected `.db.restore.tmp` suffix on tmp file, got {tmp:?}"
+        );
+    }
+
+    #[test]
+    fn restore_tmp_handles_filename_only() {
+        let p = PathBuf::from("bookie.db");
+        let tmp = restore_tmp_path(&p);
+        assert_eq!(tmp, PathBuf::from("bookie.db.restore.tmp"));
+    }
+
+    #[test]
+    fn wal_shm_siblings_match_sqlite_naming() {
+        let p = PathBuf::from("/foo/bar/bookie.db");
+        let (wal, shm) = wal_shm_sibling_paths(&p);
+        assert_eq!(wal, PathBuf::from("/foo/bar/bookie.db-wal"));
+        assert_eq!(shm, PathBuf::from("/foo/bar/bookie.db-shm"));
+    }
+
+    #[test]
+    fn wal_shm_siblings_handles_filename_only() {
+        let p = PathBuf::from("bookie.db");
+        let (wal, shm) = wal_shm_sibling_paths(&p);
+        assert_eq!(wal, PathBuf::from("bookie.db-wal"));
+        assert_eq!(shm, PathBuf::from("bookie.db-shm"));
+    }
+
+    #[test]
+    fn remove_if_exists_is_idempotent_when_missing() {
+        let dir = unique_tmpdir("rm-missing");
+        let p = dir.join("not-here");
+        // Calling on a missing path is fine.
+        remove_if_exists(&p).expect("remove_if_exists must succeed when path is missing");
+        // Twice is still fine.
+        remove_if_exists(&p).expect("remove_if_exists must be idempotent");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_if_exists_removes_present_file() {
+        let dir = unique_tmpdir("rm-present");
+        let p = dir.join("present");
+        fs::write(&p, b"hello").unwrap();
+        assert!(p.exists());
+        remove_if_exists(&p).expect("remove existing file");
+        assert!(!p.exists(), "file must be gone after remove_if_exists");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wal_shm_cleanup_via_remove_if_exists_against_tmpdir() {
+        // End-to-end sibling-cleanup behaviour against a real directory:
+        // create a fake live DB plus -wal / -shm, run the cleanup primitive,
+        // and assert only the live DB remains.
+        let dir = unique_tmpdir("wal-shm-cleanup");
+        let live = dir.join("bookie.db");
+        let (wal, shm) = wal_shm_sibling_paths(&live);
+        fs::write(&live, b"live").unwrap();
+        fs::write(&wal, b"wal").unwrap();
+        fs::write(&shm, b"shm").unwrap();
+        assert!(wal.exists() && shm.exists());
+
+        remove_if_exists(&wal).unwrap();
+        remove_if_exists(&shm).unwrap();
+        // Re-run for idempotency.
+        remove_if_exists(&wal).unwrap();
+        remove_if_exists(&shm).unwrap();
+
+        assert!(!wal.exists(), "WAL must be removed");
+        assert!(!shm.exists(), "SHM must be removed");
+        assert!(live.exists(), "live DB must NOT be touched");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_swap_replaces_live_with_tmp_contents() {
+        // The end-to-end shape of step 8: tmp + live both exist, after
+        // swap the live path holds tmp's bytes and the tmp path is gone.
+        let dir = unique_tmpdir("swap");
+        let live = dir.join("bookie.db");
+        let tmp = restore_tmp_path(&live);
+        fs::write(&live, b"OLD-BYTES").unwrap();
+        fs::write(&tmp, b"NEW-BYTES").unwrap();
+
+        atomic_swap_into_place(&tmp, &live).expect("rename must succeed");
+
+        assert!(!tmp.exists(), "tmp must be consumed by the rename");
+        let after = fs::read(&live).unwrap();
+        assert_eq!(after, b"NEW-BYTES");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_swap_creates_live_when_missing() {
+        // First-time restore on a fresh install: no live DB yet. Rename must
+        // still succeed and create the live file.
+        let dir = unique_tmpdir("swap-fresh");
+        let live = dir.join("bookie.db");
+        let tmp = restore_tmp_path(&live);
+        fs::write(&tmp, b"NEW-BYTES").unwrap();
+        assert!(!live.exists());
+
+        atomic_swap_into_place(&tmp, &live).expect("rename must succeed when live is missing");
+
+        assert!(!tmp.exists());
+        assert_eq!(fs::read(&live).unwrap(), b"NEW-BYTES");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fsync_parent_dir_is_ok_for_normal_path() {
+        // We can't observe fsync's effect from userspace, but we can at
+        // least assert it does not error against a real, existing directory.
+        // On Windows this is a documented no-op.
+        let dir = unique_tmpdir("fsync");
+        let child = dir.join("bookie.db");
+        fs::write(&child, b"x").unwrap();
+        fsync_parent_dir(&child).expect("fsync_parent_dir must succeed for an existing parent");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fsync_parent_dir_tolerates_filename_only() {
+        // No parent component at all: must not error (we treat empty parent
+        // as "nothing to sync").
+        let p = PathBuf::from("bookie.db");
+        fsync_parent_dir(&p).expect("fsync_parent_dir must tolerate a parentless path");
     }
 }
 
