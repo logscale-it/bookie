@@ -190,13 +190,15 @@
 			}
 		}
 
+		// DAT-1.d: convert float inputs to integer cents at the DB boundary.
+		// `gross_cents` is derived inside `createIncomingInvoice`.
 		await createIncomingInvoice({
 			company_id: companyId,
 			supplier_id: form.supplierId ? parseInt(form.supplierId) : null,
 			invoice_number: form.invoiceNumber.trim() || null,
 			invoice_date: form.invoiceDate,
-			net_amount: net,
-			tax_amount: tax,
+			net_cents: Math.round(net * 100),
+			tax_cents: Math.round(tax * 100),
 			status: 'offen',
 			file_data: fileData,
 			file_name: fileName,
@@ -217,8 +219,8 @@
 			supplierId: inv.supplier_id ? String(inv.supplier_id) : '',
 			invoiceNumber: inv.invoice_number ?? '',
 			invoiceDate: inv.invoice_date,
-			netAmount: String(inv.net_amount),
-			taxAmount: String(inv.tax_amount),
+			netAmount: String(inv.net_cents / 100),
+			taxAmount: String(inv.tax_cents / 100),
 			notes: inv.notes ?? ''
 		};
 	}
@@ -239,12 +241,14 @@
 		if (isNaN(net)) return;
 		saving = true;
 
+		// DAT-1.d: writes go through `*_cents`; the UPDATE handler keeps
+		// `gross_cents = net_cents + tax_cents` consistent automatically.
 		await updateIncomingInvoice(editingId, {
 			supplier_id: editForm.supplierId ? parseInt(editForm.supplierId) : null,
 			invoice_number: editForm.invoiceNumber.trim() || null,
 			invoice_date: editForm.invoiceDate,
-			net_amount: net,
-			tax_amount: parseFloat(editForm.taxAmount) || 0,
+			net_cents: Math.round(net * 100),
+			tax_cents: Math.round((parseFloat(editForm.taxAmount) || 0) * 100),
 			notes: editForm.notes.trim() || null
 		});
 
@@ -425,9 +429,9 @@
 								<div class="truncate px-3 py-2">{inv.invoice_number || '—'}</div>
 								<div class="truncate px-3 py-2">{inv.supplier_name || '—'}</div>
 								<div class="truncate px-3 py-2">{formatDate(inv.invoice_date)}</div>
-								<div class="truncate px-3 py-2 text-right">{formatCurrency(inv.net_amount)}</div>
-								<div class="truncate px-3 py-2 text-right">{formatCurrency(inv.tax_amount)}</div>
-								<div class="truncate px-3 py-2 text-right font-medium">{formatCurrency(inv.gross_amount)}</div>
+								<div class="truncate px-3 py-2 text-right">{formatCurrency(inv.net_cents / 100)}</div>
+								<div class="truncate px-3 py-2 text-right">{formatCurrency(inv.tax_cents / 100)}</div>
+								<div class="truncate px-3 py-2 text-right font-medium">{formatCurrency(inv.gross_cents / 100)}</div>
 								<div class="px-3 py-2">
 									<select
 										value={inv.status}

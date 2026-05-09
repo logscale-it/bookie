@@ -40,6 +40,11 @@ interface PeriodTotalRow {
   total_tax: number;
 }
 
+// DAT-1.d (#54): aggregations now read the integer-cent columns and divide
+// by 100.0 at the SQL boundary so the consumer-facing API still returns
+// values in major units (euros). The legacy REAL columns are no longer
+// populated by writes and would return 0 if queried.
+
 export async function getUstvaData(
   companyId: number,
   year: number,
@@ -52,8 +57,8 @@ export async function getUstvaData(
   const revenueRows = await db.select<RevenueByRateRow[]>(
     `SELECT ${expr} as period,
             ii.tax_rate,
-            COALESCE(SUM(ii.line_total_net), 0) as total_net,
-            COALESCE(SUM(ii.line_total_net * ii.tax_rate / 100.0), 0) as total_vat
+            COALESCE(SUM(ii.line_total_net_cents), 0) / 100.0 as total_net,
+            COALESCE(SUM(ii.line_total_net_cents * ii.tax_rate / 100.0), 0) / 100.0 as total_vat
      FROM invoices i
      JOIN invoice_items ii ON ii.invoice_id = i.id
      WHERE i.company_id = $1
@@ -68,8 +73,8 @@ export async function getUstvaData(
   const inputExpr = periodExpr(groupBy, "invoice_date");
   const inputRows = await db.select<PeriodTotalRow[]>(
     `SELECT ${inputExpr} as period,
-            COALESCE(SUM(net_amount), 0) as total_net,
-            COALESCE(SUM(tax_amount), 0) as total_tax
+            COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
+            COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM incoming_invoices
      WHERE company_id = $1 AND strftime('%Y', invoice_date) = $2
      GROUP BY period ORDER BY period`,
@@ -154,8 +159,8 @@ export async function getEuerData(
 
   const incomeRows = await db.select<PeriodTotalRow[]>(
     `SELECT ${incomeExpr} as period,
-            COALESCE(SUM(net_amount), 0) as total_net,
-            COALESCE(SUM(tax_amount), 0) as total_tax
+            COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
+            COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM invoices
      WHERE company_id = $1
        AND strftime('%Y', issue_date) = $2
@@ -166,8 +171,8 @@ export async function getEuerData(
 
   const expenseRows = await db.select<PeriodTotalRow[]>(
     `SELECT ${expenseExpr} as period,
-            COALESCE(SUM(net_amount), 0) as total_net,
-            COALESCE(SUM(tax_amount), 0) as total_tax
+            COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
+            COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM incoming_invoices
      WHERE company_id = $1 AND strftime('%Y', invoice_date) = $2
      GROUP BY period ORDER BY period`,

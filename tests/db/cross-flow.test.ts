@@ -38,7 +38,7 @@ test("end-to-end: company → customer → project → invoice w/ items → paid
     invoice_number: "RE-2026-001", status: "draft",
     issue_date: "2026-05-01", due_date: "2026-05-31",
     service_period_start: "2026-04-01", service_period_end: "2026-04-30",
-    currency: "EUR", net_amount: 0, tax_amount: 0, gross_amount: 0,
+    currency: "EUR", net_cents: 0, tax_cents: 0, gross_cents: 0,
     issuer_name: null, issuer_tax_number: null, issuer_vat_id: null,
     issuer_bank_account_holder: null, issuer_bank_iban: null,
     issuer_bank_bic: null, issuer_bank_name: null,
@@ -52,23 +52,23 @@ test("end-to-end: company → customer → project → invoice w/ items → paid
   await invoiceItems.createInvoiceItem({
     invoice_id: invoiceId, project_id: projectId, time_entry_id: null,
     position: 1, description: "Development", quantity: 10, unit: "Std",
-    unit_price_net: 100, tax_rate: 19, line_total_net: 1000,
+    unit_price_net_cents: 10000, tax_rate: 19, line_total_net_cents: 100000,
   });
   await invoiceItems.createInvoiceItem({
     invoice_id: invoiceId, project_id: projectId, time_entry_id: null,
     position: 2, description: "Code review", quantity: 2, unit: "Std",
-    unit_price_net: 100, tax_rate: 19, line_total_net: 200,
+    unit_price_net_cents: 10000, tax_rate: 19, line_total_net_cents: 20000,
   });
 
   // Compute totals from items and persist on invoice
   const items = (await invoiceItems.listByInvoice(invoiceId)).rows;
-  const net = items.reduce((s, it) => s + it.line_total_net, 0);
-  const tax = items.reduce(
-    (s, it) => s + (it.line_total_net * it.tax_rate) / 100,
+  const netCents = items.reduce((s, it) => s + it.line_total_net_cents, 0);
+  const taxCents = items.reduce(
+    (s, it) => s + Math.round((it.line_total_net_cents * it.tax_rate) / 100),
     0,
   );
   await invoices.updateInvoice(invoiceId, {
-    net_amount: net, tax_amount: tax, gross_amount: net + tax,
+    net_cents: netCents, tax_cents: taxCents, gross_cents: netCents + taxCents,
   });
 
   // 5. Status: draft → sent
@@ -77,7 +77,7 @@ test("end-to-end: company → customer → project → invoice w/ items → paid
   // 6. Payment for the full amount → paid
   await payments.createPayment({
     invoice_id: invoiceId, payment_date: "2026-05-15",
-    amount: net + tax, method: "bank_transfer",
+    amount_cents: netCents + taxCents, method: "bank_transfer",
     reference: "REF-001", note: null,
   });
   await invoices.updateInvoiceStatus(invoiceId, "sent", "paid");
@@ -85,9 +85,9 @@ test("end-to-end: company → customer → project → invoice w/ items → paid
   // Verify final invoice state
   const inv = await invoices.getInvoiceById(invoiceId);
   expect(inv?.status).toBe("paid");
-  expect(inv?.net_amount).toBe(1200);
-  expect(inv?.tax_amount).toBe(228);
-  expect(inv?.gross_amount).toBe(1428);
+  expect(inv?.net_cents).toBe(120000);
+  expect(inv?.tax_cents).toBe(22800);
+  expect(inv?.gross_cents).toBe(142800);
 
   // 7. Dashboard sees this invoice
   const data = await dashboard.getDashboardData(companyId, 2026, "month");
@@ -98,7 +98,7 @@ test("end-to-end: company → customer → project → invoice w/ items → paid
   // 8. Invariants: payment exists, history has both transitions
   const pays = (await payments.listByInvoice(invoiceId)).rows;
   expect(pays).toHaveLength(1);
-  expect(pays[0].amount).toBe(1428);
+  expect(pays[0].amount_cents).toBe(142800);
 
   // 9. Cannot delete the customer (RESTRICT) or invoice (has payment)
   await expect(customers.deleteCustomer(customerId)).rejects.toThrow();

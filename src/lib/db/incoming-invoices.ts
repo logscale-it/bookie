@@ -1,17 +1,19 @@
 import { getDb, safeFields } from "./connection";
 import type { IncomingInvoice } from "./types";
 
-// `*_cents` fields are readable on `IncomingInvoice` (DAT-1.b) but the write
-// path is not yet repointed — that is DAT-1.d (#54). Exclude them from the
-// Create/Update payload shape until then.
+// DAT-1.d (#54): writes are repointed to `*_cents`. The legacy REAL columns
+// `net_amount` / `tax_amount` / `gross_amount` are no longer written here;
+// they have `NOT NULL CHECK (>= 0)` (see migration 0007) and no usable
+// DEFAULT, so the INSERT writes `0` explicitly. They are dropped in
+// DAT-1.e (#55).
 type CreateIncomingInvoice = Omit<
   IncomingInvoice,
   | "id"
-  | "gross_amount"
   | "created_at"
   | "updated_at"
-  | "net_cents"
-  | "tax_cents"
+  | "net_amount"
+  | "tax_amount"
+  | "gross_amount"
   | "gross_cents"
 >;
 type UpdateIncomingInvoice = Partial<Omit<CreateIncomingInvoice, "company_id">>;
@@ -20,8 +22,9 @@ const ALLOWED_COLUMNS = [
   "supplier_id",
   "invoice_number",
   "invoice_date",
-  "net_amount",
-  "tax_amount",
+  "net_cents",
+  "tax_cents",
+  "gross_cents",
   "status",
   "file_data",
   "file_name",
@@ -83,19 +86,24 @@ export async function createIncomingInvoice(
   data: CreateIncomingInvoice,
 ): Promise<number> {
   const db = await getDb();
-  const grossAmount = data.net_amount + data.tax_amount;
+  // Money columns: only `*_cents` are written. The legacy REAL columns are
+  // `NOT NULL CHECK (>= 0)` with no DEFAULT (migration 0007), so we satisfy
+  // them with literal `0` until DAT-1.e (#55) drops them. `gross_cents` is
+  // derived once at write time so the reader sees a consistent total.
+  const grossCents = data.net_cents + data.tax_cents;
   const result = await db.execute(
     `INSERT INTO incoming_invoices (company_id, supplier_id, invoice_number, invoice_date,
-		  net_amount, tax_amount, gross_amount, status, file_data, file_name, file_type, s3_key, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		  net_amount, tax_amount, gross_amount, net_cents, tax_cents, gross_cents,
+		  status, file_data, file_name, file_type, s3_key, notes)
+		 VALUES ($1, $2, $3, $4, 0, 0, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
       data.company_id,
       data.supplier_id,
       data.invoice_number,
       data.invoice_date,
-      data.net_amount,
-      data.tax_amount,
-      grossAmount,
+      data.net_cents,
+      data.tax_cents,
+      grossCents,
       data.status,
       data.file_data,
       data.file_name,
@@ -116,29 +124,29 @@ export async function updateIncomingInvoice(
 
   const db = await getDb();
 
-  const hasAmountChange = "net_amount" in data || "tax_amount" in data;
+  // Keep `gross_cents` consistent when either of its inputs is updated.
+  // SQLite evaluates UPDATE SET expressions against the OLD row, so we
+  // can't compute gross_cents from net_cents + tax_cents in one statement;
+  // we read the current values, merge the partial patch, and persist a
+  // resolved gross_cents alongside.
+  const hasAmountChange = "net_cents" in data || "tax_cents" in data;
   if (hasAmountChange) {
-    // SQLite evaluates UPDATE SET expressions against the OLD row, so we
-    // can't compute gross_amount from net_amount + tax_amount in one
-    // statement. Read current values, merge, and persist the result.
-    const current = await db.select<
-      { net_amount: number; tax_amount: number }[]
-    >(
-      "SELECT net_amount, tax_amount FROM incoming_invoices WHERE id = $1",
+    const current = await db.select<{ net_cents: number; tax_cents: number }[]>(
+      "SELECT net_cents, tax_cents FROM incoming_invoices WHERE id = $1",
       [id],
     );
     if (current.length > 0) {
       const merged = {
-        net_amount: (data.net_amount ?? current[0].net_amount) as number,
-        tax_amount: (data.tax_amount ?? current[0].tax_amount) as number,
+        net_cents: (data.net_cents ?? current[0].net_cents) as number,
+        tax_cents: (data.tax_cents ?? current[0].tax_cents) as number,
       };
-      const idx = fields.findIndex(([k]) => k === "net_amount");
-      if (idx >= 0) fields[idx] = ["net_amount", merged.net_amount];
-      else fields.push(["net_amount", merged.net_amount]);
-      const tIdx = fields.findIndex(([k]) => k === "tax_amount");
-      if (tIdx >= 0) fields[tIdx] = ["tax_amount", merged.tax_amount];
-      else fields.push(["tax_amount", merged.tax_amount]);
-      fields.push(["gross_amount", merged.net_amount + merged.tax_amount]);
+      const idx = fields.findIndex(([k]) => k === "net_cents");
+      if (idx >= 0) fields[idx] = ["net_cents", merged.net_cents];
+      else fields.push(["net_cents", merged.net_cents]);
+      const tIdx = fields.findIndex(([k]) => k === "tax_cents");
+      if (tIdx >= 0) fields[tIdx] = ["tax_cents", merged.tax_cents];
+      else fields.push(["tax_cents", merged.tax_cents]);
+      fields.push(["gross_cents", merged.net_cents + merged.tax_cents]);
     }
   }
 

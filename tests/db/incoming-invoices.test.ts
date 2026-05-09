@@ -27,8 +27,8 @@ function blankIncoming(companyId: number, supplierId: number | null, invoiceNumb
     supplier_id: supplierId,
     invoice_number: invoiceNumber,
     invoice_date: "2026-04-15",
-    net_amount: 100,
-    tax_amount: 19,
+    net_cents: 10000,
+    tax_cents: 1900,
     status: "offen",
     file_data: null,
     file_name: null,
@@ -39,21 +39,21 @@ function blankIncoming(companyId: number, supplierId: number | null, invoiceNumb
 }
 
 describe("incoming invoices", () => {
-  test("create computes gross_amount = net + tax", async () => {
+  test("create computes gross_cents = net_cents + tax_cents", async () => {
     const { companyId, supplierId } = await seed();
     const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-001"));
     const got = await ii.getIncomingInvoiceById(id);
-    expect(got?.gross_amount).toBe(119);
+    expect(got?.gross_cents).toBe(11900);
   });
 
-  test("update with new net/tax recomputes gross_amount", async () => {
+  test("update with new net/tax recomputes gross_cents", async () => {
     const { companyId, supplierId } = await seed();
     const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-002"));
-    await ii.updateIncomingInvoice(id, { net_amount: 200, tax_amount: 38 });
+    await ii.updateIncomingInvoice(id, { net_cents: 20000, tax_cents: 3800 });
     const got = await ii.getIncomingInvoiceById(id);
-    expect(got?.net_amount).toBe(200);
-    expect(got?.tax_amount).toBe(38);
-    expect(got?.gross_amount).toBe(238);
+    expect(got?.net_cents).toBe(20000);
+    expect(got?.tax_cents).toBe(3800);
+    expect(got?.gross_cents).toBe(23800);
   });
 
   test("update without amount change keeps gross stable", async () => {
@@ -61,7 +61,7 @@ describe("incoming invoices", () => {
     const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-003"));
     await ii.updateIncomingInvoice(id, { notes: "hello" });
     const got = await ii.getIncomingInvoiceById(id);
-    expect(got?.gross_amount).toBe(119);
+    expect(got?.gross_cents).toBe(11900);
     expect(got?.notes).toBe("hello");
   });
 
@@ -86,7 +86,7 @@ describe("incoming invoices", () => {
     await ii.updateIncomingInvoiceStatus(id, "bezahlt");
     const got = await ii.getIncomingInvoiceById(id);
     expect(got?.status).toBe("bezahlt");
-    expect(got?.gross_amount).toBe(119);
+    expect(got?.gross_cents).toBe(11900);
   });
 
   test("getIncomingInvoiceFile returns file fields including s3_key", async () => {
