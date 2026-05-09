@@ -659,6 +659,41 @@ fn next_rand_u64() -> u64 {
     })
 }
 
+/// Validates S3 endpoint URL scheme. Requires `https://` except for localhost.
+///
+/// # Rules
+/// - `https://` is always allowed
+/// - `http://` is allowed only for localhost, 127.0.0.1, or ::1
+/// - Any other scheme or malformed URL is rejected
+// Wired into S3Config builder in SEC-2.b (#37 → #38).
+#[allow(dead_code)]
+fn validate_endpoint(url: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(url)
+        .map_err(|_| format!("Invalid URL: '{}' does not parse as a valid URL", url))?;
+
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" => {
+            let host = parsed
+                .host_str()
+                .ok_or_else(|| format!("URL '{}' has no host", url))?
+                .to_lowercase();
+
+            match host.as_str() {
+                "localhost" | "127.0.0.1" | "::1" | "[::1]" => Ok(()),
+                _ => Err(format!(
+                    "http:// is only allowed for localhost, 127.0.0.1, or ::1; got '{}'",
+                    host
+                )),
+            }
+        }
+        scheme => Err(format!(
+            "Invalid URL scheme '{}'; must be 'http' or 'https'",
+            scheme
+        )),
+    }
+}
+
 fn format_s3_error<E: std::fmt::Debug>(err: &aws_sdk_s3::error::SdkError<E>) -> String {
     match err {
         aws_sdk_s3::error::SdkError::ServiceError(ctx) => {
@@ -1707,5 +1742,75 @@ mod retry_tests {
     #[test]
     fn jitter_zero_base_is_zero() {
         assert_eq!(super::jitter_full(0), 0);
+    }
+}
+
+#[cfg(test)]
+mod validate_endpoint_tests {
+    use super::*;
+
+    #[test]
+    fn validate_endpoint_http_example_com_fails() {
+        let result = validate_endpoint("http://example.com");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("only allowed for localhost"));
+    }
+
+    #[test]
+    fn validate_endpoint_https_example_com_succeeds() {
+        let result = validate_endpoint("https://example.com");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_http_localhost_succeeds() {
+        let result = validate_endpoint("http://localhost:9000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_malformed_url_fails() {
+        let result = validate_endpoint("https//typo.example");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("does not parse as a valid URL"));
+    }
+
+    #[test]
+    fn validate_endpoint_http_127_0_0_1_succeeds() {
+        let result = validate_endpoint("http://127.0.0.1:9000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_http_ipv6_loopback_succeeds() {
+        let result = validate_endpoint("http://[::1]:9000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_ftp_fails() {
+        let result = validate_endpoint("ftp://example.com");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid URL scheme"));
+    }
+
+    #[test]
+    fn validate_endpoint_https_with_port_succeeds() {
+        let result = validate_endpoint("https://example.com:443");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_https_localhost_succeeds() {
+        let result = validate_endpoint("https://localhost:9000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_empty_string_fails() {
+        let result = validate_endpoint("");
+        assert!(result.is_err());
     }
 }
