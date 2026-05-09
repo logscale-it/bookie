@@ -1770,7 +1770,9 @@ mod validate_endpoint_tests {
     fn validate_endpoint_malformed_url_fails() {
         let result = validate_endpoint("https//typo.example");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("does not parse as a valid URL"));
+        assert!(result
+            .unwrap_err()
+            .contains("does not parse as a valid URL"));
     }
 
     #[test]
