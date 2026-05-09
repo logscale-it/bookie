@@ -86,6 +86,8 @@ export interface Invoice {
   legal_country_code: string;
   notes: string | null;
   s3_key: string | null;
+  references_invoice_id: number | null;
+  cancellation_reason: string | null;
   created_at: string;
   updated_at: string;
 }
