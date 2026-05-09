@@ -72,7 +72,7 @@ describe("invoices CRUD + items + status history", () => {
       unit_price_net: 100, tax_rate: 19, line_total_net: 200,
     });
 
-    const items = await invoiceItems.listByInvoice(invId);
+    const items = (await invoiceItems.listByInvoice(invId)).rows;
     expect(items.map((i) => i.description)).toEqual(["First", "Second"]);
     expect(items[0].line_total_net).toBe(200);
   });
@@ -101,7 +101,7 @@ describe("invoices CRUD + items + status history", () => {
       issue_date: "2026-04-01",
     });
 
-    const list = await invoices.listInvoices(a.companyId);
+    const list = (await invoices.listInvoices(a.companyId)).rows;
     expect(list.map((i) => i.invoice_number)).toEqual(["A2", "A1"]);
   });
 
@@ -154,7 +154,7 @@ describe("invoices CRUD + items + status history", () => {
 
     await invoices.deleteInvoice(invId);
 
-    expect(await invoiceItems.listByInvoice(invId)).toEqual([]);
+    expect((await invoiceItems.listByInvoice(invId)).rows).toEqual([]);
     const hist = await testDb.select(
       "SELECT id FROM invoice_status_history WHERE invoice_id = $1",
       [invId],

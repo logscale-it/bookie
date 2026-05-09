@@ -55,7 +55,7 @@ describe("time entries", () => {
     await timeEntries.createTimeEntry(blankEntry(a.companyId, a.customerId, a.projectId, "2026-05-01", 90));
     await timeEntries.createTimeEntry(blankEntry(b.companyId, b.customerId, b.projectId, "2026-06-01", 30));
 
-    const list = await timeEntries.listTimeEntries(a.companyId);
+    const list = (await timeEntries.listTimeEntries(a.companyId)).rows;
     expect(list.map((e) => e.entry_date)).toEqual(["2026-05-01", "2026-04-01"]);
     expect(list[0].duration_minutes).toBe(90);
   });

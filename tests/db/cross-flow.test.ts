@@ -61,7 +61,7 @@ test("end-to-end: company → customer → project → invoice w/ items → paid
   });
 
   // Compute totals from items and persist on invoice
-  const items = await invoiceItems.listByInvoice(invoiceId);
+  const items = (await invoiceItems.listByInvoice(invoiceId)).rows;
   const net = items.reduce((s, it) => s + it.line_total_net, 0);
   const tax = items.reduce(
     (s, it) => s + (it.line_total_net * it.tax_rate) / 100,
@@ -96,7 +96,7 @@ test("end-to-end: company → customer → project → invoice w/ items → paid
   ]);
 
   // 8. Invariants: payment exists, history has both transitions
-  const pays = await payments.listByInvoice(invoiceId);
+  const pays = (await payments.listByInvoice(invoiceId)).rows;
   expect(pays).toHaveLength(1);
   expect(pays[0].amount).toBe(1428);
 

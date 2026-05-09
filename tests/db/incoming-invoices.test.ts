@@ -75,7 +75,7 @@ describe("incoming invoices", () => {
       ...blankIncoming(companyId, supplierId, "NEW"),
       invoice_date: "2026-04-01",
     });
-    const list = await ii.listIncomingInvoices(companyId);
+    const list = (await ii.listIncomingInvoices(companyId)).rows;
     expect(list.map((r) => r.invoice_number)).toEqual(["NEW", "OLD"]);
     expect(list[0].supplier_name).toBe("Supplier Co");
   });

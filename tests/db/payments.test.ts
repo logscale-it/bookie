@@ -47,7 +47,7 @@ describe("payments", () => {
       method: "bank_transfer", reference: "REF-2", note: null,
     });
 
-    const list = await payments.listByInvoice(invId);
+    const list = (await payments.listByInvoice(invId)).rows;
     expect(list.map((p) => p.reference)).toEqual(["REF-2", "REF-1"]);
   });
 
