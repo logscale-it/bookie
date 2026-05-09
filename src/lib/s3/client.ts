@@ -26,7 +26,12 @@ export async function uploadFile(
   data: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  log.info("Uploading file", { fileName, contentType });
+  // Log only operational metadata — never the recipient name/address or
+  // any other invoice details that flow through `data`. Storing PII in
+  // the local log file is a DSGVO/GDPR liability the moment the log
+  // ships anywhere (support bundle, S3 mirror, future cloud variant).
+  const s3_key = pathPrefix ? `${pathPrefix}/${fileName}` : fileName;
+  log.info("S3 op", { op: "upload", s3_key, byte_size: data.byteLength });
   return invoke<string>("s3_upload_file", {
     config: buildConfig(settings),
     pathPrefix,
@@ -40,7 +45,7 @@ export async function downloadFile(
   settings: UpsertS3Settings,
   key: string,
 ): Promise<Uint8Array> {
-  log.info("Downloading file", { key });
+  log.info("S3 op", { op: "download", s3_key: key });
   const data = await invoke<number[]>("s3_download_file", {
     config: buildConfig(settings),
     key,
@@ -52,7 +57,7 @@ export async function deleteFile(
   settings: UpsertS3Settings,
   key: string,
 ): Promise<void> {
-  log.info("Deleting file", { key });
+  log.info("S3 op", { op: "delete", s3_key: key });
   await invoke("s3_delete_file", {
     config: buildConfig(settings),
     key,
