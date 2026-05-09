@@ -34,6 +34,9 @@ function createLogger(module: string) {
       message,
       safeData !== undefined ? safeData : "",
     );
+    // OBS-1.c (#70) will forward `entry` to the Rust file sink (installed in
+    // OBS-1.a) via an `invoke("log_event", entry)` IPC call placed here. Keep
+    // this single choke point so redaction stays applied before forwarding.
   };
 
   return {
