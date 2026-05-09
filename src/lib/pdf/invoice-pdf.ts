@@ -2,10 +2,15 @@
  * Generates a printable HTML invoice document.
  * Supports multiple languages and legal profiles.
  * DIN 5008 compliant layout for German business correspondence, generic layout for others.
+ *
+ * Money fields on `InvoicePdfData` are integer cents (minor currency units).
+ * All amounts are rendered through `formatCents` from `$lib/shared/money`,
+ * matching the storage format introduced by migration 0015 (DAT-1.a).
  */
 
 import { translationsFor, type Locale } from '$lib/i18n';
 import { getLegalProfile, type LegalCountry } from '$lib/legal';
+import { formatCents } from '$lib/shared/money';
 
 export interface InvoicePdfData {
 	issuerName: string;
@@ -38,18 +43,18 @@ export interface InvoicePdfData {
 		description: string;
 		quantity: number;
 		unit: string;
-		unitPriceNet: number;
+		unitPriceNetCents: number;
 		taxRate: number;
-		lineTotalNet: number;
+		lineTotalNetCents: number;
 	}>;
-	subtotal: number;
+	subtotalCents: number;
 	taxGroups: Array<{
 		label: string;
 		rate: number;
-		netAmount: number;
-		amount: number;
+		netAmountCents: number;
+		amountCents: number;
 	}>;
-	total: number;
+	totalCents: number;
 }
 
 function esc(s: string): string {
@@ -58,10 +63,6 @@ function esc(s: string): string {
 		.replace(/</g, '&lt;')
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;');
-}
-
-export function fmtCurrency(amount: number, currency: string, locale: string = 'de-DE'): string {
-	return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount);
 }
 
 export function fmtDate(dateStr: string, locale: string = 'de-DE'): string {
@@ -92,9 +93,9 @@ export function generateInvoiceHtml(data: InvoicePdfData): string {
 			<td class="desc">${esc(item.description)}</td>
 			<td class="qty">${fmtNumber(item.quantity, numberLocale)}</td>
 			<td class="unit">${esc(item.unit)}</td>
-			<td class="price">${fmtCurrency(item.unitPriceNet, data.currency, numberLocale)}</td>
+			<td class="price">${formatCents(item.unitPriceNetCents, numberLocale, data.currency)}</td>
 			<td class="tax">${item.taxRate.toFixed(0)} %</td>
-			<td class="total">${fmtCurrency(item.lineTotalNet, data.currency, numberLocale)}</td>
+			<td class="total">${formatCents(item.lineTotalNetCents, numberLocale, data.currency)}</td>
 		</tr>`
 		)
 		.join('');
@@ -104,11 +105,11 @@ export function generateInvoiceHtml(data: InvoicePdfData): string {
 			(g) => `
 		<div class="summary-row">
 			<span>${esc(tr.netAmount)} ${g.rate.toFixed(0)} %</span>
-			<span>${fmtCurrency(g.netAmount, data.currency, numberLocale)}</span>
+			<span>${formatCents(g.netAmountCents, numberLocale, data.currency)}</span>
 		</div>
 		<div class="summary-row">
 			<span>${esc(tr.vat)} ${g.rate.toFixed(0)} %</span>
-			<span>${fmtCurrency(g.amount, data.currency, numberLocale)}</span>
+			<span>${formatCents(g.amountCents, numberLocale, data.currency)}</span>
 		</div>`
 		)
 		.join('');
@@ -312,7 +313,7 @@ th.qty, th.price, th.tax, th.total { text-align: right; }
 			<div class="summary-divider">
 				<div class="summary-row summary-total">
 					<span>${esc(tr.grossTotal)}</span>
-					<span>${fmtCurrency(data.total, data.currency, numberLocale)}</span>
+					<span>${formatCents(data.totalCents, numberLocale, data.currency)}</span>
 				</div>
 			</div>
 		</div>

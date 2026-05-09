@@ -151,6 +151,14 @@
 		return (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price_net) || 0);
 	}
 
+	// Conversion at the PDF boundary: the form holds string-typed amounts and
+	// computes totals as floats. The PDF generator (DAT-1.c) consumes integer
+	// cents only. The form-side write path will move to cents in DAT-1.d (#54);
+	// until then this is the only place a float -> cents conversion is needed.
+	function toCents(value: number): number {
+		return Number.isFinite(value) ? Math.round(value * 100) : 0;
+	}
+
 	const subtotal = $derived(items.reduce((sum, item) => sum + lineTotal(item), 0));
 
 	const taxGroups = $derived.by(() => {
@@ -290,13 +298,18 @@
 				description: item.description,
 				quantity: parseFloat(item.quantity) || 0,
 				unit: 'Stk',
-				unitPriceNet: parseFloat(item.unit_price_net) || 0,
+				unitPriceNetCents: toCents(parseFloat(item.unit_price_net) || 0),
 				taxRate: parseFloat(item.tax_rate) || 0,
-				lineTotalNet: lineTotal(item)
+				lineTotalNetCents: toCents(lineTotal(item))
 			})),
-			subtotal,
-			taxGroups,
-			total: grossTotal
+			subtotalCents: toCents(subtotal),
+			taxGroups: taxGroups.map((g) => ({
+				label: g.label,
+				rate: g.rate,
+				netAmountCents: toCents(g.netAmount),
+				amountCents: toCents(g.amount)
+			})),
+			totalCents: toCents(grossTotal)
 		};
 	}
 
@@ -322,7 +335,7 @@
 		if (!data.issuerVatId) missing.push(t('invoiceForm.missingVatId'));
 		if (!data.recipientName) missing.push(t('invoiceForm.missingCustomerName'));
 		if (!data.invoiceNumber) missing.push(t('invoiceForm.missingInvoiceNumber'));
-		if (data.items.length === 0 || !data.items.some(i => i.description && i.unitPriceNet > 0)) missing.push(t('invoiceForm.missingLineItem'));
+		if (data.items.length === 0 || !data.items.some(i => i.description && i.unitPriceNetCents > 0)) missing.push(t('invoiceForm.missingLineItem'));
 		return missing;
 	}
 
