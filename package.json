@@ -10,7 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "tauri": "tauri",
-    "test": "bun test tests/db/",
+    "test": "bun test",
     "test:all": "bash scripts/test-all.sh",
     "postinstall": "bash scripts/install-git-hooks.sh"
   },

@@ -39,3 +39,18 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun audit --audit-level=high
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate SvelteKit types ($lib path alias)
+        # svelte-kit sync materializes .svelte-kit/tsconfig.json, which
+        # supplies the $lib path alias that src/lib/db/connection.ts and
+        # the smoke test rely on for module resolution under bun test.
+        run: bunx svelte-kit sync
+      - name: Run frontend tests
+        run: bun test
