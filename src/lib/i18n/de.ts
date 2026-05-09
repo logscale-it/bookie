@@ -38,7 +38,10 @@ export default {
 		error: 'Fehler',
 		backToHome: 'Zurück zur Startseite',
 		unexpectedError: 'Ein unerwarteter Fehler ist aufgetreten.',
-		saveChanges: 'Änderungen speichern'
+		saveChanges: 'Änderungen speichern',
+		pagerPrev: 'Zurück',
+		pagerNext: 'Weiter',
+		pagerPageOf: 'Seite {page} von {total}'
 	},
 	overview: {
 		title: 'Übersicht',

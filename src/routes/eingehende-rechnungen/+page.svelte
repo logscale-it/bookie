@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { parsePager, totalPages, type PagerState } from '$lib/pager';
 	import { save } from '@tauri-apps/plugin-dialog';
 	import { invoke } from '@tauri-apps/api/core';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
@@ -50,6 +53,7 @@
 	});
 
 	let invoices = $state<IncomingInvoiceWithSupplier[]>([]);
+	let totalCount = $state(0);
 	let suppliers = $state<Customer[]>([]);
 	let search = $state('');
 	let statusFilter = $state('');
@@ -61,6 +65,9 @@
 	let editingId = $state<number | null>(null);
 	let editForm = $state<InvoiceForm>(initialForm());
 	let uploadError = $state('');
+
+	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
+	const pageCount = $derived(totalPages(totalCount, pager.size));
 
 	const grossAmount = $derived(() => {
 		const net = parseFloat(form.netAmount) || 0;
@@ -100,7 +107,8 @@
 	);
 
 	$effect(() => {
-		loadData();
+		// re-fetch when URL pager changes
+		loadData(pager.page, pager.size);
 	});
 
 	async function ensureCompanyId(): Promise<number> {
@@ -123,16 +131,25 @@
 		});
 	}
 
-	async function loadData() {
+	async function loadData(pageNum = pager.page, size = pager.size) {
 		loading = true;
 		const companyId = await ensureCompanyId();
+		const offset = (pageNum - 1) * size;
 		const [invoicesResult, suppliersResult] = await Promise.all([
-			listIncomingInvoices(companyId),
+			listIncomingInvoices(companyId, { limit: size, offset }),
 			listSuppliers(companyId)
 		]);
 		invoices = invoicesResult.rows;
+		totalCount = invoicesResult.totalCount;
 		suppliers = suppliersResult;
 		loading = false;
+	}
+
+	function gotoPage(target: number) {
+		const params = new URLSearchParams(page.url.searchParams);
+		params.set('page', String(target));
+		params.set('size', String(pager.size));
+		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
 	}
 
 	async function readFileAsArray(file: File): Promise<number[]> {
@@ -451,5 +468,29 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if !loading && totalCount > 0}
+			<div class="mt-4 flex items-center justify-between gap-3">
+				<button
+					type="button"
+					class="btn-secondary"
+					disabled={pager.page <= 1}
+					onclick={() => gotoPage(pager.page - 1)}
+				>
+					{t('common.pagerPrev')}
+				</button>
+				<span class="text-sm text-zinc-600 dark:text-zinc-300">
+					{tp('common.pagerPageOf', { page: pager.page, total: pageCount })}
+				</span>
+				<button
+					type="button"
+					class="btn-secondary"
+					disabled={pager.page >= pageCount}
+					onclick={() => gotoPage(pager.page + 1)}
+				>
+					{t('common.pagerNext')}
+				</button>
+			</div>
+		{/if}
 	</div>
 </section>

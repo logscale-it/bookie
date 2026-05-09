@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { listAllInvoices, updateInvoiceStatus, type InvoiceWithCustomer } from '$lib/db/invoices';
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { parsePager, totalPages, type PagerState } from '$lib/pager';
 
 	const STATUSES = $derived([
 		{ value: 'draft', label: t('invoices.statusDraft') },
@@ -10,17 +13,31 @@
 	]);
 
 	let invoices = $state<InvoiceWithCustomer[]>([]);
+	let totalCount = $state(0);
 	let loading = $state(true);
 
+	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
+	const pageCount = $derived(totalPages(totalCount, pager.size));
+
 	$effect(() => {
-		loadInvoices();
+		// re-fetch when URL pager changes
+		loadInvoices(pager.page, pager.size);
 	});
 
-	async function loadInvoices() {
+	async function loadInvoices(pageNum: number, size: number) {
 		loading = true;
-		const result = await listAllInvoices();
+		const offset = (pageNum - 1) * size;
+		const result = await listAllInvoices({ limit: size, offset });
 		invoices = result.rows;
+		totalCount = result.totalCount;
 		loading = false;
+	}
+
+	function gotoPage(target: number) {
+		const params = new URLSearchParams(page.url.searchParams);
+		params.set('page', String(target));
+		params.set('size', String(pager.size));
+		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
 	}
 
 	async function changeStatus(e: Event, invoice: InvoiceWithCustomer) {
@@ -125,4 +142,28 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if !loading && totalCount > 0}
+		<div class="flex items-center justify-between gap-3">
+			<button
+				type="button"
+				class="btn-secondary"
+				disabled={pager.page <= 1}
+				onclick={() => gotoPage(pager.page - 1)}
+			>
+				{t('common.pagerPrev')}
+			</button>
+			<span class="text-sm text-zinc-600 dark:text-zinc-300">
+				{tp('common.pagerPageOf', { page: pager.page, total: pageCount })}
+			</span>
+			<button
+				type="button"
+				class="btn-secondary"
+				disabled={pager.page >= pageCount}
+				onclick={() => gotoPage(pager.page + 1)}
+			>
+				{t('common.pagerNext')}
+			</button>
+		</div>
+	{/if}
 </section>
