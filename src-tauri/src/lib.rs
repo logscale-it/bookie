@@ -1154,7 +1154,7 @@ fn store_s3_credentials(access_key_id: String, secret_access_key: String) -> Res
         secret_access_key.len()
     );
 
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)
         .map_err(|e| format!("Keyring error: {e}"))?;
 
     let creds = S3Credentials {
@@ -1186,7 +1186,7 @@ fn store_s3_credentials(access_key_id: String, secret_access_key: String) -> Res
 #[tauri::command]
 fn get_s3_credentials() -> Result<S3Credentials, String> {
     info!("Reading S3 credentials from keyring");
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)
         .map_err(|e| format!("Keyring error: {e}"))?;
 
     match entry.get_password() {
@@ -1204,7 +1204,7 @@ fn get_s3_credentials() -> Result<S3Credentials, String> {
             }
             Ok(creds)
         }
-        Err(keyring::Error::NoEntry) => {
+        Err(keyring_core::error::Error::NoEntry) => {
             warn!("No S3 credentials found in keyring");
             Err("no_entry".into())
         }
@@ -1218,7 +1218,7 @@ fn get_s3_credentials() -> Result<S3Credentials, String> {
 #[tauri::command]
 fn delete_s3_credentials() -> Result<(), String> {
     info!("Deleting S3 credentials from keyring");
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)
         .map_err(|e| format!("Keyring error: {e}"))?;
 
     match entry.delete_credential() {
@@ -1226,7 +1226,7 @@ fn delete_s3_credentials() -> Result<(), String> {
             info!("S3 credentials deleted successfully");
             Ok(())
         }
-        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(keyring_core::error::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("Keyring deletion failed: {e}")),
     }
 }
@@ -1589,6 +1589,14 @@ fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::e
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // keyring v4 split the platform-specific backends into the `keyring` crate
+    // (configuration) + `keyring-core` (Entry/Error). Pick the OS-native store
+    // up front so subsequent `keyring_core::Entry::new(...)` calls have a
+    // backend to talk to.
+    // The bool selects between dbus secret service (false) and Linux keyutils
+    // (true) on Linux; ignored on macOS / Windows.
+    let _ = keyring::use_native_store(false);
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_sql::Builder::new()
