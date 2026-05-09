@@ -66,7 +66,7 @@ src-tauri/                  Rust backend (Tauri v2)
 - **Tailwind CSS** for all styling — no component library. Reuse classes from `src/app.css`: `.btn-primary`, `.btn-secondary`, `.card`, `.input-base`, `.input-valid`, `.input-error`, `.label`, `.page-header`, `.nav-pill`
 - **UI labels in German**, code and variable names in English
 - **TypeScript strict mode** is enabled
-- **No automated tests** — quality is enforced via type checking (`bun run check`) and Rust linting (`cargo clippy`)
+- **Frontend tests** live under `tests/` and use Bun's built-in test runner — run with `bun test` (run `bunx svelte-kit sync` first if `.svelte-kit/` is missing, so the `$lib` alias resolves). Quality is also enforced via type checking (`bun run check`) and Rust linting (`cargo clippy`)
 
 ## Database Migrations
 
