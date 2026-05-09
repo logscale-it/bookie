@@ -10,18 +10,29 @@ interface LogEntry {
 
 function createLogger(module: string) {
   const log = (level: Level, message: string, data?: unknown) => {
+    // Redact PII from `data` before it touches any sink (console today,
+    // log file / support bundle / S3 mirror tomorrow). `redact()` is a
+    // pure deep copy and is idempotent on already-redacted values, so
+    // wrapping at this single choke point is sufficient — call sites do
+    // not need to invoke `redact()` themselves.
+    //
+    // Error instances are passed through untouched: their fields are
+    // non-enumerable, `redact()` would deep-copy them to `{}` and we'd
+    // lose the stack trace. Errors are diagnostic data, not PII.
+    const safeData =
+      data === undefined || data instanceof Error ? data : redact(data);
     const entry: LogEntry = {
       level,
       module,
       message,
       timestamp: new Date().toISOString(),
-      ...(data !== undefined && { data }),
+      ...(safeData !== undefined && { data: safeData }),
     };
     const method = level === "debug" ? "log" : level;
     console[method](
       `[${level.toUpperCase()}] [${module}]`,
       message,
-      data !== undefined ? data : "",
+      safeData !== undefined ? safeData : "",
     );
   };
 
