@@ -70,8 +70,10 @@ describe("payments", () => {
     await expect(invoices.deleteInvoice(invId)).rejects.toThrow();
   });
 
-  test("deletePayment frees the invoice for deletion", async () => {
+  test("deletePayment frees the draft invoice for deletion", async () => {
     const invId = await seedInvoice();
+    // Step back to 'draft' so the immutability trigger lets us delete.
+    await invoices.updateInvoiceStatus(invId, "issued", "draft");
     const payId = await payments.createPayment({
       invoice_id: invId, payment_date: "2026-05-10", amount: 100,
       method: null, reference: null, note: null,
