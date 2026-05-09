@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { openUrl } from '@tauri-apps/plugin-opener';
+	import { save } from '@tauri-apps/plugin-dialog';
+	import { invoke } from '@tauri-apps/api/core';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import Select from '../../common/Select.svelte';
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { createCustomer, listCustomers, updateCustomer } from '$lib/db/customers';
+	import { exportCustomerData, suggestExportFileName } from '$lib/db/dsgvo_export';
 	import type { Customer } from '$lib/db/types';
 	import { t } from '$lib/i18n';
 
@@ -53,6 +56,8 @@
 	let form = $state<CustomerForm>(initialForm());
 	let editingCustomerId = $state<number | null>(null);
 	let editForm = $state<CustomerForm>(initialForm());
+	let exportingCustomerId = $state<number | null>(null);
+	let exportFeedback = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
 
 	const filteredCustomers = $derived.by(() => {
 		let result = customers;
@@ -181,6 +186,39 @@
 		const normalized = rawWebsite.startsWith('http') ? rawWebsite : `https://${rawWebsite}`;
 		await openUrl(normalized);
 	}
+
+	async function handleDsgvoExport(customer: Customer) {
+		exportFeedback = null;
+		exportingCustomerId = customer.id;
+		try {
+			const defaultName = suggestExportFileName(customer);
+			const filePath = await save({
+				title: 'DSGVO-Auskunft speichern',
+				defaultPath: defaultName,
+				filters: [{ name: 'ZIP', extensions: ['zip'] }]
+			});
+			if (!filePath) {
+				exportingCustomerId = null;
+				return;
+			}
+			const bytes = await exportCustomerData(customer.id);
+			await invoke('write_binary_file', {
+				path: filePath,
+				data: Array.from(bytes)
+			});
+			exportFeedback = {
+				kind: 'success',
+				message: `DSGVO-Auskunft für „${customer.name}“ gespeichert.`
+			};
+		} catch (e) {
+			exportFeedback = {
+				kind: 'error',
+				message: `Fehler beim Erstellen der DSGVO-Auskunft: ${(e as Error).message ?? String(e)}`
+			};
+		} finally {
+			exportingCustomerId = null;
+		}
+	}
 </script>
 
 <section class="space-y-6">
@@ -190,6 +228,17 @@
 			{t('companies.subtitle')}
 		</p>
 	</header>
+
+	{#if exportFeedback}
+		<div
+			class="rounded-md border px-3 py-2 text-sm {exportFeedback.kind === 'success'
+				? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+				: 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300'}"
+			role="status"
+		>
+			{exportFeedback.message}
+		</div>
+	{/if}
 
 	<AddEntryFormSection
 		title={t('companies.newTitle')}
@@ -320,6 +369,15 @@
 										{t('common.open')}
 									</button>
 									<button type="button" onclick={() => startEdit(customer)} class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-600">{t('common.edit')}</button>
+									<button
+										type="button"
+										onclick={() => handleDsgvoExport(customer)}
+										disabled={exportingCustomerId === customer.id}
+										title="DSGVO-Auskunft (Art. 15 DSGVO) als ZIP exportieren"
+										class="rounded-md border border-blue-300 px-2 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30"
+									>
+										{exportingCustomerId === customer.id ? 'Exportiert…' : 'Auskunft erteilen'}
+									</button>
 								</div>
 							{/if}
 						</div>
