@@ -245,6 +245,18 @@ fn app_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0017_down/01_invoice_audit.sql"),
             kind: MigrationKind::Down,
         },
+        Migration {
+            version: 18,
+            description: "auto_backup_status_up",
+            sql: include_str!("../migrations/0018/01_auto_backup_status.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 18,
+            description: "auto_backup_status_down",
+            sql: include_str!("../migrations/0018_down/01_auto_backup_status.sql"),
+            kind: MigrationKind::Down,
+        },
     ]
 }
 
