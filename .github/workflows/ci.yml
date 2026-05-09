@@ -54,3 +54,32 @@ jobs:
         run: bunx svelte-kit sync
       - name: Run frontend tests
         run: bun test
+
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install system dependencies
+        # Tauri's GTK/WebKit bindings (glib-sys, gobject-sys, etc.) link
+        # against system libraries via pkg-config, so the Rust crate graph
+        # cannot even compile without these — required for `cargo test`.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libdbus-1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.toml') }}
+          restore-keys: cargo-test-${{ runner.os }}-
+      - name: Run backend tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
