@@ -3,7 +3,14 @@ import type { Invoice } from "./types";
 
 export type InvoiceWithCustomer = Invoice & { customer_name: string | null };
 
-type CreateInvoice = Omit<Invoice, "id" | "created_at" | "updated_at">;
+// `*_cents` fields are readable on the `Invoice` type (DAT-1.b) but the write
+// path is not yet repointed to them — that is DAT-1.d (#54). Until then they
+// are derived from the REAL columns by the migration / write path, so they
+// must be excluded from the Create/Update payload shape.
+type CreateInvoice = Omit<
+  Invoice,
+  "id" | "created_at" | "updated_at" | "net_cents" | "tax_cents" | "gross_cents"
+>;
 type UpdateInvoice = Partial<CreateInvoice>;
 
 const ALLOWED_COLUMNS = [

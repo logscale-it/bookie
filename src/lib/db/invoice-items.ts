@@ -1,7 +1,17 @@
 import { getDb, safeFields } from "./connection";
 import type { InvoiceItem } from "./types";
 
-type CreateInvoiceItem = Omit<InvoiceItem, "id" | "created_at" | "updated_at">;
+// `*_cents` fields are readable on `InvoiceItem` (DAT-1.b) but the write path
+// is not yet repointed — that is DAT-1.d (#54). Exclude them from the
+// Create/Update payload shape until then.
+type CreateInvoiceItem = Omit<
+  InvoiceItem,
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "unit_price_net_cents"
+  | "line_total_net_cents"
+>;
 type UpdateInvoiceItem = Partial<Omit<CreateInvoiceItem, "invoice_id">>;
 
 const ALLOWED_COLUMNS = [

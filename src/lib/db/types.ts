@@ -65,6 +65,9 @@ export interface Invoice {
   net_amount: number;
   tax_amount: number;
   gross_amount: number;
+  net_cents: number;
+  tax_cents: number;
+  gross_cents: number;
   issuer_name: string | null;
   issuer_tax_number: string | null;
   issuer_vat_id: string | null;
@@ -99,6 +102,8 @@ export interface InvoiceItem {
   unit_price_net: number;
   tax_rate: number;
   line_total_net: number;
+  unit_price_net_cents: number;
+  line_total_net_cents: number;
   created_at: string;
   updated_at: string;
 }
@@ -123,6 +128,7 @@ export interface Payment {
   invoice_id: number;
   payment_date: string;
   amount: number;
+  amount_cents: number;
   method: string | null;
   reference: string | null;
   note: string | null;
@@ -194,6 +200,9 @@ export interface IncomingInvoice {
   net_amount: number;
   tax_amount: number;
   gross_amount: number;
+  net_cents: number;
+  tax_cents: number;
+  gross_cents: number;
   status: string;
   file_data: number[] | null;
   file_name: string | null;
