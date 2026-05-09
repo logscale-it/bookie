@@ -190,13 +190,17 @@
 			}
 		}
 
+		// DAT-1.d: convert float inputs to integer cents at the DB boundary.
+		const netCents = Math.round(net * 100);
+		const taxCents = Math.round(tax * 100);
 		await createIncomingInvoice({
 			company_id: companyId,
 			supplier_id: form.supplierId ? parseInt(form.supplierId) : null,
 			invoice_number: form.invoiceNumber.trim() || null,
 			invoice_date: form.invoiceDate,
-			net_amount: net,
-			tax_amount: tax,
+			net_cents: netCents,
+			tax_cents: taxCents,
+			gross_cents: netCents + taxCents,
 			status: 'offen',
 			file_data: fileData,
 			file_name: fileName,
@@ -239,12 +243,14 @@
 		if (isNaN(net)) return;
 		saving = true;
 
+		// DAT-1.d: writes go through `*_cents`; the UPDATE handler keeps
+		// `gross_cents = net_cents + tax_cents` consistent automatically.
 		await updateIncomingInvoice(editingId, {
 			supplier_id: editForm.supplierId ? parseInt(editForm.supplierId) : null,
 			invoice_number: editForm.invoiceNumber.trim() || null,
 			invoice_date: editForm.invoiceDate,
-			net_amount: net,
-			tax_amount: parseFloat(editForm.taxAmount) || 0,
+			net_cents: Math.round(net * 100),
+			tax_cents: Math.round((parseFloat(editForm.taxAmount) || 0) * 100),
 			notes: editForm.notes.trim() || null
 		});
 

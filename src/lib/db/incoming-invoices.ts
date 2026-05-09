@@ -1,18 +1,19 @@
 import { getDb, safeFields } from "./connection";
 import type { IncomingInvoice } from "./types";
 
-// `*_cents` fields are readable on `IncomingInvoice` (DAT-1.b) but the write
-// path is not yet repointed — that is DAT-1.d (#54). Exclude them from the
-// Create/Update payload shape until then.
+// DAT-1.d (#54): writes are repointed to `*_cents`. The legacy REAL columns
+// `net_amount` / `tax_amount` / `gross_amount` are no longer written here;
+// they have `NOT NULL CHECK (>= 0)` (see migration 0007) and no usable
+// DEFAULT, so the INSERT writes `0` explicitly. They are dropped in
+// DAT-1.e (#55).
 type CreateIncomingInvoice = Omit<
   IncomingInvoice,
   | "id"
-  | "gross_amount"
   | "created_at"
   | "updated_at"
-  | "net_cents"
-  | "tax_cents"
-  | "gross_cents"
+  | "net_amount"
+  | "tax_amount"
+  | "gross_amount"
 >;
 type UpdateIncomingInvoice = Partial<Omit<CreateIncomingInvoice, "company_id">>;
 
@@ -20,8 +21,9 @@ const ALLOWED_COLUMNS = [
   "supplier_id",
   "invoice_number",
   "invoice_date",
-  "net_amount",
-  "tax_amount",
+  "net_cents",
+  "tax_cents",
+  "gross_cents",
   "status",
   "file_data",
   "file_name",
@@ -83,19 +85,24 @@ export async function createIncomingInvoice(
   data: CreateIncomingInvoice,
 ): Promise<number> {
   const db = await getDb();
-  const grossAmount = data.net_amount + data.tax_amount;
+  // Money columns: only `*_cents` are written. The legacy REAL columns are
+  // `NOT NULL CHECK (>= 0)` with no DEFAULT (migration 0007), so we satisfy
+  // them with literal `0` until DAT-1.e (#55) drops them. `gross_cents` is
+  // derived once at write time so the reader sees a consistent total.
+  const grossCents = data.net_cents + data.tax_cents;
   const result = await db.execute(
     `INSERT INTO incoming_invoices (company_id, supplier_id, invoice_number, invoice_date,
-		  net_amount, tax_amount, gross_amount, status, file_data, file_name, file_type, s3_key, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		  net_amount, tax_amount, gross_amount, net_cents, tax_cents, gross_cents,
+		  status, file_data, file_name, file_type, s3_key, notes)
+		 VALUES ($1, $2, $3, $4, 0, 0, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
       data.company_id,
       data.supplier_id,
       data.invoice_number,
       data.invoice_date,
-      data.net_amount,
-      data.tax_amount,
-      grossAmount,
+      data.net_cents,
+      data.tax_cents,
+      grossCents,
       data.status,
       data.file_data,
       data.file_name,
@@ -117,9 +124,10 @@ export async function updateIncomingInvoice(
   const sets = fields.map(([key], i) => `${key} = $${i + 1}`);
   sets.push("updated_at = CURRENT_TIMESTAMP");
 
-  const hasAmountChange = "net_amount" in data || "tax_amount" in data;
+  // Keep `gross_cents` consistent when either of its inputs is updated.
+  const hasAmountChange = "net_cents" in data || "tax_cents" in data;
   if (hasAmountChange) {
-    sets.push("gross_amount = net_amount + tax_amount");
+    sets.push("gross_cents = net_cents + tax_cents");
   }
 
   const values = fields.map(([, v]) => v);

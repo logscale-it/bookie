@@ -40,6 +40,7 @@
 	async function handleSave(data: SaveData) {
 		if (!invoice) return;
 
+		// DAT-1.d: float totals are converted to integer cents at the DB boundary.
 		await updateInvoice(invoice.id, {
 			customer_id: data.customerId,
 			invoice_number: data.invoiceNumber,
@@ -48,9 +49,9 @@
 			service_period_start: data.servicePeriodStart || null,
 			service_period_end: data.servicePeriodEnd || null,
 			currency: data.currency,
-			net_amount: data.subtotal,
-			tax_amount: data.taxTotal,
-			gross_amount: data.grossTotal,
+			net_cents: Math.round(data.subtotal * 100),
+			tax_cents: Math.round(data.taxTotal * 100),
+			gross_cents: Math.round(data.grossTotal * 100),
 			issuer_name: data.company.legal_name || data.company.name,
 			issuer_tax_number: data.company.tax_number || null,
 			issuer_vat_id: data.company.vat_id || null,
@@ -73,14 +74,17 @@
 
 		for (let i = 0; i < data.items.length; i++) {
 			const item = data.items[i];
+			const quantity = parseFloat(item.quantity) || 0;
+			const unitPriceNet = parseFloat(item.unit_price_net) || 0;
+			const lineTotalNet = quantity * unitPriceNet;
 			const itemData = {
 				position: i + 1,
 				description: item.description,
-				quantity: parseFloat(item.quantity) || 0,
+				quantity,
 				unit: 'Stk',
-				unit_price_net: parseFloat(item.unit_price_net) || 0,
+				unit_price_net_cents: Math.round(unitPriceNet * 100),
 				tax_rate: parseFloat(item.tax_rate) || 0,
-				line_total_net: (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price_net) || 0)
+				line_total_net_cents: Math.round(lineTotalNet * 100)
 			};
 			if (item.id) {
 				await updateInvoiceItem(item.id, itemData);
