@@ -15,6 +15,15 @@ export async function getDb(): Promise<Database> {
   return db;
 }
 
+/**
+ * Test seam: inject a Database-shaped stub (e.g. an in-memory `bun:sqlite`
+ * adapter) so unit tests can exercise the production query code without a
+ * running Tauri runtime. Pass `null` to clear.
+ */
+export function __setDbForTesting(testDb: unknown): void {
+  db = testDb as Database | null;
+}
+
 /** Filters object entries to only include allowed column names, preventing SQL injection via dynamic keys. */
 export function safeFields<T extends Record<string, unknown>>(
   data: T,

@@ -395,17 +395,23 @@ fn backup_database(app: AppHandle) -> Result<BackupPayload, String> {
 /// SQLite magic header bytes: "SQLite format 3\0"
 const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 
-#[tauri::command]
-fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
-    info!("Database restore started ({} bytes)", bytes.len());
-
+/// Validates that a byte slice looks like a usable SQLite backup before we
+/// overwrite the live DB. Extracted from `restore_database` so it can be
+/// unit-tested without a Tauri runtime.
+fn validate_restore_bytes(bytes: &[u8]) -> Result<(), String> {
     if bytes.is_empty() {
         return Err("The uploaded file is empty.".to_string());
     }
-
     if bytes.len() < 16 || &bytes[..16] != SQLITE_MAGIC {
         return Err("The file is not a valid SQLite database.".to_string());
     }
+    Ok(())
+}
+
+#[tauri::command]
+fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
+    info!("Database restore started ({} bytes)", bytes.len());
+    validate_restore_bytes(&bytes)?;
 
     let db_file = db_path(&app)?;
 
@@ -800,6 +806,300 @@ fn delete_s3_credentials() -> Result<(), String> {
         }
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(format!("Keyring deletion failed: {e}")),
+    }
+}
+
+#[cfg(test)]
+mod pure_helper_tests {
+    use super::{is_sqlite_backup, sha256_hex, validate_restore_bytes, SQLITE_MAGIC};
+
+    #[test]
+    fn sqlite_magic_constant_matches_spec() {
+        assert_eq!(SQLITE_MAGIC, b"SQLite format 3\0");
+        assert_eq!(SQLITE_MAGIC.len(), 16);
+    }
+
+    #[test]
+    fn is_sqlite_backup_detects_magic_header() {
+        let mut data = SQLITE_MAGIC.to_vec();
+        data.extend_from_slice(b"...rest of db...");
+        assert!(is_sqlite_backup(&data));
+    }
+
+    #[test]
+    fn is_sqlite_backup_rejects_short_input() {
+        assert!(!is_sqlite_backup(b""));
+        assert!(!is_sqlite_backup(b"SQLite"));
+        assert!(!is_sqlite_backup(&SQLITE_MAGIC[..15]));
+    }
+
+    #[test]
+    fn is_sqlite_backup_rejects_wrong_magic() {
+        let mut bad = vec![0u8; 32];
+        bad[..3].copy_from_slice(b"PDF");
+        assert!(!is_sqlite_backup(&bad));
+    }
+
+    #[test]
+    fn sha256_hex_known_vector_empty_input() {
+        // Standard SHA-256 of empty input.
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn sha256_hex_known_vector_abc() {
+        // FIPS-180-4 sample: SHA-256("abc")
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn sha256_hex_is_lowercase_hex_with_fixed_length() {
+        let digest = sha256_hex(b"any input");
+        assert_eq!(digest.len(), 64);
+        assert!(digest
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn validate_restore_bytes_rejects_empty() {
+        let err = validate_restore_bytes(&[]).unwrap_err();
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn validate_restore_bytes_rejects_non_sqlite() {
+        let err = validate_restore_bytes(b"not a database, just text").unwrap_err();
+        assert!(err.contains("SQLite"));
+    }
+
+    #[test]
+    fn validate_restore_bytes_accepts_sqlite_header() {
+        let mut data = SQLITE_MAGIC.to_vec();
+        data.extend_from_slice(&[0u8; 100]);
+        assert!(validate_restore_bytes(&data).is_ok());
+    }
+
+    #[test]
+    fn validate_restore_bytes_rejects_too_short() {
+        // Less than 16 bytes can never be a valid SQLite header.
+        assert!(validate_restore_bytes(b"SQLite").is_err());
+    }
+}
+
+#[cfg(test)]
+mod s3_round_trip {
+    //! Real S3 round-trip tests against a local MinIO instance.
+    //!
+    //! Gated by env var `BOOKIE_TEST_S3=1`. The pre-push script
+    //! (`scripts/test-all.sh`) starts MinIO and sets this var. Without it
+    //! these tests are skipped (silently OK) so a bare `cargo test` does not
+    //! hang on a missing Docker container.
+    use super::*;
+    use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
+
+    const ENDPOINT: &str = "http://127.0.0.1:9100";
+    const REGION: &str = "us-east-1";
+    const ACCESS_KEY: &str = "minioadmin";
+    const SECRET_KEY: &str = "minioadmin";
+    const BUCKET: &str = "bookie-test";
+
+    fn skip_if_disabled() -> bool {
+        if std::env::var("BOOKIE_TEST_S3").ok().as_deref() != Some("1") {
+            eprintln!("skipping: set BOOKIE_TEST_S3=1 with MinIO running to enable");
+            return true;
+        }
+        false
+    }
+
+    fn cfg() -> S3Config {
+        S3Config {
+            endpoint_url: ENDPOINT.to_string(),
+            region: REGION.to_string(),
+            bucket_name: BUCKET.to_string(),
+            access_key_id: ACCESS_KEY.to_string(),
+            secret_access_key: SECRET_KEY.to_string(),
+        }
+    }
+
+    async fn ensure_bucket() {
+        let client = cfg().build_client();
+        let location = CreateBucketConfiguration::builder()
+            .location_constraint(BucketLocationConstraint::from(REGION))
+            .build();
+        let _ = client
+            .create_bucket()
+            .bucket(BUCKET)
+            .create_bucket_configuration(location)
+            .send()
+            .await;
+    }
+
+    fn unique_key(prefix: &str) -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("{prefix}-{nanos}")
+    }
+
+    #[tokio::test]
+    async fn connection_test_succeeds_against_minio() {
+        if skip_if_disabled() {
+            return;
+        }
+        ensure_bucket().await;
+        s3_test_connection(cfg())
+            .await
+            .expect("connection test should succeed");
+    }
+
+    #[tokio::test]
+    async fn upload_download_delete_round_trip() {
+        if skip_if_disabled() {
+            return;
+        }
+        ensure_bucket().await;
+        let key = unique_key("rtrip/file.bin");
+        let data = b"non-sqlite payload".to_vec();
+
+        let returned_key = s3_upload_file(
+            cfg(),
+            String::new(),
+            key.clone(),
+            data.clone(),
+            "application/octet-stream".to_string(),
+        )
+        .await
+        .expect("upload");
+        assert_eq!(returned_key, key);
+
+        let fetched = s3_download_file(cfg(), key.clone())
+            .await
+            .expect("download");
+        assert_eq!(fetched, data);
+
+        s3_delete_file(cfg(), key.clone()).await.expect("delete");
+
+        let after_delete = s3_download_file(cfg(), key).await;
+        assert!(after_delete.is_err(), "object should be gone after delete");
+    }
+
+    #[tokio::test]
+    async fn sqlite_backup_uploads_with_sha256_sidecar() {
+        if skip_if_disabled() {
+            return;
+        }
+        ensure_bucket().await;
+        let key = unique_key("backups/bookie.db");
+        // Build a fake SQLite payload: the magic header + arbitrary bytes.
+        let mut data = SQLITE_MAGIC.to_vec();
+        data.extend_from_slice(b"the rest of the database");
+        let expected_digest = sha256_hex(&data);
+
+        s3_upload_file(
+            cfg(),
+            String::new(),
+            key.clone(),
+            data,
+            "application/octet-stream".to_string(),
+        )
+        .await
+        .expect("upload");
+
+        let sidecar_key = format!("{key}.sha256");
+        let sidecar_bytes = s3_download_file(cfg(), sidecar_key.clone())
+            .await
+            .expect("sidecar should exist for sqlite uploads");
+        let sidecar = String::from_utf8(sidecar_bytes).expect("sidecar utf8");
+        assert_eq!(sidecar, expected_digest);
+
+        // Cleanup
+        let _ = s3_delete_file(cfg(), key).await;
+        let _ = s3_delete_file(cfg(), sidecar_key).await;
+    }
+
+    #[tokio::test]
+    async fn non_sqlite_upload_does_not_emit_sidecar() {
+        if skip_if_disabled() {
+            return;
+        }
+        ensure_bucket().await;
+        let key = unique_key("invoices/not-a-db.pdf");
+        let data = b"%PDF-1.7 fake pdf content".to_vec();
+
+        s3_upload_file(
+            cfg(),
+            String::new(),
+            key.clone(),
+            data,
+            "application/pdf".to_string(),
+        )
+        .await
+        .expect("upload");
+
+        let sidecar_key = format!("{key}.sha256");
+        let sidecar_result = s3_download_file(cfg(), sidecar_key).await;
+        assert!(
+            sidecar_result.is_err(),
+            "non-sqlite uploads must not produce a .sha256 sidecar"
+        );
+
+        let _ = s3_delete_file(cfg(), key).await;
+    }
+
+    #[tokio::test]
+    async fn presigned_url_returns_a_url_string() {
+        if skip_if_disabled() {
+            return;
+        }
+        ensure_bucket().await;
+        let key = unique_key("presign/test.txt");
+        s3_upload_file(
+            cfg(),
+            String::new(),
+            key.clone(),
+            b"hello".to_vec(),
+            "text/plain".to_string(),
+        )
+        .await
+        .unwrap();
+
+        let url = s3_presign_download_url(cfg(), key.clone(), 60)
+            .await
+            .expect("presign");
+        assert!(url.starts_with("http"), "got: {url}");
+        assert!(url.contains(BUCKET));
+
+        let _ = s3_delete_file(cfg(), key).await;
+    }
+
+    #[tokio::test]
+    async fn path_prefix_is_joined_to_file_name() {
+        if skip_if_disabled() {
+            return;
+        }
+        ensure_bucket().await;
+        let prefix = "rechnungen/2026";
+        let file_name = unique_key("file.txt");
+        let key = s3_upload_file(
+            cfg(),
+            prefix.to_string(),
+            file_name.clone(),
+            b"x".to_vec(),
+            "text/plain".to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(key, format!("{prefix}/{file_name}"));
+
+        let _ = s3_delete_file(cfg(), key).await;
     }
 }
 

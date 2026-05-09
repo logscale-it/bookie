@@ -9,7 +9,10 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "bun test tests/db/",
+    "test:all": "bash scripts/test-all.sh",
+    "postinstall": "bash scripts/install-git-hooks.sh"
   },
   "license": "MIT",
   "dependencies": {
@@ -27,6 +30,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.2.1",
     "@tauri-apps/cli": "^2.10.1",
+    "@types/bun": "^1.3.13",
     "svelte": "^5.53.12",
     "svelte-check": "^4.4.5",
     "typescript": "~6.0.3",

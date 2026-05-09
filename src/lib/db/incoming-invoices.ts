@@ -114,18 +114,39 @@ export async function updateIncomingInvoice(
   const fields = safeFields(data, ALLOWED_COLUMNS);
   if (fields.length === 0) return;
 
-  const sets = fields.map(([key], i) => `${key} = $${i + 1}`);
-  sets.push("updated_at = CURRENT_TIMESTAMP");
+  const db = await getDb();
 
   const hasAmountChange = "net_amount" in data || "tax_amount" in data;
   if (hasAmountChange) {
-    sets.push("gross_amount = net_amount + tax_amount");
+    // SQLite evaluates UPDATE SET expressions against the OLD row, so we
+    // can't compute gross_amount from net_amount + tax_amount in one
+    // statement. Read current values, merge, and persist the result.
+    const current = await db.select<
+      { net_amount: number; tax_amount: number }[]
+    >(
+      "SELECT net_amount, tax_amount FROM incoming_invoices WHERE id = $1",
+      [id],
+    );
+    if (current.length > 0) {
+      const merged = {
+        net_amount: (data.net_amount ?? current[0].net_amount) as number,
+        tax_amount: (data.tax_amount ?? current[0].tax_amount) as number,
+      };
+      const idx = fields.findIndex(([k]) => k === "net_amount");
+      if (idx >= 0) fields[idx] = ["net_amount", merged.net_amount];
+      else fields.push(["net_amount", merged.net_amount]);
+      const tIdx = fields.findIndex(([k]) => k === "tax_amount");
+      if (tIdx >= 0) fields[tIdx] = ["tax_amount", merged.tax_amount];
+      else fields.push(["tax_amount", merged.tax_amount]);
+      fields.push(["gross_amount", merged.net_amount + merged.tax_amount]);
+    }
   }
 
+  const sets = fields.map(([key], i) => `${key} = $${i + 1}`);
+  sets.push("updated_at = CURRENT_TIMESTAMP");
   const values = fields.map(([, v]) => v);
   values.push(id);
 
-  const db = await getDb();
   await db.execute(
     `UPDATE incoming_invoices SET ${sets.join(", ")} WHERE id = $${values.length}`,
     values,
