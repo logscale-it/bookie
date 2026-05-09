@@ -1,0 +1,64 @@
+# cargo-audit allowlist for the bookie Rust crate.
+#
+# cargo-audit auto-discovers .cargo/audit.toml relative to its working
+# directory, so the CI job (`working-directory: src-tauri`) picks this file
+# up automatically.
+#
+# Add an entry under [advisories].ignore when an upstream advisory has no
+# patched version available AND the impact has been triaged. Each entry
+# MUST carry a short justification and, where relevant, a re-evaluation
+# trigger (e.g. "remove when aws-sdk-s3 bumps rustls"). Keep this list
+# small and review it regularly.
+#
+# Reference: https://github.com/rustsec/rustsec/tree/main/cargo-audit
+
+[advisories]
+ignore = [
+  # --- Vulnerabilities (no upstream fix as of 2026-05-09) ---
+  # rsa Marvin Attack timing sidechannel. No fixed release of `rsa` available.
+  # Pulled in transitively by sqlx-mysql (we do not use MySQL at runtime; the
+  # crate is dragged in by the sqlx feature surface). Track upstream rsa fix.
+  "RUSTSEC-2023-0071",
+  # rustls-webpki name-constraint URI mishandling. Reaches us via an old
+  # rustls 0.21 inside the AWS SDK / hyper-rustls stack. Remove once
+  # aws-sdk-s3 / aws-smithy-runtime bump to a newer rustls / rustls-webpki.
+  "RUSTSEC-2026-0098",
+  # rustls-webpki name-constraint wildcard mishandling. Same upstream chain
+  # as RUSTSEC-2026-0098; remove together when aws-sdk-s3 bumps.
+  "RUSTSEC-2026-0099",
+  # rustls-webpki reachable panic in CRL parsing. Same upstream chain as
+  # RUSTSEC-2026-0098; remove together when aws-sdk-s3 bumps.
+  "RUSTSEC-2026-0104",
+
+  # --- Unmaintained crates (transitive, no action available) ---
+  # gtk-rs GTK3 bindings, all unmaintained. Pulled in by Tauri/wry on Linux.
+  # Remove once Tauri migrates to GTK4 bindings.
+  "RUSTSEC-2024-0411", # gdkwayland-sys
+  "RUSTSEC-2024-0412", # gdk
+  "RUSTSEC-2024-0413", # atk
+  "RUSTSEC-2024-0414", # gdkx11-sys
+  "RUSTSEC-2024-0415", # gtk
+  "RUSTSEC-2024-0416", # atk-sys
+  "RUSTSEC-2024-0417", # gdkx11
+  "RUSTSEC-2024-0418", # gdk-sys
+  "RUSTSEC-2024-0419", # gtk3-macros
+  "RUSTSEC-2024-0420", # gtk-sys
+  # proc-macro-error unmaintained; pulled in by older proc-macro consumers.
+  # Remove once all consumers migrate to proc-macro-error2 / syn 2.
+  "RUSTSEC-2024-0370",
+  # unic-* family unmaintained; transitive via idna / sqlx text handling.
+  # Remove once idna replaces unic-ucd with the in-tree icu_normalizer path.
+  "RUSTSEC-2025-0075", # unic-char-range
+  "RUSTSEC-2025-0080", # unic-common
+  "RUSTSEC-2025-0081", # unic-char-property
+  "RUSTSEC-2025-0098", # unic-ucd-version
+  "RUSTSEC-2025-0100", # unic-ucd-ident
+
+  # --- Unsound (no upstream fix on the pulled-in versions) ---
+  # glib VariantStrIter unsoundness. Pulled in via the GTK3 stack (same
+  # rationale as the gtk-rs unmaintained set); remove with the GTK4 migration.
+  "RUSTSEC-2024-0429",
+  # lru IterMut unsoundness. Reaches us only as a transitive dep of
+  # aws-sdk-s3. Remove once aws-sdk-s3 bumps lru.
+  "RUSTSEC-2026-0002",
+]
