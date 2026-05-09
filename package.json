@@ -20,6 +20,7 @@
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-sql": "~2.4.0",
+    "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "svelte-pdf": "^2.0.2",
     "tailwindcss": "^4.2.1"
