@@ -10,6 +10,7 @@
 -- issuer_bank_iban, issuer_bank_bic, issuer_bank_name, recipient_name, recipient_street,
 -- recipient_postal_code, recipient_city, recipient_country_code, notes, created_at,
 -- updated_at, delivery_date (0004), due_surcharge (0004), s3_key (0013),
+-- language (0014), legal_country_code (0014),
 -- net_cents (0015), tax_cents (0015), gross_cents (0015)
 
 PRAGMA foreign_keys=OFF;
@@ -48,6 +49,8 @@ CREATE TABLE invoices_new (
   delivery_date TEXT,
   due_surcharge REAL NOT NULL DEFAULT 0,
   s3_key TEXT,
+  language TEXT NOT NULL DEFAULT 'de',
+  legal_country_code TEXT NOT NULL DEFAULT 'DE',
   net_cents INTEGER NOT NULL DEFAULT 0,
   tax_cents INTEGER NOT NULL DEFAULT 0,
   gross_cents INTEGER NOT NULL DEFAULT 0,

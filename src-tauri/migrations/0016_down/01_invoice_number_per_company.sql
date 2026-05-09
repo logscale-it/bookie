@@ -1,6 +1,9 @@
 -- Revert to global invoice_number uniqueness. This will fail if duplicate
 -- invoice_numbers exist across companies (a scenario that the new constraint allows).
 -- An operator must manually resolve duplicates before this can be reverted.
+--
+-- Columns in invoices table (verified through migration 0001..0015, including
+-- language and legal_country_code from 0014).
 
 PRAGMA foreign_keys=OFF;
 BEGIN;
@@ -42,6 +45,8 @@ CREATE TABLE invoices_new (
   delivery_date TEXT,
   due_surcharge REAL NOT NULL DEFAULT 0,
   s3_key TEXT,
+  language TEXT NOT NULL DEFAULT 'de',
+  legal_country_code TEXT NOT NULL DEFAULT 'DE',
   net_cents INTEGER NOT NULL DEFAULT 0,
   tax_cents INTEGER NOT NULL DEFAULT 0,
   gross_cents INTEGER NOT NULL DEFAULT 0,
