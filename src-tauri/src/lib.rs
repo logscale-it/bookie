@@ -501,6 +501,161 @@ impl S3Config {
     }
 }
 
+// --- Retry helper for transient S3 failures (REL-2.a) ---
+//
+// `with_retry` runs an async operation up to `policy.max_attempts` times,
+// retrying only when the returned error is classified as transient by the
+// `IsRetryable` trait. Between attempts it sleeps for an exponentially
+// increasing base delay (250ms, 500ms, 1000ms, ...) multiplied by a uniform
+// random factor in [0.5, 1.5] (full jitter).
+//
+// REL-2.b will wrap the existing S3 commands in this helper. This module
+// only provides the helper and its policy / classification primitives.
+
+/// Configuration for `with_retry`.
+#[allow(dead_code)] // wired into S3 commands by REL-2.b
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RetryPolicy {
+    /// Total number of attempts (including the first). Must be >= 1.
+    pub max_attempts: u32,
+    /// Base delay for the first backoff sleep in milliseconds. The sleep
+    /// before attempt N is `base_delay_ms * 2^(N-2)` jittered to [0.5x, 1.5x].
+    pub base_delay_ms: u64,
+}
+
+#[allow(dead_code)] // wired into S3 commands by REL-2.b
+impl RetryPolicy {
+    /// Default policy used by S3 commands: 3 attempts with 250ms / 500ms / 1s
+    /// exponential backoff plus full jitter.
+    pub(crate) fn s3_default() -> Self {
+        Self {
+            max_attempts: 3,
+            base_delay_ms: 250,
+        }
+    }
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self::s3_default()
+    }
+}
+
+/// Implemented by error types that can distinguish transient failures from
+/// permanent ones. `with_retry` only retries when this returns `true`.
+#[allow(dead_code)] // wired into S3 commands by REL-2.b
+pub(crate) trait IsRetryable {
+    fn is_retryable(&self) -> bool;
+}
+
+impl<E> IsRetryable for aws_sdk_s3::error::SdkError<E> {
+    fn is_retryable(&self) -> bool {
+        use aws_sdk_s3::error::SdkError;
+        match self {
+            // Network-level dispatch errors: DNS resolution, connection
+            // reset, TLS hiccups. All considered transient.
+            SdkError::DispatchFailure(_) => true,
+            // Smithy timeout (request timed out before a response).
+            SdkError::TimeoutError(_) => true,
+            // Could not parse / read the response stream.
+            SdkError::ResponseError(_) => true,
+            // Construction failures are bugs in the request, not transient.
+            SdkError::ConstructionFailure(_) => false,
+            // Service responded with a status code. Retry 5xx and 429,
+            // fail fast on every other 4xx (NoSuchBucket, AccessDenied, ...).
+            SdkError::ServiceError(ctx) => {
+                let status = ctx.raw().status().as_u16();
+                status >= 500 || status == 429
+            }
+            // SdkError is `#[non_exhaustive]`; be conservative on unknown
+            // variants and do not retry.
+            _ => false,
+        }
+    }
+}
+
+/// Run `op` with bounded exponential backoff. The closure is invoked once per
+/// attempt so the caller can build a fresh request each time (AWS SDK request
+/// builders are single-use).
+#[allow(dead_code)] // wired into S3 commands by REL-2.b
+pub(crate) async fn with_retry<F, Fut, T, E>(mut op: F, policy: RetryPolicy) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: IsRetryable,
+{
+    let max_attempts = policy.max_attempts.max(1);
+
+    let mut attempt: u32 = 1;
+    loop {
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(err) => {
+                if !err.is_retryable() || attempt >= max_attempts {
+                    return Err(err);
+                }
+                // exponent = attempt - 1 (0, 1, 2, ...) -> 250ms, 500ms, 1s
+                let exp = attempt - 1;
+                let base = policy.base_delay_ms.saturating_mul(1u64 << exp.min(20));
+                let jittered = jitter_full(base);
+                tokio::time::sleep(Duration::from_millis(jittered)).await;
+                attempt += 1;
+            }
+        }
+    }
+}
+
+/// Multiply `base_ms` by a uniform random factor in [0.5, 1.5] using a small
+/// inline PRNG seeded from the system clock. Avoids pulling in `rand` for a
+/// single use site.
+#[allow(dead_code)] // wired into S3 commands by REL-2.b
+fn jitter_full(base_ms: u64) -> u64 {
+    if base_ms == 0 {
+        return 0;
+    }
+    // Half of base, plus a uniform sample in [0, base_ms].
+    let half = base_ms / 2;
+    // full span = base_ms; result in [half, half + base_ms] = [0.5x, 1.5x]
+    let modulus = base_ms.saturating_add(1);
+    let r = next_rand_u64();
+    let offset = r % modulus;
+    half.saturating_add(offset)
+}
+
+/// Tiny xorshift64* PRNG. Thread-local, seeded once from the wall clock. Not
+/// cryptographically secure -- only used for jitter on retry delays.
+#[allow(dead_code)] // wired into S3 commands by REL-2.b
+fn next_rand_u64() -> u64 {
+    use std::cell::Cell;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    thread_local! {
+        static STATE: Cell<u64> = Cell::new(0);
+    }
+
+    STATE.with(|cell| {
+        let mut s = cell.get();
+        if s == 0 {
+            // Lazy seed from the wall clock; XORed with a fixed odd
+            // constant so a near-zero clock cannot leave the PRNG zeroed.
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0x9E37_79B9_7F4A_7C15);
+            s = nanos ^ 0xA076_1D64_78BD_642F_u64;
+            if s == 0 {
+                s = 0xA076_1D64_78BD_642F_u64;
+            }
+        }
+        // xorshift64*
+        s ^= s >> 12;
+        s ^= s << 25;
+        s ^= s >> 27;
+        cell.set(s);
+        s.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    })
+}
+
 fn format_s3_error<E: std::fmt::Debug>(err: &aws_sdk_s3::error::SdkError<E>) -> String {
     match err {
         aws_sdk_s3::error::SdkError::ServiceError(ctx) => {
@@ -1353,4 +1508,113 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::{with_retry, IsRetryable, RetryPolicy};
+    use std::cell::Cell;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum TestErr {
+        Transient,
+        Permanent,
+    }
+
+    impl IsRetryable for TestErr {
+        fn is_retryable(&self) -> bool {
+            matches!(self, TestErr::Transient)
+        }
+    }
+
+    fn fast_policy(max_attempts: u32) -> RetryPolicy {
+        // 1ms base keeps the tests well under 10ms total.
+        RetryPolicy {
+            max_attempts,
+            base_delay_ms: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn first_attempt_succeeds() {
+        let calls = Cell::new(0u32);
+        let res = with_retry(
+            || {
+                calls.set(calls.get() + 1);
+                async { Ok::<&'static str, TestErr>("ok") }
+            },
+            fast_policy(3),
+        )
+        .await;
+        assert_eq!(res, Ok("ok"));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn transient_then_success() {
+        let calls = Cell::new(0u32);
+        let res = with_retry(
+            || {
+                let n = calls.get() + 1;
+                calls.set(n);
+                async move {
+                    if n == 1 {
+                        Err::<&'static str, TestErr>(TestErr::Transient)
+                    } else {
+                        Ok("ok")
+                    }
+                }
+            },
+            fast_policy(3),
+        )
+        .await;
+        assert_eq!(res, Ok("ok"));
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[tokio::test]
+    async fn permanent_fails_fast() {
+        let calls = Cell::new(0u32);
+        let res = with_retry(
+            || {
+                calls.set(calls.get() + 1);
+                async { Err::<(), TestErr>(TestErr::Permanent) }
+            },
+            fast_policy(3),
+        )
+        .await;
+        assert_eq!(res, Err(TestErr::Permanent));
+        // Permanent error must not retry: exactly one attempt.
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn exhausts_attempts_on_persistent_transient() {
+        let calls = Cell::new(0u32);
+        let res = with_retry(
+            || {
+                calls.set(calls.get() + 1);
+                async { Err::<(), TestErr>(TestErr::Transient) }
+            },
+            fast_policy(3),
+        )
+        .await;
+        assert_eq!(res, Err(TestErr::Transient));
+        assert_eq!(calls.get(), 3);
+    }
+
+    #[test]
+    fn jitter_stays_in_full_jitter_band() {
+        // [0.5x, 1.5x] of 1000 ms = [500, 1500]. Sample many times and
+        // assert the bounds always hold.
+        for _ in 0..1000 {
+            let v = super::jitter_full(1000);
+            assert!((500..=1500).contains(&v), "jitter out of band: {v}");
+        }
+    }
+
+    #[test]
+    fn jitter_zero_base_is_zero() {
+        assert_eq!(super::jitter_full(0), 0);
+    }
 }
