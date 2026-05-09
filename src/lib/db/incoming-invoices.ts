@@ -1,9 +1,18 @@
 import { getDb, safeFields } from "./connection";
 import type { IncomingInvoice } from "./types";
 
+// `*_cents` fields are readable on `IncomingInvoice` (DAT-1.b) but the write
+// path is not yet repointed — that is DAT-1.d (#54). Exclude them from the
+// Create/Update payload shape until then.
 type CreateIncomingInvoice = Omit<
   IncomingInvoice,
-  "id" | "gross_amount" | "created_at" | "updated_at"
+  | "id"
+  | "gross_amount"
+  | "created_at"
+  | "updated_at"
+  | "net_cents"
+  | "tax_cents"
+  | "gross_cents"
 >;
 type UpdateIncomingInvoice = Partial<Omit<CreateIncomingInvoice, "company_id">>;
 
@@ -31,7 +40,8 @@ export async function listIncomingInvoices(
   const db = await getDb();
   return db.select(
     `SELECT ii.id, ii.company_id, ii.supplier_id, ii.invoice_number, ii.invoice_date,
-		        ii.net_amount, ii.tax_amount, ii.gross_amount, ii.status,
+		        ii.net_amount, ii.tax_amount, ii.gross_amount,
+		        ii.net_cents, ii.tax_cents, ii.gross_cents, ii.status,
 		        ii.file_name, ii.file_type, ii.s3_key, ii.notes, ii.created_at, ii.updated_at,
 		        c.name as supplier_name
 		 FROM incoming_invoices ii

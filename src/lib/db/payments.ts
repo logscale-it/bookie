@@ -1,7 +1,13 @@
 import { getDb } from "./connection";
 import type { Payment } from "./types";
 
-type CreatePayment = Omit<Payment, "id" | "created_at" | "updated_at">;
+// `amount_cents` is readable on `Payment` (DAT-1.b) but the write path is not
+// yet repointed — that is DAT-1.d (#54). Exclude it from the Create payload
+// shape until then.
+type CreatePayment = Omit<
+  Payment,
+  "id" | "created_at" | "updated_at" | "amount_cents"
+>;
 
 export async function listByInvoice(invoiceId: number): Promise<Payment[]> {
   const db = await getDb();
