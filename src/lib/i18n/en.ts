@@ -38,7 +38,10 @@ export default {
 		error: 'Error',
 		backToHome: 'Back to Home',
 		unexpectedError: 'An unexpected error occurred.',
-		saveChanges: 'Save changes'
+		saveChanges: 'Save changes',
+		pagerPrev: 'Previous',
+		pagerNext: 'Next',
+		pagerPageOf: 'Page {page} of {total}'
 	},
 	overview: {
 		title: 'Overview',

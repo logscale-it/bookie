@@ -6,7 +6,10 @@
 	import { listProjects } from '$lib/db/projects';
 	import { createTimeEntry, listTimeEntries, updateTimeEntry } from '$lib/db/time-entries';
 	import type { Customer, Project, TimeEntry } from '$lib/db/types';
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { parsePager, totalPages, type PagerState } from '$lib/pager';
 
 	type TimeEntryRow = TimeEntry & {
 		customerName: string;
@@ -16,6 +19,7 @@
 	};
 
 	let rows = $state<TimeEntryRow[]>([]);
+	let totalCount = $state(0);
 	let customers = $state<Customer[]>([]);
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
@@ -23,6 +27,9 @@
 	let formError = $state('');
 	let showEntryDialog = $state(false);
 	let editingTimeEntryId = $state<number | null>(null);
+
+	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
+	const pageCount = $derived(totalPages(totalCount, pager.size));
 
 	let description = $state('');
 	let customerId = $state('');
@@ -57,7 +64,8 @@
 	const dialogTitle = $derived.by(() => (editingTimeEntryId === null ? t('timeTracking.createEntry') : t('timeTracking.editEntry')));
 
 	$effect(() => {
-		loadData();
+		// re-fetch when URL pager changes
+		loadData(pager.page, pager.size);
 	});
 
 	async function ensureCompanyId(): Promise<number> {
@@ -79,11 +87,12 @@
 		});
 	}
 
-	async function loadData() {
+	async function loadData(pageNum = pager.page, size = pager.size) {
 		loading = true;
 		const companyId = await ensureCompanyId();
+		const offset = (pageNum - 1) * size;
 		const [timeEntriesResult, customerRows, projectRows] = await Promise.all([
-			listTimeEntries(companyId),
+			listTimeEntries(companyId, { limit: size, offset }),
 			listClients(companyId),
 			listProjects(companyId)
 		]);
@@ -100,7 +109,15 @@
 			timeFrameLabel: formatTimeFrame(entry.started_at, entry.ended_at, entry.entry_date),
 			durationHoursLabel: formatHours(entry.duration_minutes)
 		}));
+		totalCount = timeEntriesResult.totalCount;
 		loading = false;
+	}
+
+	function gotoPage(target: number) {
+		const params = new URLSearchParams(page.url.searchParams);
+		params.set('page', String(target));
+		params.set('size', String(pager.size));
+		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
 	}
 
 	function resetForm() {
@@ -349,4 +366,28 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if !loading && totalCount > 0}
+		<div class="flex items-center justify-between gap-3">
+			<button
+				type="button"
+				class="btn-secondary"
+				disabled={pager.page <= 1}
+				onclick={() => gotoPage(pager.page - 1)}
+			>
+				{t('common.pagerPrev')}
+			</button>
+			<span class="text-sm text-zinc-600 dark:text-zinc-300">
+				{tp('common.pagerPageOf', { page: pager.page, total: pageCount })}
+			</span>
+			<button
+				type="button"
+				class="btn-secondary"
+				disabled={pager.page >= pageCount}
+				onclick={() => gotoPage(pager.page + 1)}
+			>
+				{t('common.pagerNext')}
+			</button>
+		</div>
+	{/if}
 </section>
