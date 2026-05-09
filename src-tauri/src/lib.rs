@@ -458,9 +458,7 @@ where
                 }
                 // exponent = attempt - 1 (0, 1, 2, ...) -> 250ms, 500ms, 1s
                 let exp = attempt - 1;
-                let base = policy
-                    .base_delay_ms
-                    .saturating_mul(1u64 << exp.min(20));
+                let base = policy.base_delay_ms.saturating_mul(1u64 << exp.min(20));
                 let jittered = jitter_full(base);
                 tokio::time::sleep(Duration::from_millis(jittered)).await;
                 attempt += 1;
