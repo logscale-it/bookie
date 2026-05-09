@@ -142,7 +142,7 @@ describe("invoices CRUD + items + status history", () => {
     expect(got?.status).toBe("draft"); // rolled back
   });
 
-  test("CASCADE: deleting invoice removes its items and status history", async () => {
+  test("CASCADE: deleting draft invoice removes its items and status history", async () => {
     const { companyId, customerId } = await seed();
     const invId = await invoices.createInvoice(blankInvoice(companyId, customerId, "INV-CASC"));
     await invoiceItems.createInvoiceItem({
@@ -150,7 +150,12 @@ describe("invoices CRUD + items + status history", () => {
       position: 1, description: "X", quantity: 1, unit: null,
       unit_price_net: 10, tax_rate: 19, line_total_net: 10,
     });
-    await invoices.updateInvoiceStatus(invId, null, "issued");
+    // History row created without leaving draft, so the immutability trigger
+    // (which forbids deleting non-draft invoices) does not apply.
+    await testDb.execute(
+      "INSERT INTO invoice_status_history (invoice_id, from_status, to_status) VALUES ($1, $2, $3)",
+      [invId, null, "draft"],
+    );
 
     await invoices.deleteInvoice(invId);
 
