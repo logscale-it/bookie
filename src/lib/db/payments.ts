@@ -3,12 +3,28 @@ import type { Payment } from "./types";
 
 type CreatePayment = Omit<Payment, "id" | "created_at" | "updated_at">;
 
-export async function listByInvoice(invoiceId: number): Promise<Payment[]> {
+export interface PageResult<T> {
+  rows: T[];
+  totalCount: number;
+}
+
+export async function listByInvoice(
+  invoiceId: number,
+  opts?: { limit?: number; offset?: number },
+): Promise<PageResult<Payment>> {
+  // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
+  const limit = opts?.limit ?? 200;
+  const offset = opts?.offset ?? 0;
   const db = await getDb();
-  return db.select(
-    "SELECT * FROM payments WHERE invoice_id = $1 ORDER BY payment_date DESC",
-    [invoiceId],
+  const raw = await db.select<(Payment & { _total_count: number })[]>(
+    `SELECT *, COUNT(*) OVER() AS _total_count
+     FROM payments WHERE invoice_id = $1
+     ORDER BY payment_date DESC LIMIT $2 OFFSET $3`,
+    [invoiceId, limit, offset],
   );
+  const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
+  const rows = raw.map(({ _total_count: _, ...rest }) => rest as Payment);
+  return { rows, totalCount };
 }
 
 export async function createPayment(data: CreatePayment): Promise<number> {
