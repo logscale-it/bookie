@@ -14,6 +14,99 @@ const DB_FILE_NAME: &str = "bookie.db";
 const KEYRING_SERVICE: &str = "com.ranelkarimov.bookie";
 const KEYRING_USER: &str = "s3_credentials";
 
+/// Typed error enum for all Bookie backend operations.
+///
+/// Serialises with `serde(tag = "kind")` so unit variants produce
+/// `{"kind":"VariantName"}` and struct variants produce
+/// `{"kind":"VariantName","field":"value"}`.
+///
+/// Note: the original spec defined `IoError(String)` and `Unknown(String)` as
+/// tuple variants, but `serde(tag = "kind")` is incompatible with tuple variants.
+/// They are therefore realised as struct variants with a single `message` field.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
+pub enum BookieError {
+    S3CredsInvalid,
+    S3Unreachable,
+    S3BucketMissing,
+    S3EndpointInvalid,
+    BackupCorrupt,
+    BackupSidecarMismatch,
+    KeyringUnavailable,
+    MigrationOutOfDate,
+    InvoiceImmutable,
+    IoError { message: String },
+    Unknown { message: String },
+}
+
+impl std::fmt::Display for BookieError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BookieError::S3CredsInvalid => write!(f, "S3 credentials are invalid"),
+            BookieError::S3Unreachable => write!(f, "S3 endpoint is unreachable"),
+            BookieError::S3BucketMissing => write!(f, "S3 bucket does not exist"),
+            BookieError::S3EndpointInvalid => write!(f, "S3 endpoint URL is invalid"),
+            BookieError::BackupCorrupt => write!(f, "Backup file is corrupt"),
+            BookieError::BackupSidecarMismatch => write!(f, "Backup sidecar checksum mismatch"),
+            BookieError::KeyringUnavailable => write!(f, "OS keyring is unavailable"),
+            BookieError::MigrationOutOfDate => write!(f, "Database migration is out of date"),
+            BookieError::InvoiceImmutable => write!(f, "Invoice cannot be modified"),
+            BookieError::IoError { message } => write!(f, "I/O error: {message}"),
+            BookieError::Unknown { message } => write!(f, "Unknown error: {message}"),
+        }
+    }
+}
+
+impl From<std::io::Error> for BookieError {
+    fn from(e: std::io::Error) -> Self {
+        BookieError::IoError {
+            message: e.to_string(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod bookie_error_tests {
+    use super::BookieError;
+
+    #[test]
+    fn unit_variant_serialises_to_kind_only() {
+        let s = serde_json::to_string(&BookieError::S3CredsInvalid).unwrap();
+        assert_eq!(s, r#"{"kind":"S3CredsInvalid"}"#);
+    }
+
+    #[test]
+    fn unit_variant_round_trips() {
+        let original = BookieError::S3CredsInvalid;
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: BookieError = serde_json::from_str(&json).unwrap();
+        // Verify discriminant round-trips by re-serialising
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), json);
+    }
+
+    #[test]
+    fn struct_variant_round_trips() {
+        let original = BookieError::IoError {
+            message: "file not found".to_string(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert!(json.contains(r#""kind":"IoError""#));
+        assert!(json.contains(r#""message":"file not found""#));
+        let parsed: BookieError = serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), json);
+    }
+
+    #[test]
+    fn from_io_error_maps_to_io_error_variant() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+        let bookie_err = BookieError::from(io_err);
+        match bookie_err {
+            BookieError::IoError { message } => assert!(message.contains("no such file")),
+            other => panic!("expected IoError, got {other:?}"),
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct BackupPayload {
     file_name: String,
