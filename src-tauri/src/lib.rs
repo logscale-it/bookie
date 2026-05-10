@@ -1,7 +1,8 @@
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use aws_credential_types::Credentials;
@@ -2046,6 +2047,254 @@ fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::e
     Ok(guard)
 }
 
+/// Compute today's log file path in the same naming scheme produced by
+/// `tracing_appender::rolling::Builder::filename_prefix("bookie")`,
+/// `filename_suffix("log")`, `Rotation::DAILY` — i.e.
+/// `<log_dir>/bookie.<YYYY-MM-DD>.log`.
+///
+/// The panic hook writes directly to this file (bypassing the non-blocking
+/// `tracing-appender` worker) so the JSON line is durable on disk *before*
+/// the process aborts — the worker's queued writes would otherwise be lost
+/// when `panic = "abort"` skips the `WorkerGuard` drop.
+fn panic_log_path(log_dir: &Path, now: SystemTime) -> PathBuf {
+    let secs = now
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (y, m, d) = unix_seconds_to_ymd_utc(secs);
+    log_dir.join(format!("bookie.{y:04}-{m:02}-{d:02}.log"))
+}
+
+/// Format a `SystemTime` as an RFC 3339 / ISO 8601 UTC timestamp with second
+/// precision, e.g. `2026-05-10T13:45:01Z`. Used in the panic JSON line.
+fn format_rfc3339_utc(now: SystemTime) -> String {
+    let secs = now
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (y, mo, d) = unix_seconds_to_ymd_utc(secs);
+    let day_secs = secs % 86_400;
+    let h = day_secs / 3600;
+    let mi = (day_secs % 3600) / 60;
+    let se = day_secs % 60;
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{se:02}Z")
+}
+
+/// Convert Unix epoch seconds to a (year, month, day) triple in UTC.
+///
+/// Implements the civil-from-days algorithm by Howard Hinnant
+/// (<https://howardhinnant.github.io/date_algorithms.html#civil_from_days>),
+/// which is correct for all years in `[-32767, 32767]` and avoids pulling in
+/// the `chrono`/`time` crates just to print a date in the panic hook.
+fn unix_seconds_to_ymd_utc(secs: u64) -> (i32, u32, u32) {
+    let days = (secs / 86_400) as i64;
+    // Shift from the Unix epoch (1970-01-01) to 0000-03-01, where leap-year
+    // arithmetic is simplest.
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
+/// Build the JSON line written to the log file for a panic event.
+///
+/// Shape:
+/// ```json
+/// {"timestamp":"2026-05-10T13:45:01Z","level":"panic","message":"...","location":"src/foo.rs:12:5","backtrace":"..."}
+/// ```
+///
+/// `level` is always the string `"panic"` so log consumers can filter on it
+/// without having to parse the message. `location` is `"<unknown>"` if the
+/// panic was raised without location info; `backtrace` is included verbatim
+/// (it may be `"disabled backtrace"` when `RUST_BACKTRACE` is unset).
+fn build_panic_json_line(
+    now: SystemTime,
+    message: &str,
+    location: Option<&std::panic::Location<'_>>,
+    backtrace: &str,
+) -> String {
+    let payload = serde_json::json!({
+        "timestamp": format_rfc3339_utc(now),
+        "level": "panic",
+        "message": message,
+        "location": location
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown>".to_string()),
+        "backtrace": backtrace,
+    });
+    // Compact JSON, single line, terminated by `\n` so the file remains a
+    // valid JSON-lines stream parseable alongside the entries written by the
+    // tracing JSON layer.
+    format!("{payload}\n")
+}
+
+/// Install a process-wide panic hook that:
+///
+/// 1. Captures the panic message, location, and backtrace.
+/// 2. Serialises a single JSON line tagged `level="panic"` and appends it
+///    to today's log file (`<log_dir>/bookie.<YYYY-MM-DD>.log`), matching
+///    the file produced by `tracing-appender`'s daily rotation.
+/// 3. Calls `flush()` *before* returning so the bytes are durable on disk
+///    even though the release profile sets `panic = "abort"` (which would
+///    otherwise skip drop handlers, including the `WorkerGuard` flush).
+/// 4. Calls `std::process::abort()` to preserve the `panic = "abort"`
+///    behaviour configured in `Cargo.toml`'s release profile, ensuring the
+///    process exits with the same disposition it would have had without the
+///    hook.
+///
+/// The hook is best-effort: any I/O failure while writing the panic line is
+/// printed to stderr (since logging itself is on the failing path) and then
+/// the process is aborted regardless. This is the right trade-off for a
+/// crash handler — we *never* want to swallow the abort or recurse.
+pub fn install_panic_hook(log_dir: PathBuf) {
+    std::panic::set_hook(Box::new(move |info| {
+        // Extract a printable panic message from either &str or String payloads.
+        let message = if let Some(s) = info.payload().downcast_ref::<&'static str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Box<dyn Any>".to_string()
+        };
+
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let line = build_panic_json_line(SystemTime::now(), &message, info.location(), &backtrace);
+
+        // Resolve the file path for *today* on every panic — if the process
+        // has been running across midnight, the path will roll forward and
+        // continue to match the tracing-appender file in use.
+        let path = panic_log_path(&log_dir, SystemTime::now());
+
+        if let Err(err) = append_and_flush(&path, line.as_bytes()) {
+            // Logger is the failing path; surface to stderr so the user's
+            // terminal (or systemd journal) still has something to show.
+            eprintln!("panic hook: failed to write to {}: {err}", path.display());
+            eprintln!("panic hook: original panic: {message}");
+        }
+
+        // Re-abort to preserve the release profile's `panic = "abort"`
+        // semantics; this is what would have happened without our hook.
+        std::process::abort();
+    }));
+}
+
+/// Append `bytes` to `path`, creating the file if needed, and explicitly
+/// flush + sync so the bytes are durable before the caller proceeds (the
+/// caller in our case is the panic hook which is about to abort).
+fn append_and_flush(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    f.write_all(bytes)?;
+    f.flush()?;
+    // Best-effort fsync — on platforms where it is unsupported, treat as ok.
+    let _ = f.sync_all();
+    Ok(())
+}
+
+#[cfg(test)]
+mod panic_hook_tests {
+    use super::{
+        append_and_flush, build_panic_json_line, format_rfc3339_utc, panic_log_path,
+        unix_seconds_to_ymd_utc,
+    };
+    use std::time::{Duration, UNIX_EPOCH};
+
+    #[test]
+    fn ymd_at_unix_epoch_is_1970_01_01() {
+        assert_eq!(unix_seconds_to_ymd_utc(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn ymd_known_date_2024_03_01_after_leap_day() {
+        // 2024-03-01 00:00:00 UTC = 1709251200
+        assert_eq!(unix_seconds_to_ymd_utc(1_709_251_200), (2024, 3, 1));
+    }
+
+    #[test]
+    fn ymd_known_date_2026_05_10() {
+        // 2026-05-10 00:00:00 UTC = 1778371200
+        assert_eq!(unix_seconds_to_ymd_utc(1_778_371_200), (2026, 5, 10));
+    }
+
+    #[test]
+    fn rfc3339_format_at_known_instant() {
+        let t = UNIX_EPOCH + Duration::from_secs(1_778_371_200 + 3661); // 01:01:01
+        assert_eq!(format_rfc3339_utc(t), "2026-05-10T01:01:01Z");
+    }
+
+    #[test]
+    fn panic_log_path_matches_tracing_appender_naming() {
+        let dir = std::path::Path::new("/tmp/logs");
+        let t = UNIX_EPOCH + Duration::from_secs(1_778_371_200);
+        let p = panic_log_path(dir, t);
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/tmp/logs/bookie.2026-05-10.log")
+        );
+    }
+
+    #[test]
+    fn panic_json_line_has_required_fields() {
+        let t = UNIX_EPOCH + Duration::from_secs(1_778_371_200);
+        let line = build_panic_json_line(t, "boom", None, "no backtrace");
+        // Must be a single line terminated by \n
+        assert!(line.ends_with('\n'));
+        assert_eq!(line.matches('\n').count(), 1);
+
+        let parsed: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(parsed["level"], "panic");
+        assert_eq!(parsed["message"], "boom");
+        assert_eq!(parsed["location"], "<unknown>");
+        assert_eq!(parsed["backtrace"], "no backtrace");
+        assert_eq!(parsed["timestamp"], "2026-05-10T00:00:00Z");
+    }
+
+    #[test]
+    fn panic_json_line_message_is_escaped() {
+        // Quotes / newlines in the panic message must round-trip safely as
+        // JSON; otherwise the log file would no longer be JSON-lines.
+        let t = UNIX_EPOCH + Duration::from_secs(0);
+        let line = build_panic_json_line(t, "with \"quotes\" and\nnewline", None, "");
+        assert_eq!(
+            line.matches('\n').count(),
+            1,
+            "exactly one trailing newline"
+        );
+        let parsed: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert_eq!(parsed["message"], "with \"quotes\" and\nnewline");
+    }
+
+    #[test]
+    fn append_and_flush_writes_and_creates_parent() {
+        let tmp =
+            std::env::temp_dir().join(format!("bookie-panic-hook-test-{}", std::process::id()));
+        let nested = tmp.join("nested").join("bookie.test.log");
+        // Clean up any previous run.
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        append_and_flush(&nested, b"first\n").unwrap();
+        append_and_flush(&nested, b"second\n").unwrap();
+
+        let contents = std::fs::read_to_string(&nested).unwrap();
+        assert_eq!(contents, "first\nsecond\n");
+
+        // Cleanup.
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // keyring v4 split the platform-specific backends into the `keyring` crate
@@ -2084,6 +2333,11 @@ pub fn run() {
                     // Tauri-managed state. Dropping it flushes the non-blocking
                     // writer; we want that to happen at process shutdown only.
                     app.manage(guard);
+                    // OBS-1.b: install the panic hook *after* tracing init so
+                    // it can write to the same daily-rotated file. The hook
+                    // writes a JSON line tagged level="panic" then aborts,
+                    // preserving the release profile's `panic = "abort"`.
+                    install_panic_hook(log_dir.clone());
                     info!("Bookie starting (log_dir={})", log_dir.display());
                 }
                 Err(err) => {
