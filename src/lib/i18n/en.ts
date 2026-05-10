@@ -334,7 +334,14 @@ export default {
 		connectionFailed: 'Connection failed',
 		s3Saved: 'S3 settings saved.',
 		s3SaveError: 'Error saving',
-		credentialWarning: 'Credentials could not be loaded from the keychain. Please enter them again.'
+		credentialWarning: 'Credentials could not be loaded from the keychain. Please enter them again.',
+		diagnose: 'Diagnostics',
+		diagnoseTitle: 'Diagnostic logs',
+		diagnoseDesc: 'The last 200 application log entries. Useful when filing a bug report.',
+		diagnoseRefresh: 'Refresh',
+		diagnoseLoading: 'Loading logs…',
+		diagnoseEmpty: 'No log entries available.',
+		diagnoseError: 'Could not load logs'
 	},
 	pdf: {
 		invoiceTitle: 'Invoice',
