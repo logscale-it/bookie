@@ -12,3 +12,4 @@ export * as incomingInvoices from "./incoming-invoices";
 export * as settings from "./settings";
 export * as dashboard from "./dashboard";
 export * as backfillFileData from "./backfill-file-data";
+export * as dsgvoErasure from "./dsgvo_erasure";
