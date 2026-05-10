@@ -33,7 +33,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
 tracing-appender = "0.2"
 tracing-log = "0.2"
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+keyring = "4"
+keyring-core = "1"
 sha2 = "0.10"
 url = "2"
 
