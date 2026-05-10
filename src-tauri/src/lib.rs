@@ -1021,7 +1021,11 @@ const RESTORE_TMP_SUFFIX: &str = ".restore.tmp";
 /// Compute the temporary file path used during restore for a given live DB
 /// path. The tmp file lives in the same parent directory as the live DB so
 /// that the subsequent rename is atomic.
-fn restore_tmp_path(db_path: &Path) -> PathBuf {
+///
+/// Public so the REL-1.d integration test (`tests/restore_integration.rs`)
+/// can simulate a partial-download abort and a kill-mid-rename scenario
+/// without re-deriving the path-naming convention.
+pub fn restore_tmp_path(db_path: &Path) -> PathBuf {
     let mut name = db_path
         .file_name()
         .map(|n| n.to_os_string())
@@ -1037,7 +1041,11 @@ fn restore_tmp_path(db_path: &Path) -> PathBuf {
 /// SQLite uses `<db>-wal` and `<db>-shm` (suffix on the full file name, not
 /// an extension swap), so for `bookie.db` we expect `bookie.db-wal` and
 /// `bookie.db-shm`.
-fn wal_shm_sibling_paths(db_path: &Path) -> (PathBuf, PathBuf) {
+///
+/// Public so the REL-1.d integration test can stage WAL/SHM siblings around
+/// the live DB and assert restore cleanup leaves the live file untouched on
+/// the abort paths.
+pub fn wal_shm_sibling_paths(db_path: &Path) -> (PathBuf, PathBuf) {
     let mut wal_name = db_path
         .file_name()
         .map(|n| n.to_os_string())
@@ -1060,7 +1068,11 @@ fn wal_shm_sibling_paths(db_path: &Path) -> (PathBuf, PathBuf) {
 }
 
 /// Fail-safe removal: returns Ok(()) if the path does not exist.
-fn remove_if_exists(path: &Path) -> std::io::Result<()> {
+///
+/// Public so the REL-1.d integration test can drive the same startup-cleanup
+/// primitive `restore_db_backup` uses to reap leftover `.restore.tmp` files
+/// from a previous aborted run.
+pub fn remove_if_exists(path: &Path) -> std::io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1080,7 +1092,7 @@ fn remove_if_exists(path: &Path) -> std::io::Result<()> {
 /// for follow-up notes. We deliberately avoid pulling a heavy crate (winapi,
 /// windows-sys) just for this one call site; the SHA verification + tmp-file
 /// approach already protects against the vast majority of corruption cases.
-fn fsync_parent_dir(child: &Path) -> std::io::Result<()> {
+pub fn fsync_parent_dir(child: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         if let Some(parent) = child.parent() {
@@ -1103,7 +1115,10 @@ fn fsync_parent_dir(child: &Path) -> std::io::Result<()> {
 /// enforces by placing the tmp in the same parent). On Windows
 /// `std::fs::rename` translates to `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`
 /// which is also effectively atomic.
-fn atomic_swap_into_place(tmp: &Path, live: &Path) -> std::io::Result<()> {
+///
+/// Public so the REL-1.d integration test can drive the swap step directly,
+/// without spinning up a Tauri runtime / S3 client.
+pub fn atomic_swap_into_place(tmp: &Path, live: &Path) -> std::io::Result<()> {
     fs::rename(tmp, live)
 }
 
