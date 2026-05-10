@@ -1,0 +1,23 @@
+DAT-1.e is a destructive column drop on `invoices` (net_amount /
+tax_amount / gross_amount), `invoice_items` (unit_price_net /
+line_total_net), `payments` (amount), and `incoming_invoices`
+(net_amount / tax_amount / gross_amount). The down migration re-adds
+those columns at the end of each table (SQLite has no syntax to add a
+column at a specific position via ALTER TABLE), so the textual
+`CREATE TABLE` snapshot in `sqlite_schema.sql` differs from the pre-up
+snapshot — even though the schema is semantically equivalent
+(SQLite addresses columns by name).
+
+The marker downgrades the round-trip mismatch to a WARN. The down SQL
+is still executed by the harness, so syntax errors are surfaced; the
+trigger-rewrite portion of the down (which restores the 0019 audit and
+0021 immutability triggers verbatim) is fully exercised.
+
+A full table-rebuild rollback (CREATE TABLE _new at original positions
++ INSERT SELECT + DROP + RENAME) was rejected: it would have to be
+duplicated for four tables, every prior column-adding migration
+(0009, 0013, 0014, 0021, 0022, 0023, 0024) would have to be kept in
+sync with this rollback's CREATE TABLE templates, and the data round
+trip is already lossy by virtue of cents-as-INTEGER being canonical
+(see 0025_down for the float-precision caveat). The simpler ADD COLUMN
++ noop_down marker is consistent with 0023's precedent.
