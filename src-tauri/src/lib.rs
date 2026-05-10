@@ -2103,6 +2103,177 @@ mod s3_round_trip {
     }
 }
 
+/// One log entry forwarded from the Svelte frontend logger via
+/// [`append_frontend_log`]. The shape mirrors the `LogEntry` interface in
+/// `src/lib/logger.ts`; PII redaction is performed in the frontend before the
+/// payload reaches us, so this struct accepts the entry as-is.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FrontendLogEntry {
+    pub level: String,
+    pub module: String,
+    pub message: String,
+    pub timestamp: String,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+/// OBS-1.c: forward a frontend log line into the Rust tracing pipeline so it
+/// lands in the same daily-rotated JSON-line file the backend writes to. We
+/// emit through `tracing::event!` with `target = "bookie::frontend"` so the
+/// existing `bookie=debug` env-filter accepts the event regardless of level.
+///
+/// The command is best-effort and infallible from the caller's perspective:
+/// the frontend invokes it fire-and-forget on warn/error and a failure here
+/// must not break user-facing flows.
+#[tauri::command]
+fn append_frontend_log(entry: FrontendLogEntry) -> Result<(), BookieError> {
+    let data_json = entry
+        .data
+        .as_ref()
+        .map(|d| d.to_string())
+        .unwrap_or_default();
+    match entry.level.as_str() {
+        "error" => tracing::event!(
+            target: "bookie::frontend",
+            tracing::Level::ERROR,
+            module = %entry.module,
+            ts = %entry.timestamp,
+            data = %data_json,
+            "{}",
+            entry.message
+        ),
+        "warn" => tracing::event!(
+            target: "bookie::frontend",
+            tracing::Level::WARN,
+            module = %entry.module,
+            ts = %entry.timestamp,
+            data = %data_json,
+            "{}",
+            entry.message
+        ),
+        "info" => tracing::event!(
+            target: "bookie::frontend",
+            tracing::Level::INFO,
+            module = %entry.module,
+            ts = %entry.timestamp,
+            data = %data_json,
+            "{}",
+            entry.message
+        ),
+        // "debug" or anything unknown: bucket to debug so we never silently drop.
+        _ => tracing::event!(
+            target: "bookie::frontend",
+            tracing::Level::DEBUG,
+            module = %entry.module,
+            ts = %entry.timestamp,
+            data = %data_json,
+            "{}",
+            entry.message
+        ),
+    }
+    Ok(())
+}
+
+/// Returns up to `max_lines` most recent JSON-line entries from the rolling
+/// log directory, newest first. If today's file does not have enough lines
+/// the function falls back to the previous day's file (and so on, up to the
+/// 14-day retention window). Each returned string is a single line as it was
+/// written to disk; the frontend is responsible for parsing the JSON and
+/// rendering severity colouring.
+///
+/// `max_lines` is hard-capped at 1000 to keep the IPC payload bounded.
+#[tauri::command]
+fn read_log_tail(app: AppHandle, max_lines: usize) -> Result<Vec<String>, BookieError> {
+    let cap = max_lines.min(1000);
+    let log_dir = app.path().app_log_dir().map_err(|e| BookieError::IoError {
+        message: format!("Failed to resolve app log dir: {e}"),
+    })?;
+
+    if !log_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut log_files: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&log_dir)
+        .map_err(|e| BookieError::IoError {
+            message: format!("Failed to read log dir: {e}"),
+        })?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            // tracing-appender writes `bookie.<YYYY-MM-DD>.log`.
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            if !name.starts_with("bookie.") || !name.ends_with(".log") {
+                return None;
+            }
+            let mtime = entry.metadata().ok()?.modified().ok()?;
+            Some((mtime, path))
+        })
+        .collect();
+
+    // Newest file first.
+    log_files.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+
+    let mut collected: Vec<String> = Vec::with_capacity(cap);
+    for (_, path) in log_files {
+        if collected.len() >= cap {
+            break;
+        }
+        let content = match fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        // Walk lines from the end so we accumulate newest-first across files.
+        let lines: Vec<&str> = content.lines().collect();
+        for line in lines.iter().rev() {
+            if collected.len() >= cap {
+                break;
+            }
+            if line.is_empty() {
+                continue;
+            }
+            collected.push((*line).to_string());
+        }
+    }
+
+    Ok(collected)
+}
+
+#[cfg(test)]
+mod frontend_log_tests {
+    use super::*;
+
+    #[test]
+    fn frontend_log_entry_deserialises_minimal_payload() {
+        let raw = r#"{
+            "level": "warn",
+            "module": "ui/invoice",
+            "message": "validation failed",
+            "timestamp": "2026-05-10T12:00:00.000Z"
+        }"#;
+        let entry: FrontendLogEntry = serde_json::from_str(raw).unwrap();
+        assert_eq!(entry.level, "warn");
+        assert_eq!(entry.module, "ui/invoice");
+        assert_eq!(entry.message, "validation failed");
+        assert!(entry.data.is_none());
+    }
+
+    #[test]
+    fn frontend_log_entry_preserves_data_field() {
+        let raw = r#"{
+            "level": "error",
+            "module": "ui/s3",
+            "message": "upload failed",
+            "timestamp": "2026-05-10T12:00:00.000Z",
+            "data": {"op": "upload", "bytes": 4096}
+        }"#;
+        let entry: FrontendLogEntry = serde_json::from_str(raw).unwrap();
+        assert!(entry.data.is_some());
+        let data = entry.data.unwrap();
+        assert_eq!(data["op"], "upload");
+        assert_eq!(data["bytes"], 4096);
+    }
+}
+
 /// Initialise the global `tracing` subscriber with two layers:
 ///
 /// 1. A human-readable fmt layer that writes to stdout (so `bun run tauri dev`
@@ -2483,7 +2654,9 @@ pub fn run() {
             s3_presign_download_url,
             store_s3_credentials,
             get_s3_credentials,
-            delete_s3_credentials
+            delete_s3_credentials,
+            append_frontend_log,
+            read_log_tail
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

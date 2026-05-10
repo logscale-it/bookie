@@ -8,6 +8,61 @@ interface LogEntry {
   timestamp: string;
 }
 
+/**
+ * Lazily-loaded Tauri `invoke` reference. Imported dynamically so the logger
+ * remains usable in non-Tauri contexts (Bun unit tests, SvelteKit prerender)
+ * — `import('@tauri-apps/api/core')` resolves only inside a Tauri webview at
+ * runtime. The promise is cached per session.
+ */
+let invokeRef: Promise<typeof import("@tauri-apps/api/core").invoke> | null =
+  null;
+
+function getInvoke(): Promise<typeof import("@tauri-apps/api/core").invoke> {
+  if (invokeRef === null) {
+    invokeRef = import("@tauri-apps/api/core")
+      .then((m) => m.invoke)
+      .catch(() => {
+        // Reset so a later call can retry once the bridge is available.
+        invokeRef = null;
+        throw new Error("tauri-bridge-unavailable");
+      });
+  }
+  return invokeRef;
+}
+
+/**
+ * Make `entry.data` JSON-safe before crossing the IPC boundary. `Error`
+ * instances are not JSON-serialisable on their own (their fields are
+ * non-enumerable), so we project them into a plain object that preserves the
+ * stack trace.
+ */
+function entryForIpc(entry: LogEntry): LogEntry {
+  if (entry.data instanceof Error) {
+    return {
+      ...entry,
+      data: {
+        name: entry.data.name,
+        message: entry.data.message,
+        stack: entry.data.stack,
+      },
+    };
+  }
+  return entry;
+}
+
+function forwardToRust(entry: LogEntry): void {
+  // Fire-and-forget: never throw out of a logger call. Logging must not
+  // perturb application control flow. We swallow both the dynamic-import
+  // failure (non-Tauri context) and any backend error.
+  getInvoke()
+    .then((invoke) =>
+      invoke("append_frontend_log", { entry: entryForIpc(entry) }),
+    )
+    .catch(() => {
+      /* no-op */
+    });
+}
+
 function createLogger(module: string) {
   const log = (level: Level, message: string, data?: unknown) => {
     // Redact PII from `data` before it touches any sink (console today,
@@ -34,9 +89,12 @@ function createLogger(module: string) {
       message,
       safeData !== undefined ? safeData : "",
     );
-    // OBS-1.c (#70) will forward `entry` to the Rust file sink (installed in
-    // OBS-1.a) via an `invoke("log_event", entry)` IPC call placed here. Keep
-    // this single choke point so redaction stays applied before forwarding.
+    // OBS-1.c (#70): forward warn/error entries to the Rust file sink so
+    // user-reportable failures survive a process exit. Debug/info stay
+    // console-only to avoid flooding the on-disk log with routine traffic.
+    if (level === "warn" || level === "error") {
+      forwardToRust(entry);
+    }
   };
 
   return {
@@ -142,5 +200,5 @@ function redactInternal(value: unknown, parentKey?: string): unknown {
   return value;
 }
 
-export { createLogger, redact, PII_KEY_PATTERNS };
+export { createLogger, redact, PII_KEY_PATTERNS, entryForIpc };
 export type { LogEntry, Level };

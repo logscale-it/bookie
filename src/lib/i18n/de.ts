@@ -334,7 +334,14 @@ export default {
 		connectionFailed: 'Verbindung fehlgeschlagen',
 		s3Saved: 'S3-Einstellungen wurden gespeichert.',
 		s3SaveError: 'Fehler beim Speichern',
-		credentialWarning: 'Zugangsdaten konnten nicht aus dem Schlüsselbund geladen werden. Bitte erneut eingeben.'
+		credentialWarning: 'Zugangsdaten konnten nicht aus dem Schlüsselbund geladen werden. Bitte erneut eingeben.',
+		diagnose: 'Diagnose',
+		diagnoseTitle: 'Diagnose-Logs',
+		diagnoseDesc: 'Die letzten 200 Log-Einträge der Anwendung. Hilfreich beim Erstellen eines Fehlerberichts.',
+		diagnoseRefresh: 'Aktualisieren',
+		diagnoseLoading: 'Lade Logs…',
+		diagnoseEmpty: 'Keine Log-Einträge vorhanden.',
+		diagnoseError: 'Logs konnten nicht geladen werden'
 	},
 	pdf: {
 		invoiceTitle: 'Rechnung',
