@@ -29,7 +29,9 @@ const profile: LegalProfile = {
 	vatIdLabel: 'MWST-Nr.',
 	taxIdLabel: 'UID',
 	dateLocale: 'de-CH',
-	numberLocale: 'de-CH'
+	numberLocale: 'de-CH',
+	// Art. 70 MWSTG / Art. 958f OR — booking records: 10 years.
+	retentionYears: 10
 };
 
 export default profile;

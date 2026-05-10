@@ -35,6 +35,15 @@ export interface LegalProfile {
 	dateLocale: string;
 	/** Number format locale */
 	numberLocale: string;
+	/**
+	 * Years that booking-relevant records (invoices, payments, audit rows)
+	 * must be retained before destructive operations are permitted.
+	 *
+	 * COMP-1.a: GoBD §147 AO requires 10 years for the German profile;
+	 * other jurisdictions default to the same window so the guard is
+	 * conservative wherever the operator has not made a deliberate choice.
+	 */
+	retentionYears: number;
 }
 
 export type LegalRequiredField =

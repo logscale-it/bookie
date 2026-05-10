@@ -31,7 +31,10 @@ const profile: LegalProfile = {
 	vatIdLabel: 'N° TVA',
 	taxIdLabel: 'SIREN/SIRET',
 	dateLocale: 'fr-FR',
-	numberLocale: 'fr-FR'
+	numberLocale: 'fr-FR',
+	// Art. L102 B LPF requires 6 years; we conservatively hold to a 10-year
+	// window to match the GoBD baseline until an operator overrides it.
+	retentionYears: 10
 };
 
 export default profile;

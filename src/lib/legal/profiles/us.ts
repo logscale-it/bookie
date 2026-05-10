@@ -23,7 +23,10 @@ const profile: LegalProfile = {
 	vatIdLabel: 'Tax ID (EIN)',
 	taxIdLabel: 'EIN',
 	dateLocale: 'en-US',
-	numberLocale: 'en-US'
+	numberLocale: 'en-US',
+	// IRS guidance suggests 7 years; we conservatively hold to the German
+	// 10-year window until an operator overrides it.
+	retentionYears: 10
 };
 
 export default profile;

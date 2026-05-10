@@ -1,4 +1,5 @@
 import { getDb } from "./connection";
+import { assertOutsideRetention } from "./retention";
 import type { Payment } from "./types";
 
 // DAT-1.d (#54): writes are repointed to `amount_cents`. The legacy REAL
@@ -58,5 +59,27 @@ export async function createPayment(data: CreatePayment): Promise<number> {
 
 export async function deletePayment(id: number): Promise<void> {
   const db = await getDb();
+  // COMP-1.a (#90): GoBD retention guard. A payment is a booking-relevant
+  // record and must be retained for the parent invoice's legal-profile
+  // retention window. We look up the row + the parent invoice's country
+  // code in a single query so the guard runs with zero extra round-trips
+  // when the payment exists. If the row is missing we let the DELETE be
+  // a no-op (consistent with deleteInvoice / deleteIncomingInvoice).
+  const rows = await db.select<
+    { created_at: string; legal_country_code: string | null }[]
+  >(
+    `SELECT p.created_at, i.legal_country_code
+     FROM payments p
+     LEFT JOIN invoices i ON i.id = p.invoice_id
+     WHERE p.id = $1`,
+    [id],
+  );
+  if (rows.length > 0) {
+    assertOutsideRetention(
+      "Zahlung",
+      rows[0].legal_country_code,
+      rows[0].created_at,
+    );
+  }
   await db.execute("DELETE FROM payments WHERE id = $1", [id]);
 }

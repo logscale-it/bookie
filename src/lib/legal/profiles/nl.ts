@@ -28,7 +28,10 @@ const profile: LegalProfile = {
 	vatIdLabel: 'BTW-nummer',
 	taxIdLabel: 'KvK-nummer',
 	dateLocale: 'nl-NL',
-	numberLocale: 'nl-NL'
+	numberLocale: 'nl-NL',
+	// Art. 52 AWR — booking records: 7 years; we conservatively hold to the
+	// German 10-year window until an operator overrides it.
+	retentionYears: 10
 };
 
 export default profile;

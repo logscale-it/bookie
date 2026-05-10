@@ -29,7 +29,9 @@ const profile: LegalProfile = {
 	vatIdLabel: 'USt-IdNr.',
 	taxIdLabel: 'Steuernummer',
 	dateLocale: 'de-DE',
-	numberLocale: 'de-DE'
+	numberLocale: 'de-DE',
+	// §147 Abs. 3 AO — booking-relevant records: 10 years.
+	retentionYears: 10
 };
 
 export default profile;
