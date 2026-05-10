@@ -40,6 +40,7 @@ url = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.release]
 panic = "abort" # Strip expensive panic clean-up logic
