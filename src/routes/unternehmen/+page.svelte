@@ -8,6 +8,7 @@
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { createCustomer, listCustomers, updateCustomer } from '$lib/db/customers';
 	import { exportCustomerData, suggestExportFileName } from '$lib/db/dsgvo_export';
+	import { anonymizeCustomer } from '$lib/db/dsgvo_erasure';
 	import type { Customer } from '$lib/db/types';
 	import { t } from '$lib/i18n';
 
@@ -58,6 +59,8 @@
 	let editForm = $state<CustomerForm>(initialForm());
 	let exportingCustomerId = $state<number | null>(null);
 	let exportFeedback = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
+	let erasingCustomerId = $state<number | null>(null);
+	let eraseFeedback = $state<{ kind: 'success' | 'error'; message: string } | null>(null);
 
 	const filteredCustomers = $derived.by(() => {
 		let result = customers;
@@ -187,6 +190,41 @@
 		await openUrl(normalized);
 	}
 
+	async function handleDsgvoErase(customer: Customer) {
+		eraseFeedback = null;
+		const confirmed = window.confirm(
+			`„${customer.name}“ gemäß DSGVO Art. 17 endgültig anonymisieren? ` +
+				'Personenbezogene Daten werden unwiderruflich entfernt. Rechnungen ' +
+				'und Buchungsbelege bleiben aus gesetzlichen Gründen (§147 AO) erhalten.'
+		);
+		if (!confirmed) return;
+
+		erasingCustomerId = customer.id;
+		try {
+			await anonymizeCustomer(customer.id);
+			eraseFeedback = {
+				kind: 'success',
+				message: `„${customer.name}“ wurde anonymisiert.`
+			};
+			await loadCustomers();
+		} catch (e) {
+			const err = e as Error;
+			if (err?.name === 'RetentionViolation') {
+				eraseFeedback = {
+					kind: 'error',
+					message: `Löschung verweigert: ${err.message}`
+				};
+			} else {
+				eraseFeedback = {
+					kind: 'error',
+					message: `Fehler bei der DSGVO-Löschung: ${err?.message ?? String(e)}`
+				};
+			}
+		} finally {
+			erasingCustomerId = null;
+		}
+	}
+
 	async function handleDsgvoExport(customer: Customer) {
 		exportFeedback = null;
 		exportingCustomerId = customer.id;
@@ -237,6 +275,17 @@
 			role="status"
 		>
 			{exportFeedback.message}
+		</div>
+	{/if}
+
+	{#if eraseFeedback}
+		<div
+			class="rounded-md border px-3 py-2 text-sm {eraseFeedback.kind === 'success'
+				? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+				: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}"
+			role="status"
+		>
+			{eraseFeedback.message}
 		</div>
 	{/if}
 
@@ -377,6 +426,15 @@
 										class="rounded-md border border-blue-300 px-2 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30"
 									>
 										{exportingCustomerId === customer.id ? 'Exportiert…' : 'Auskunft erteilen'}
+									</button>
+									<button
+										type="button"
+										onclick={() => handleDsgvoErase(customer)}
+										disabled={erasingCustomerId === customer.id}
+										title="DSGVO-Löschung (Art. 17 DSGVO) — anonymisiert PII, soweit gesetzlich zulässig"
+										class="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/30"
+									>
+										{erasingCustomerId === customer.id ? 'Löscht…' : 'Löschen (DSGVO)'}
 									</button>
 								</div>
 							{/if}
