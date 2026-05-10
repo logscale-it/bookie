@@ -15,6 +15,10 @@ type CreateIncomingInvoice = Omit<
   | "tax_amount"
   | "gross_amount"
   | "gross_cents"
+  // DAT-5.a: `local_path` is populated only by the backfill script
+  // (`backfill-file-data.ts`), never by the create path. Callers leave
+  // it out; the column defaults to NULL at the SQL layer.
+  | "local_path"
 >;
 type UpdateIncomingInvoice = Partial<Omit<CreateIncomingInvoice, "company_id">>;
 
@@ -30,6 +34,7 @@ const ALLOWED_COLUMNS = [
   "file_name",
   "file_type",
   "s3_key",
+  "local_path",
   "notes",
 ] as const;
 
@@ -56,7 +61,8 @@ export async function listIncomingInvoices(
     `SELECT ii.id, ii.company_id, ii.supplier_id, ii.invoice_number, ii.invoice_date,
 		        ii.net_amount, ii.tax_amount, ii.gross_amount,
 		        ii.net_cents, ii.tax_cents, ii.gross_cents, ii.status,
-		        ii.file_name, ii.file_type, ii.s3_key, ii.notes, ii.created_at, ii.updated_at,
+		        ii.file_name, ii.file_type, ii.s3_key, ii.local_path,
+		        ii.notes, ii.created_at, ii.updated_at,
 		        c.name as supplier_name, COUNT(*) OVER() AS _total_count
 		 FROM incoming_invoices ii
 		 LEFT JOIN customers c ON ii.supplier_id = c.id
@@ -183,6 +189,7 @@ export async function getIncomingInvoiceFile(id: number): Promise<
       file_name: string | null;
       file_type: string | null;
       s3_key: string | null;
+      local_path: string | null;
     }
   | undefined
 > {
@@ -193,9 +200,10 @@ export async function getIncomingInvoiceFile(id: number): Promise<
       file_name: string | null;
       file_type: string | null;
       s3_key: string | null;
+      local_path: string | null;
     }[]
   >(
-    "SELECT file_data, file_name, file_type, s3_key FROM incoming_invoices WHERE id = $1",
+    "SELECT file_data, file_name, file_type, s3_key, local_path FROM incoming_invoices WHERE id = $1",
     [id],
   );
   return rows[0];

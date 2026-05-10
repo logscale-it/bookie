@@ -1,0 +1,19 @@
+-- DAT-5.a: Add `local_path` to `incoming_invoices` so the file_data BLOB
+-- backfill can record where a PDF was evacuated to when S3 is not configured.
+--
+-- Background: migration 0007 introduced `file_data BLOB` as the only place a
+-- supplier PDF lived. Migration 0009 added `s3_key TEXT` as the new home, but
+-- the old BLOB column was left in place and is still being written by the
+-- TS layer for backwards compatibility. The DAT-5.a backfill script
+-- (`src/lib/db/backfill-file-data.ts`) evacuates each remaining BLOB into
+-- either S3 (recording the resulting key in `s3_key`) or, when S3 is not
+-- configured, into `<appdata>/incoming_invoices/<id>.pdf` on local disk.
+-- This new `local_path` column captures the on-disk path so subsequent reads
+-- have a deterministic place to find the file once `file_data` is NULLed out.
+--
+-- Plain TEXT, nullable, no CHECK: rows that already have an `s3_key` will
+-- leave `local_path` NULL, and rows that have neither yet (no file uploaded)
+-- will leave both NULL. The verification query in DAT-5.a is run by the
+-- backfill itself: post-run every row must have either `s3_key`,
+-- `local_path`, or have had no `file_data` to begin with.
+ALTER TABLE incoming_invoices ADD COLUMN local_path TEXT;
