@@ -4,6 +4,7 @@
 	import { getS3Settings, saveS3Settings } from '$lib/db/settings';
 	import { testConnection } from '$lib/s3/client';
 	import { t } from '$lib/i18n';
+	import { messageForUnknown } from '$lib/shared/errors';
 
 	let form = $state({
 		enabled: 0,
@@ -44,7 +45,7 @@
 			credentialWarning = '';
 		} catch (err) {
 			saveError = true;
-			feedback = `${t('settings.s3SaveError')}: ${err instanceof Error ? err.message : err}`;
+			feedback = `${t('settings.s3SaveError')}: ${messageForUnknown(err)}`;
 		} finally {
 			saving = false;
 		}
@@ -59,7 +60,7 @@
 			testFeedback = t('settings.connectionSuccess');
 		} catch (err) {
 			testError = true;
-			testFeedback = `${t('settings.connectionFailed')}: ${err instanceof Error ? err.message : err}`;
+			testFeedback = `${t('settings.connectionFailed')}: ${messageForUnknown(err)}`;
 		} finally {
 			testing = false;
 		}
