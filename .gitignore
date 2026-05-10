@@ -14,3 +14,8 @@ Cargo.lock
 *.sh
 .claude_cron_logs/
 .*
+# Re-include the `.noop_down` marker files used by the migration round-trip
+# harness in `src-tauri/tests/migrations.rs`. Without this exception the
+# `.*` rule above would silently drop newly added markers from commits and
+# defeat the safety net that opts a migration out of the up/down assertion.
+!src-tauri/migrations/*/.noop_down
