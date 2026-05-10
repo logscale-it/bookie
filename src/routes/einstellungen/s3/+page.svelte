@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import TextInput from '../../../common/TextInput.svelte';
 	import { getS3Settings, saveS3Settings } from '$lib/db/settings';
+	import type { AutoBackupStatus } from '$lib/db/types';
 	import { testConnection } from '$lib/s3/client';
 	import { t } from '$lib/i18n';
 	import { messageForUnknown } from '$lib/shared/errors';
@@ -15,7 +16,9 @@
 		secret_access_key: '',
 		path_prefix: 'rechnungen',
 		auto_backup_enabled: 0,
-		last_auto_backup_at: null as string | null
+		last_auto_backup_at: null as string | null,
+		last_auto_backup_status: null as AutoBackupStatus | null,
+		last_auto_backup_error: null as string | null
 	});
 	let loading = $state(true);
 	let saving = $state(false);

@@ -86,6 +86,7 @@ describe("S3 settings", () => {
       bucket_name: "bookie-test", access_key_id: "AKIA",
       secret_access_key: "SECRET", path_prefix: "rechnungen",
       auto_backup_enabled: 1, last_auto_backup_at: null,
+      last_auto_backup_status: null, last_auto_backup_error: null,
     });
 
     // Credentials must be in keyring, NOT in DB columns.
@@ -108,6 +109,7 @@ describe("S3 settings", () => {
       bucket_name: "bucket", access_key_id: "AKIA-READ",
       secret_access_key: "SECRET-READ", path_prefix: "p",
       auto_backup_enabled: 0, last_auto_backup_at: null,
+      last_auto_backup_status: null, last_auto_backup_error: null,
     });
     const got = await settings.getS3Settings();
     expect(got.access_key_id).toBe("AKIA-READ");

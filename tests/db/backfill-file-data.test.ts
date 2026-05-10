@@ -213,6 +213,8 @@ const S3_DISABLED = {
   path_prefix: "rechnungen",
   auto_backup_enabled: 0,
   last_auto_backup_at: null,
+  last_auto_backup_status: null,
+  last_auto_backup_error: null,
 };
 
 const S3_ENABLED = {
@@ -225,6 +227,8 @@ const S3_ENABLED = {
   path_prefix: "rechnungen",
   auto_backup_enabled: 0,
   last_auto_backup_at: null,
+  last_auto_backup_status: null,
+  last_auto_backup_error: null,
 };
 
 beforeEach(() => {

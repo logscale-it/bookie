@@ -67,6 +67,16 @@ export default {
 		exporting: 'Exporting…',
 		exportSuccess: 'Export saved successfully.',
 		exportError: 'Export failed',
+		autoBackupFailed: 'Last automatic backup failed.',
+		autoBackupFailedAt: 'Last automatic backup failed on {date}.',
+		autoBackupFailureReason: 'Reason',
+		autoBackupReason: {
+			auth_error: 'Access denied (check credentials)',
+			bucket_not_found: 'Bucket not found',
+			network_error: 'Network error',
+			local_backup_error: 'Local backup failed',
+			unknown_error: 'Unknown error'
+		},
 		months: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 	},
 	invoices: {

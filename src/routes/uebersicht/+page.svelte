@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { getDashboardData, type GroupBy, type PeriodRow } from '$lib/db/dashboard';
-	import { getOrganizationSettings } from '$lib/db/settings';
+	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
 	import { getUstvaData, getEuerData } from '$lib/db/tax-reports';
 	import { generateUstvaCsv } from '$lib/csv/ustva-csv';
 	import { generateEuerCsv } from '$lib/csv/euer-csv';
@@ -13,6 +13,9 @@
 	let groupBy = $state<GroupBy>('month');
 	let revenue = $state<PeriodRow[]>([]);
 	let costs = $state<PeriodRow[]>([]);
+	let backupFailed = $state(false);
+	let backupFailedAt = $state<string | null>(null);
+	let backupFailureReason = $state<string | null>(null);
 
 	const periodOptions: { value: GroupBy; label: string }[] = [
 		{ value: 'year', label: t('overview.year') },
@@ -111,7 +114,42 @@
 		const data = await getDashboardData(companyId, year, groupBy);
 		revenue = data.revenue;
 		costs = data.costs;
+		await loadBackupStatus();
 		loading = false;
+	}
+
+	async function loadBackupStatus(): Promise<void> {
+		try {
+			const s3 = await getS3Settings();
+			if (
+				s3.enabled &&
+				s3.auto_backup_enabled &&
+				s3.last_auto_backup_status === 'failure'
+			) {
+				backupFailed = true;
+				backupFailedAt = s3.last_auto_backup_at;
+				backupFailureReason = s3.last_auto_backup_error;
+			} else {
+				backupFailed = false;
+				backupFailedAt = null;
+				backupFailureReason = null;
+			}
+		} catch {
+			// Settings unreachable: leave banner hidden rather than crash dashboard.
+			backupFailed = false;
+		}
+	}
+
+	function formatBackupTimestamp(ts: string | null): string {
+		if (!ts) return '';
+		try {
+			return new Date(ts).toLocaleString('de-DE', {
+				dateStyle: 'medium',
+				timeStyle: 'short'
+			});
+		} catch {
+			return ts;
+		}
 	}
 
 	let exportingUstva = $state(false);
@@ -170,6 +208,25 @@
 			</button>
 		</div>
 	</header>
+
+	{#if backupFailed}
+		<div
+			class="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200"
+			role="alert"
+			data-testid="auto-backup-failure-banner"
+		>
+			<p class="font-medium">
+				{backupFailedAt
+					? tp('overview.autoBackupFailedAt', { date: formatBackupTimestamp(backupFailedAt) })
+					: t('overview.autoBackupFailed')}
+			</p>
+			{#if backupFailureReason}
+				<p class="mt-1 text-xs opacity-80">
+					{t('overview.autoBackupFailureReason')}: {t(`overview.autoBackupReason.${backupFailureReason}`)}
+				</p>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Period toggle -->
 	<nav class="flex gap-2">

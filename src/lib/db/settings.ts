@@ -204,6 +204,8 @@ const S3_DEFAULT: UpsertS3Settings = {
   path_prefix: "rechnungen",
   auto_backup_enabled: 0,
   last_auto_backup_at: null,
+  last_auto_backup_status: null,
+  last_auto_backup_error: null,
 };
 
 export async function getS3Settings(): Promise<UpsertS3Settings> {
@@ -252,8 +254,8 @@ export async function saveS3Settings(data: UpsertS3Settings): Promise<void> {
 
   const db = await getDb();
   await db.execute(
-    `INSERT INTO settings_s3 (id, enabled, endpoint_url, region, bucket_name, access_key_id, secret_access_key, path_prefix, auto_backup_enabled, last_auto_backup_at)
-		 VALUES (1, $1, $2, $3, $4, '', '', $5, $6, $7)
+    `INSERT INTO settings_s3 (id, enabled, endpoint_url, region, bucket_name, access_key_id, secret_access_key, path_prefix, auto_backup_enabled, last_auto_backup_at, last_auto_backup_status, last_auto_backup_error)
+		 VALUES (1, $1, $2, $3, $4, '', '', $5, $6, $7, $8, $9)
 		 ON CONFLICT(id) DO UPDATE SET
 		 enabled = excluded.enabled,
 		 endpoint_url = excluded.endpoint_url,
@@ -264,6 +266,8 @@ export async function saveS3Settings(data: UpsertS3Settings): Promise<void> {
 		 path_prefix = excluded.path_prefix,
 		 auto_backup_enabled = excluded.auto_backup_enabled,
 		 last_auto_backup_at = excluded.last_auto_backup_at,
+		 last_auto_backup_status = excluded.last_auto_backup_status,
+		 last_auto_backup_error = excluded.last_auto_backup_error,
 		 updated_at = CURRENT_TIMESTAMP`,
     [
       data.enabled,
@@ -273,6 +277,8 @@ export async function saveS3Settings(data: UpsertS3Settings): Promise<void> {
       data.path_prefix,
       data.auto_backup_enabled,
       data.last_auto_backup_at,
+      data.last_auto_backup_status,
+      data.last_auto_backup_error,
     ],
   );
 }
