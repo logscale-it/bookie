@@ -84,13 +84,13 @@ describe("dashboard aggregates", () => {
       company_id: companyId, supplier_id: customerId,
       invoice_number: "IN-1", invoice_date: "2026-02-10",
       net_cents: 50000, tax_cents: 9500, status: "offen",
-      file_data: null, file_name: null, file_type: null, s3_key: null, notes: null,
+      file_name: null, file_type: null, s3_key: null, local_path: null, notes: null,
     });
     await ii.createIncomingInvoice({
       company_id: companyId, supplier_id: customerId,
       invoice_number: "IN-2", invoice_date: "2026-02-20",
       net_cents: 10000, tax_cents: 1900, status: "offen",
-      file_data: null, file_name: null, file_type: null, s3_key: null, notes: null,
+      file_name: null, file_type: null, s3_key: null, local_path: null, notes: null,
     });
 
     const rows = await dashboard.getCostsByPeriod(companyId, 2026, "month");
@@ -104,7 +104,7 @@ describe("dashboard aggregates", () => {
       company_id: companyId, supplier_id: customerId,
       invoice_number: "IN-1", invoice_date: "2026-01-10",
       net_cents: 5000, tax_cents: 950, status: "offen",
-      file_data: null, file_name: null, file_type: null, s3_key: null, notes: null,
+      file_name: null, file_type: null, s3_key: null, local_path: null, notes: null,
     });
 
     const data = await dashboard.getDashboardData(companyId, 2026, "month");

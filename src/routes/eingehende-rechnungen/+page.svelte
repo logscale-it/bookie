@@ -152,9 +152,21 @@
 		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
 	}
 
-	async function readFileAsArray(file: File): Promise<number[]> {
-		const buffer = await file.arrayBuffer();
-		return Array.from(new Uint8Array(buffer));
+	// DAT-5.b: helper to land a PDF on disk under <appdata>/incoming_invoices/
+	// when S3 is unavailable. Mirrors the path layout used by the DAT-5.a
+	// backfill (`<appdata>/incoming_invoices/<basename>`) so all on-disk
+	// supplier PDFs share one directory under the user's backup boundary.
+	async function writeLocalAttachment(file: File): Promise<string> {
+		const appDataDir = await invoke<string>('get_app_data_dir');
+		const sep = appDataDir.endsWith('/') || appDataDir.endsWith('\\') ? '' : '/';
+		// Disambiguate by timestamp so two uploads with the same filename
+		// (e.g. "rechnung.pdf" from two suppliers) don't clobber each other.
+		const stamp = Date.now();
+		const safeName = file.name.replace(/[\\/]/g, '_');
+		const path = `${appDataDir}${sep}incoming_invoices/${stamp}-${safeName}`;
+		const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+		await invoke('write_binary_file', { path, data: bytes });
+		return path;
 	}
 
 	async function addInvoice() {
@@ -166,10 +178,12 @@
 		const companyId = await ensureCompanyId();
 		const tax = parseFloat(form.taxAmount) || 0;
 
-		let fileData: number[] | null = null;
 		let fileName: string | null = null;
 		let fileType: string | null = null;
 		let s3Key: string | null = null;
+		// DAT-5.b: no-S3 uploads (or S3 fall-throughs on failure) land at
+		// `local_path` instead of the legacy `file_data` BLOB.
+		let localPath: string | null = null;
 
 		if (uploadFiles && uploadFiles.length > 0) {
 			const file = uploadFiles[0];
@@ -183,10 +197,18 @@
 					s3Key = await uploadFile(s3Config, 'eingehende-rechnungen', file.name, bytes, file.type || 'application/octet-stream');
 				} catch (err) {
 					uploadError = `${t('incomingInvoices.s3UploadFailed')}: ${err instanceof Error ? err.message : err}`;
-					fileData = await readFileAsArray(file);
+					try {
+						localPath = await writeLocalAttachment(file);
+					} catch (diskErr) {
+						log.warn('Local attachment write failed after S3 failure', diskErr);
+					}
 				}
 			} else {
-				fileData = await readFileAsArray(file);
+				try {
+					localPath = await writeLocalAttachment(file);
+				} catch (err) {
+					uploadError = `${t('incomingInvoices.s3UploadFailed')}: ${err instanceof Error ? err.message : err}`;
+				}
 			}
 		}
 
@@ -200,10 +222,10 @@
 			net_cents: Math.round(net * 100),
 			tax_cents: Math.round(tax * 100),
 			status: 'offen',
-			file_data: fileData,
 			file_name: fileName,
 			file_type: fileType,
 			s3_key: s3Key,
+			local_path: localPath,
 			notes: form.notes.trim() || null
 		});
 
@@ -282,6 +304,10 @@
 		const path = await save({ defaultPath: fileInfo.file_name });
 		if (!path) return;
 
+		// DAT-5.b: download path no longer falls through to a `file_data`
+		// BLOB. A row's PDF lives in exactly one place — S3 (`s3_key`) or
+		// disk (`local_path`). Rows that still hold a legacy BLOB must be
+		// evacuated by the DAT-5.a backfill before they can be downloaded.
 		if (fileInfo.s3_key) {
 			try {
 				const s3Config = await getS3Settings();
@@ -290,8 +316,13 @@
 			} catch (err) {
 				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${err instanceof Error ? err.message : err}`;
 			}
-		} else if (fileInfo.file_data) {
-			await invoke('write_binary_file', { path, data: fileInfo.file_data });
+		} else if (fileInfo.local_path) {
+			try {
+				const data = await invoke<number[]>('read_binary_file', { path: fileInfo.local_path });
+				await invoke('write_binary_file', { path, data });
+			} catch (err) {
+				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${err instanceof Error ? err.message : err}`;
+			}
 		}
 	}
 

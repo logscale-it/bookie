@@ -562,6 +562,22 @@ fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), BookieError> {
     })
 }
 
+/// Read a file from disk and return its bytes.
+///
+/// Added for DAT-5.b (#66): the incoming-invoices download flow no longer
+/// has a `file_data` BLOB to fall through to. When a row's file lives at
+/// `local_path` (populated by the DAT-5.a backfill or by the no-S3 upload
+/// path), the UI uses this command to load it before re-saving via the
+/// user's save-as dialog. Mirror of `write_binary_file` in shape and error
+/// handling so the two endpoints remain symmetrical.
+#[tauri::command]
+fn read_binary_file(path: String) -> Result<Vec<u8>, BookieError> {
+    info!("Reading file: {path}");
+    fs::read(&path).map_err(|e| BookieError::IoError {
+        message: format!("Failed to read file: {e}"),
+    })
+}
+
 /// Resolve the platform-specific app data directory and ensure it exists.
 ///
 /// Used by the DAT-5.a backfill (`src/lib/db/backfill-file-data.ts`) so the
@@ -2457,6 +2473,7 @@ pub fn run() {
             backup_database,
             restore_database,
             write_binary_file,
+            read_binary_file,
             get_app_data_dir,
             s3_test_connection,
             s3_upload_file,
