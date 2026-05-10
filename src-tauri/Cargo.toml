@@ -40,6 +40,10 @@ url = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# `bundled` builds and links libsqlite3 from source so the test binary does
+# not depend on a system SQLite, matching how `tauri-plugin-sql` ships sqlite
+# in the production build.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.release]
 panic = "abort" # Strip expensive panic clean-up logic
