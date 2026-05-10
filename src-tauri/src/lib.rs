@@ -438,6 +438,18 @@ fn app_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0021_down/01_storno_columns.sql"),
             kind: MigrationKind::Down,
         },
+        Migration {
+            version: 22,
+            description: "incoming_invoices_local_path_up",
+            sql: include_str!("../migrations/0022/01_incoming_invoices_local_path.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 22,
+            description: "incoming_invoices_local_path_down",
+            sql: include_str!("../migrations/0022_down/01_incoming_invoices_local_path.sql"),
+            kind: MigrationKind::Down,
+        },
     ]
 }
 
@@ -547,6 +559,28 @@ fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), BookieError> {
     fs::write(&path, &data).map_err(|e| BookieError::IoError {
         message: format!("Failed to write file: {e}"),
     })
+}
+
+/// Resolve the platform-specific app data directory and ensure it exists.
+///
+/// Used by the DAT-5.a backfill (`src/lib/db/backfill-file-data.ts`) so the
+/// TS layer can compose `<appdata>/incoming_invoices/<id>.pdf` for rows
+/// being evacuated from `incoming_invoices.file_data` when S3 is not
+/// configured. We deliberately DO NOT expose any other directory: this
+/// command's only contract is "give me the same root the DB lives under so
+/// the file ends up inside the user's existing backup boundary".
+#[tauri::command]
+fn get_app_data_dir(app: AppHandle) -> Result<String, BookieError> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| BookieError::IoError {
+            message: format!("Failed to resolve app_data_dir: {err}"),
+        })?;
+    fs::create_dir_all(&dir).map_err(|err| BookieError::IoError {
+        message: format!("Failed to create app data directory: {err}"),
+    })?;
+    Ok(dir.to_string_lossy().into_owned())
 }
 
 #[derive(Deserialize)]
@@ -2101,6 +2135,7 @@ pub fn run() {
             backup_database,
             restore_database,
             write_binary_file,
+            get_app_data_dir,
             s3_test_connection,
             s3_upload_file,
             s3_download_file,

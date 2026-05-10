@@ -210,6 +210,13 @@ export interface IncomingInvoice {
   file_name: string | null;
   file_type: string | null;
   s3_key: string | null;
+  /**
+   * Filesystem path under `<appdata>/incoming_invoices/` populated by the
+   * DAT-5.a backfill when no S3 is configured. NULL on rows that were
+   * evacuated to S3, on rows with no file at all, or on rows that haven't
+   * been backfilled yet.
+   */
+  local_path: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
