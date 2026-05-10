@@ -279,6 +279,12 @@ export default {
 		orgSaveError: 'Failed to save settings.',
 		defaultLocale: 'Default language',
 		defaultLegalCountry: 'Default legal jurisdiction',
+		einvoiceFormatLabel: 'E-invoice format',
+		einvoiceFormatPlain: 'Plain PDF (no XML)',
+		einvoiceFormatZugferd: 'ZUGFeRD (hybrid PDF with embedded XML)',
+		einvoiceFormatXrechnung: 'XRechnung (XML only)',
+		einvoiceFormatDeWarning:
+			'Note: since 2025-01-01, German B2B invoices must be available as XRechnung or ZUGFeRD on request. XML generation is not yet implemented in Bookie (COMP-3.b).',
 		invoiceTitle: 'Invoice',
 		currencyLabel: 'Currency',
 		decimalPlaces: 'Decimal places',

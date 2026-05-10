@@ -279,6 +279,12 @@ export default {
 		orgSaveError: 'Fehler beim Speichern der Einstellungen.',
 		defaultLocale: 'Standard-Sprache',
 		defaultLegalCountry: 'Standard-Rechtsgebiet',
+		einvoiceFormatLabel: 'E-Rechnungs-Format',
+		einvoiceFormatPlain: 'Klassische PDF (kein XML)',
+		einvoiceFormatZugferd: 'ZUGFeRD (Hybrid-PDF mit XML)',
+		einvoiceFormatXrechnung: 'XRechnung (reines XML)',
+		einvoiceFormatDeWarning:
+			'Hinweis: Seit dem 01.01.2025 müssen B2B-Rechnungen in Deutschland auf Anfrage als XRechnung oder ZUGFeRD bereitgestellt werden. Die XML-Erzeugung ist in Bookie noch nicht implementiert (COMP-3.b).',
 		invoiceTitle: 'Rechnung',
 		currencyLabel: 'Währung',
 		decimalPlaces: 'Dezimalstellen',

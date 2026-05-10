@@ -6,9 +6,15 @@
 	import { t } from '$lib/i18n';
 	import { LOCALE_LABELS, setLocale, type Locale } from '$lib/i18n';
 	import { LEGAL_COUNTRIES } from '$lib/legal';
+	import type { EInvoiceFormat } from '$lib/db/types';
 
 	const localeOptions = Object.entries(LOCALE_LABELS).map(([value, label]) => ({ value, label }));
 	const legalCountryOptions = LEGAL_COUNTRIES.map((c) => ({ value: c.value, label: c.label }));
+	const einvoiceFormatOptions: { value: EInvoiceFormat; label: string }[] = [
+		{ value: 'plain', label: t('settings.einvoiceFormatPlain') },
+		{ value: 'zugferd', label: t('settings.einvoiceFormatZugferd') },
+		{ value: 'xrechnung', label: t('settings.einvoiceFormatXrechnung') }
+	];
 
 	let form = $state({
 		name: '',
@@ -26,7 +32,8 @@
 		vatin: '',
 		website: '',
 		default_locale: 'de',
-		default_legal_country: 'DE'
+		default_legal_country: 'DE',
+		einvoice_format: 'plain' as EInvoiceFormat
 	});
 	let loading = $state(true);
 	let saving = $state(false);
@@ -35,11 +42,21 @@
 	onMount(async () => {
 		const data = await getOrganizationSettings();
 		for (const key of Object.keys(data) as (keyof typeof data)[]) {
-			form[key] = data[key] ?? '';
+			(form as Record<string, unknown>)[key] = data[key] ?? '';
 		}
+		if (!data.einvoice_format) form.einvoice_format = 'plain';
 		if (data.default_locale) setLocale(data.default_locale as Locale);
 		loading = false;
 	});
+
+	// COMP-3.a: warn (UI-only, not enforced) when DE is selected with 'plain'.
+	// Since 2025-01-01, German B2B invoices must be available as XRechnung
+	// or ZUGFeRD on request. The XML emitter lands in COMP-3.b.
+	let einvoiceWarning = $derived(
+		form.default_legal_country === 'DE' && form.einvoice_format === 'plain'
+			? t('settings.einvoiceFormatDeWarning')
+			: ''
+	);
 
 	async function handleSave() {
 		saving = true;
@@ -78,6 +95,16 @@
 			<TextInput bind:value={form.website} label={t('settings.websiteLabel')} />
 			<Select bind:value={form.default_locale} label={t('settings.defaultLocale')} options={localeOptions} />
 			<Select bind:value={form.default_legal_country} label={t('settings.defaultLegalCountry')} options={legalCountryOptions} />
+			<div class="md:col-span-2">
+				<Select
+					bind:value={form.einvoice_format}
+					label={t('settings.einvoiceFormatLabel')}
+					options={einvoiceFormatOptions}
+				/>
+				{#if einvoiceWarning}
+					<p class="mt-1 text-xs text-amber-600 dark:text-amber-400">{einvoiceWarning}</p>
+				{/if}
+			</div>
 		</div>
 		<div class="flex items-center gap-3">
 			<button
