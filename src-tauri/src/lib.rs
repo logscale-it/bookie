@@ -991,12 +991,20 @@ async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
 /// SQLite files always start with the 16-byte string "SQLite format 3\0".
 /// This is used to gate sidecar SHA-256 emission on backup uploads without
 /// touching unrelated upload paths (e.g. invoice PDFs).
-fn is_sqlite_backup(data: &[u8]) -> bool {
+///
+/// Visibility note (REL-1.d, #45): exposed `pub` so the integration test
+/// `tests/restore_integration_v3.rs` can drive the same magic-header check
+/// the production restore path uses, without duplicating the constant.
+pub fn is_sqlite_backup(data: &[u8]) -> bool {
     data.len() >= SQLITE_MAGIC.len() && &data[..SQLITE_MAGIC.len()] == SQLITE_MAGIC
 }
 
 /// Lowercase hex SHA-256 digest of `data`.
-fn sha256_hex(data: &[u8]) -> String {
+///
+/// Visibility note (REL-1.d, #45): exposed `pub` so the integration test
+/// can compute the same digest the production restore path compares against
+/// when verifying the SHA-256 sidecar.
+pub fn sha256_hex(data: &[u8]) -> String {
     use std::fmt::Write;
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -1021,7 +1029,11 @@ const RESTORE_TMP_SUFFIX: &str = ".restore.tmp";
 /// Compute the temporary file path used during restore for a given live DB
 /// path. The tmp file lives in the same parent directory as the live DB so
 /// that the subsequent rename is atomic.
-fn restore_tmp_path(db_path: &Path) -> PathBuf {
+///
+/// Visibility note (REL-1.d, #45): exposed `pub` so the integration test
+/// can target the same `.restore.tmp` path the production code path writes
+/// to (and corrupts, in Case A).
+pub fn restore_tmp_path(db_path: &Path) -> PathBuf {
     let mut name = db_path
         .file_name()
         .map(|n| n.to_os_string())
@@ -1037,7 +1049,10 @@ fn restore_tmp_path(db_path: &Path) -> PathBuf {
 /// SQLite uses `<db>-wal` and `<db>-shm` (suffix on the full file name, not
 /// an extension swap), so for `bookie.db` we expect `bookie.db-wal` and
 /// `bookie.db-shm`.
-fn wal_shm_sibling_paths(db_path: &Path) -> (PathBuf, PathBuf) {
+///
+/// Visibility note (REL-1.d, #45): exposed `pub` so the integration test
+/// can pre-create / inspect WAL+SHM siblings around the swap.
+pub fn wal_shm_sibling_paths(db_path: &Path) -> (PathBuf, PathBuf) {
     let mut wal_name = db_path
         .file_name()
         .map(|n| n.to_os_string())
@@ -1060,7 +1075,10 @@ fn wal_shm_sibling_paths(db_path: &Path) -> (PathBuf, PathBuf) {
 }
 
 /// Fail-safe removal: returns Ok(()) if the path does not exist.
-fn remove_if_exists(path: &Path) -> std::io::Result<()> {
+///
+/// Visibility note (REL-1.d, #45): exposed `pub` to match the rest of the
+/// atomic-restore helper surface used by `tests/restore_integration_v3.rs`.
+pub fn remove_if_exists(path: &Path) -> std::io::Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -1080,7 +1098,10 @@ fn remove_if_exists(path: &Path) -> std::io::Result<()> {
 /// for follow-up notes. We deliberately avoid pulling a heavy crate (winapi,
 /// windows-sys) just for this one call site; the SHA verification + tmp-file
 /// approach already protects against the vast majority of corruption cases.
-fn fsync_parent_dir(child: &Path) -> std::io::Result<()> {
+///
+/// Visibility note (REL-1.d, #45): exposed `pub` so the integration test
+/// can drive the same fsync path the production restore uses.
+pub fn fsync_parent_dir(child: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         if let Some(parent) = child.parent() {
@@ -1103,7 +1124,11 @@ fn fsync_parent_dir(child: &Path) -> std::io::Result<()> {
 /// enforces by placing the tmp in the same parent). On Windows
 /// `std::fs::rename` translates to `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`
 /// which is also effectively atomic.
-fn atomic_swap_into_place(tmp: &Path, live: &Path) -> std::io::Result<()> {
+///
+/// Visibility note (REL-1.d, #45): exposed `pub` so the integration test
+/// can drive the exact same swap primitive `restore_db_backup` uses, then
+/// simulate a crash before the subsequent `fsync_parent_dir`.
+pub fn atomic_swap_into_place(tmp: &Path, live: &Path) -> std::io::Result<()> {
     fs::rename(tmp, live)
 }
 
