@@ -12,7 +12,7 @@
     "tauri": "tauri",
     "test": "bun test",
     "test:all": "bash scripts/test-all.sh",
-    "postinstall": "bash scripts/install-git-hooks.sh"
+    "postinstall": "test -f scripts/install-git-hooks.sh && bash scripts/install-git-hooks.sh || true"
   },
   "license": "MIT",
   "dependencies": {
