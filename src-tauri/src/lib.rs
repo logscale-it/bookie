@@ -2837,6 +2837,53 @@ mod retry_tests {
         assert_eq!(p.max_attempts, 3);
         assert_eq!(p.base_delay_ms, 250);
     }
+
+    /// REL-2.c: Simulate a single transient 503 followed by a 200. The helper
+    /// must return `Ok` on the second attempt, and the total elapsed wall-clock
+    /// time must stay below 2 000 ms — proving that the 250 ms base delay with
+    /// full jitter does not pile up into an unexpectedly long wait on the first
+    /// retry.
+    #[tokio::test]
+    async fn retry_helper_succeeds_after_one_transient_503() {
+        let calls = Cell::new(0u32);
+        let start = std::time::Instant::now();
+
+        let res = with_retry(
+            || {
+                let n = calls.get() + 1;
+                calls.set(n);
+                async move {
+                    if n == 1 {
+                        // Simulate an S3-flavored 503 Service Unavailable.
+                        // TestErr::Transient satisfies IsRetryable (returns true),
+                        // matching the behaviour of SdkError::ServiceError with
+                        // status >= 500.
+                        Err::<(), TestErr>(TestErr::Transient)
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            RetryPolicy::s3_default(),
+        )
+        .await;
+
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            res,
+            Ok(()),
+            "expected Ok on second attempt after transient 503"
+        );
+        assert_eq!(calls.get(), 2, "expected exactly 2 call attempts");
+        // The first-attempt backoff is base_delay_ms * 2^0 = 250 ms, jittered
+        // to [125, 375] ms.  2 000 ms leaves generous headroom while still
+        // catching any accidental exponential pile-up.
+        assert!(
+            elapsed.as_millis() < 2_000,
+            "elapsed {elapsed:?} exceeded 2 000 ms — possible backoff bug"
+        );
+    }
 }
 
 #[cfg(test)]
