@@ -5,6 +5,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+mod gobd;
+
 use aws_credential_types::Credentials;
 use aws_sdk_s3::{
     config::Region, presigning::PresigningConfig, primitives::ByteStream, Client as S3Client,
@@ -552,6 +554,61 @@ fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), BookieError> {
 
     info!("Database restored successfully");
     Ok(())
+}
+
+/// COMP-1.b: GoBD-Export ZIP generator.
+///
+/// Builds an audit-friendly archive (per-table CSV + manifest with per-file
+/// SHA-256 + top-level signature) that satisfies a German Betriebsprüfung
+/// for the requested fiscal years. The actual archive construction lives in
+/// the `gobd` module; this command is a thin Tauri-facing wrapper that:
+///
+/// 1. Resolves the live DB path.
+/// 2. Opens it READ-ONLY (no writer-pool contention).
+/// 3. Delegates to `gobd::build_export`.
+/// 4. Returns `BackupPayload`-shaped bytes so the existing frontend
+///    download flow (`downloadFile`) works unchanged.
+///
+/// On failure every error variant is mapped onto `BookieError::IoError` —
+/// the underlying `GobdError` stringification is descriptive enough for the
+/// settings page; no new typed variants are introduced for this issue.
+#[tauri::command]
+fn export_gobd(app: AppHandle, from_year: i32, to_year: i32) -> Result<BackupPayload, BookieError> {
+    info!("GoBD export started: {from_year}..={to_year}");
+
+    let db_file = db_path(&app)?;
+    let conn = gobd::open_readonly(&db_file).map_err(|e| {
+        error!("Failed to open DB read-only for GoBD export: {e}");
+        BookieError::IoError {
+            message: format!("open db: {e}"),
+        }
+    })?;
+
+    let export = gobd::build_export(
+        &conn,
+        gobd::YearRange {
+            from: from_year,
+            to: to_year,
+        },
+    )
+    .map_err(|e| {
+        error!("GoBD export failed: {e}");
+        BookieError::IoError {
+            message: format!("export: {e}"),
+        }
+    })?;
+
+    info!(
+        "GoBD export complete: {} ({} bytes, signature={})",
+        export.file_name,
+        export.bytes.len(),
+        export.signature
+    );
+
+    Ok(BackupPayload {
+        file_name: export.file_name,
+        bytes: export.bytes,
+    })
 }
 
 #[tauri::command]
@@ -2643,6 +2700,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backup_database,
             restore_database,
+            export_gobd,
             write_binary_file,
             read_binary_file,
             get_app_data_dir,

@@ -37,6 +37,18 @@ keyring = "4"
 keyring-core = "1"
 sha2 = "0.10"
 url = "2"
+# COMP-1.b: GoBD-Export ZIP generator. `zip` is used to build the export
+# archive (per-table CSV + manifest + signature) in `export_gobd`.
+# `default-features = false` keeps the dependency lean (no bzip2/zstd
+# encryption backends — `deflate` via `flate2` is sufficient for CSV
+# payloads).
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Read-only access to the bundled SQLite DB during GoBD export. The
+# tauri-plugin-sql infrastructure (sqlx) is async-only and not safe to call
+# while the live DB pool may also be held, so we open a fresh read-only
+# connection from the on-disk file. `bundled` keeps the build self-contained
+# and matches the existing dev-dependency entry.
+rusqlite = { version = "0.32", features = ["bundled"] }
 # E2E-only: ephemeral MinIO container fixture for end-to-end S3 round-trip
 # tests (TEST-3.a). Declared here (not in [dev-dependencies]) because Cargo
 # does not allow dev-dependencies to be `optional`. Pulled in only when the
@@ -49,12 +61,9 @@ testcontainers-modules = { version = "0.15", features = ["minio"], optional = tr
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-# Used by tests/migrations.rs (TEST-2.a) to run each migration against a
-# fresh in-memory SQLite DB and assert the down migration restores the
-# pre-up schema. `bundled` keeps the test self-contained (no system
-# libsqlite3 required) and matches the libsqlite3-sys version already in
-# the lockfile via tauri-plugin-sql -> sqlx-sqlite.
-rusqlite = { version = "0.32", features = ["bundled"] }
+# rusqlite is now declared as a runtime dep (see [dependencies] above) for
+# the COMP-1.b GoBD-Export path; it remains in scope for tests/migrations.rs
+# (TEST-2.a) without needing a separate dev-dependencies entry.
 
 [features]
 # E2E test feature: enables Docker-backed fixtures (e.g. MinIO) used by
