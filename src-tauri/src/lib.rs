@@ -646,11 +646,12 @@ impl S3Config {
 // increasing base delay (250ms, 500ms, 1000ms, ...) multiplied by a uniform
 // random factor in [0.5, 1.5] (full jitter).
 //
-// REL-2.b will wrap the existing S3 commands in this helper. This module
-// only provides the helper and its policy / classification primitives.
+// REL-2.b: this helper wraps every aws-sdk-s3 `.send()` call inside
+// `s3_test_connection`, `s3_upload_file`, `s3_download_file`, and
+// `upload_sha256_sidecar` so that transient failures (network blips, 5xx,
+// 429) self-heal instead of bubbling up as a single hard error.
 
 /// Configuration for `with_retry`.
-#[allow(dead_code)] // wired into S3 commands by REL-2.b
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RetryPolicy {
     /// Total number of attempts (including the first). Must be >= 1.
@@ -660,7 +661,6 @@ pub(crate) struct RetryPolicy {
     pub base_delay_ms: u64,
 }
 
-#[allow(dead_code)] // wired into S3 commands by REL-2.b
 impl RetryPolicy {
     /// Default policy used by S3 commands: 3 attempts with 250ms / 500ms / 1s
     /// exponential backoff plus full jitter.
@@ -680,7 +680,6 @@ impl Default for RetryPolicy {
 
 /// Implemented by error types that can distinguish transient failures from
 /// permanent ones. `with_retry` only retries when this returns `true`.
-#[allow(dead_code)] // wired into S3 commands by REL-2.b
 pub(crate) trait IsRetryable {
     fn is_retryable(&self) -> bool;
 }
@@ -714,7 +713,6 @@ impl<E> IsRetryable for aws_sdk_s3::error::SdkError<E> {
 /// Run `op` with bounded exponential backoff. The closure is invoked once per
 /// attempt so the caller can build a fresh request each time (AWS SDK request
 /// builders are single-use).
-#[allow(dead_code)] // wired into S3 commands by REL-2.b
 pub(crate) async fn with_retry<F, Fut, T, E>(mut op: F, policy: RetryPolicy) -> Result<T, E>
 where
     F: FnMut() -> Fut,
@@ -745,7 +743,6 @@ where
 /// Multiply `base_ms` by a uniform random factor in [0.5, 1.5] using a small
 /// inline PRNG seeded from the system clock. Avoids pulling in `rand` for a
 /// single use site.
-#[allow(dead_code)] // wired into S3 commands by REL-2.b
 fn jitter_full(base_ms: u64) -> u64 {
     if base_ms == 0 {
         return 0;
@@ -761,7 +758,6 @@ fn jitter_full(base_ms: u64) -> u64 {
 
 /// Tiny xorshift64* PRNG. Thread-local, seeded once from the wall clock. Not
 /// cryptographically secure -- only used for jitter on retry delays.
-#[allow(dead_code)] // wired into S3 commands by REL-2.b
 fn next_rand_u64() -> u64 {
     use std::cell::Cell;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -861,30 +857,45 @@ async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
     let client = config.build_client()?;
     let test_key = ".bookie-connection-test";
 
-    client
-        .put_object()
-        .bucket(&config.bucket_name)
-        .key(test_key)
-        .body(ByteStream::from_static(b"ok"))
-        .content_length(2)
-        .content_type("text/plain")
-        .send()
-        .await
-        .map_err(|e| {
-            let msg = format_s3_error(&e);
-            error!("S3 connection test failed: {msg}");
-            // Catch-all for the connection test: any failure here means the
-            // user's S3 config could not round-trip a put_object, which is
-            // exactly what S3Unreachable signals at the API surface.
-            BookieError::S3Unreachable
-        })?;
+    // REL-2.b: retry transient failures (network blips, 5xx, 429) via
+    // `with_retry`. The closure rebuilds the request on each attempt because
+    // AWS SDK request builders consume `self` on `.send()`.
+    with_retry(
+        || async {
+            client
+                .put_object()
+                .bucket(&config.bucket_name)
+                .key(test_key)
+                .body(ByteStream::from_static(b"ok"))
+                .content_length(2)
+                .content_type("text/plain")
+                .send()
+                .await
+        },
+        RetryPolicy::s3_default(),
+    )
+    .await
+    .map_err(|e| {
+        let msg = format_s3_error(&e);
+        error!("S3 connection test failed: {msg}");
+        // Catch-all for the connection test: any failure here means the
+        // user's S3 config could not round-trip a put_object, which is
+        // exactly what S3Unreachable signals at the API surface.
+        BookieError::S3Unreachable
+    })?;
 
-    let _ = client
-        .delete_object()
-        .bucket(&config.bucket_name)
-        .key(test_key)
-        .send()
-        .await;
+    let _ = with_retry(
+        || async {
+            client
+                .delete_object()
+                .bucket(&config.bucket_name)
+                .key(test_key)
+                .send()
+                .await
+        },
+        RetryPolicy::s3_default(),
+    )
+    .await;
 
     info!("S3 connection test successful");
     Ok(())
@@ -1048,19 +1059,29 @@ async fn quiesce_db_pool(app: &AppHandle, db_url: &str) -> bool {
 /// download-side verification lives in REL-1.b/REL-1.c.
 async fn upload_sha256_sidecar(client: &S3Client, bucket: &str, key: &str, digest_hex: &str) {
     let sidecar_key = format!("{key}.sha256");
-    let body = digest_hex.as_bytes().to_vec();
-    let body_len = body.len() as i64;
+    let body_bytes = digest_hex.as_bytes().to_vec();
+    let body_len = body_bytes.len() as i64;
 
-    match client
-        .put_object()
-        .bucket(bucket)
-        .key(&sidecar_key)
-        .body(ByteStream::from(body))
-        .content_length(body_len)
-        .content_type("text/plain")
-        .send()
-        .await
-    {
+    // REL-2.b: retry transient failures. We rebuild the body each attempt
+    // because `ByteStream` and the request builder are single-use. The
+    // sidecar bytes are tiny (64 hex chars) so the per-retry clone is cheap.
+    let result = with_retry(
+        || async {
+            client
+                .put_object()
+                .bucket(bucket)
+                .key(&sidecar_key)
+                .body(ByteStream::from(body_bytes.clone()))
+                .content_length(body_len)
+                .content_type("text/plain")
+                .send()
+                .await
+        },
+        RetryPolicy::s3_default(),
+    )
+    .await;
+
+    match result {
         Ok(_) => info!("S3 sidecar upload successful: key={sidecar_key}"),
         Err(e) => {
             let msg = format_s3_error(&e);
@@ -1098,24 +1119,34 @@ async fn s3_upload_file(
     };
 
     let data_len = data.len() as i64;
-    client
-        .put_object()
-        .bucket(&config.bucket_name)
-        .key(&key)
-        .body(ByteStream::from(data))
-        .content_length(data_len)
-        .content_type(&content_type)
-        .send()
-        .await
-        .map_err(|e| {
-            let msg = format_s3_error(&e);
-            error!("S3 upload failed: key={key}, {msg}");
-            // Match the precedent set by `restore_db_backup`: surface generic
-            // S3 transport / server failures as `S3Unreachable`. A finer-grained
-            // mapping (creds vs. bucket vs. network) would require parsing the
-            // SDK error variant tree and is left for a follow-up.
-            BookieError::S3Unreachable
-        })?;
+    // REL-2.b: retry transient failures. The per-attempt closure rebuilds the
+    // request and `ByteStream` (both are single-use). Cloning `data` each
+    // retry is the safe choice -- on retry we cannot rewind a consumed
+    // ByteStream.
+    with_retry(
+        || async {
+            client
+                .put_object()
+                .bucket(&config.bucket_name)
+                .key(&key)
+                .body(ByteStream::from(data.clone()))
+                .content_length(data_len)
+                .content_type(&content_type)
+                .send()
+                .await
+        },
+        RetryPolicy::s3_default(),
+    )
+    .await
+    .map_err(|e| {
+        let msg = format_s3_error(&e);
+        error!("S3 upload failed: key={key}, {msg}");
+        // Match the precedent set by `restore_db_backup`: surface generic
+        // S3 transport / server failures as `S3Unreachable`. A finer-grained
+        // mapping (creds vs. bucket vs. network) would require parsing the
+        // SDK error variant tree and is left for a follow-up.
+        BookieError::S3Unreachable
+    })?;
 
     info!("S3 upload successful: key={key}");
 
@@ -1131,19 +1162,29 @@ async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, Book
     info!("S3 download: key={key}");
     let client = config.build_client()?;
 
-    let resp = client
-        .get_object()
-        .bucket(&config.bucket_name)
-        .key(&key)
-        .send()
-        .await
-        .map_err(|e| {
-            let msg = format_s3_error(&e);
-            error!("S3 download failed: key={key}, {msg}");
-            // S3Unreachable: catch-all for SDK errors at the download
-            // boundary (mirrors `restore_db_backup`'s mapping).
-            BookieError::S3Unreachable
-        })?;
+    // REL-2.b: retry the SDK call (network / 5xx / 429) via `with_retry`. The
+    // body stream is collected after this returns; if collection itself fails
+    // mid-stream we surface that as IoError below (not retried — partial
+    // bodies are not safely resumable without ranged GETs).
+    let resp = with_retry(
+        || async {
+            client
+                .get_object()
+                .bucket(&config.bucket_name)
+                .key(&key)
+                .send()
+                .await
+        },
+        RetryPolicy::s3_default(),
+    )
+    .await
+    .map_err(|e| {
+        let msg = format_s3_error(&e);
+        error!("S3 download failed: key={key}, {msg}");
+        // S3Unreachable: catch-all for SDK errors at the download
+        // boundary (mirrors `restore_db_backup`'s mapping).
+        BookieError::S3Unreachable
+    })?;
 
     let bytes = resp
         .body
@@ -2537,6 +2578,16 @@ mod retry_tests {
     #[test]
     fn jitter_zero_base_is_zero() {
         assert_eq!(super::jitter_full(0), 0);
+    }
+
+    #[test]
+    fn s3_default_policy_matches_documented_values() {
+        // REL-2.b: lock in the policy used by `s3_test_connection`,
+        // `s3_upload_file`, `s3_download_file`, and `upload_sha256_sidecar`.
+        // Bumping these is fine, but it should be a deliberate change.
+        let p = RetryPolicy::s3_default();
+        assert_eq!(p.max_attempts, 3);
+        assert_eq!(p.base_delay_ms, 250);
     }
 }
 
