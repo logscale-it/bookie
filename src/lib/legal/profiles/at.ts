@@ -30,7 +30,10 @@ const profile: LegalProfile = {
 	vatIdLabel: 'UID-Nummer',
 	taxIdLabel: 'Steuernummer',
 	dateLocale: 'de-AT',
-	numberLocale: 'de-AT'
+	numberLocale: 'de-AT',
+	// §132 Abs. 1 BAO requires 7 years; we conservatively hold to the German
+	// 10-year window until an operator overrides it.
+	retentionYears: 10
 };
 
 export default profile;

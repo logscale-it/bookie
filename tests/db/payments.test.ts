@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import "./setup";
+import { testDb } from "./setup";
 import * as companies from "../../src/lib/db/companies";
 import * as customers from "../../src/lib/db/customers";
 import * as invoices from "../../src/lib/db/invoices";
@@ -78,6 +79,16 @@ describe("payments", () => {
       invoice_id: invId, payment_date: "2026-05-10", amount_cents: 10000,
       method: null, reference: null, note: null,
     });
+    // COMP-1.a (#90): backdate both rows past the 10-year retention window
+    // so the new guard (added in this PR) doesn't refuse the delete. The
+    // SQL touch is safe in tests because the audit triggers fire on the
+    // *previous* state, not on this maintenance UPDATE.
+    testDb.raw.exec(
+      `UPDATE payments SET created_at = '2010-01-01 00:00:00' WHERE id = ${payId}`,
+    );
+    testDb.raw.exec(
+      `UPDATE invoices SET created_at = '2010-01-01 00:00:00' WHERE id = ${invId}`,
+    );
     await payments.deletePayment(payId);
     await invoices.deleteInvoice(invId); // must not throw
     expect(await invoices.getInvoiceById(invId)).toBeUndefined();

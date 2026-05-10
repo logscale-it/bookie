@@ -1,6 +1,7 @@
 /// <reference types="bun" />
 import { test, expect, describe } from "bun:test";
 import "../../db/setup";
+import { testDb } from "../../db/setup";
 
 import JSZip from "jszip";
 
@@ -130,6 +131,13 @@ describe("dsgvo_export", () => {
     const companyId = await seedCompany("Co-Del");
     const customerId = await seedCustomer(companyId, "Deleted-Customer");
     const invoiceId = await seedInvoice(companyId, customerId, "INV-DEL");
+    // COMP-1.a (#90): age the row past the 10-year retention window so the
+    // delete guard added in this PR does not refuse — this test exists to
+    // verify that the *audit* trail surfaces deleted invoices, not to test
+    // retention.
+    testDb.raw.exec(
+      `UPDATE invoices SET created_at = '2010-01-01 00:00:00' WHERE id = ${invoiceId}`,
+    );
     await invoices.deleteInvoice(invoiceId);
 
     const bundle = await collectCustomerData(customerId);

@@ -178,6 +178,13 @@ describe("invoices CRUD + items + status history", () => {
       [invId, null, "draft"],
     );
 
+    // COMP-1.a (#90): age the row past the 10-year retention window so the
+    // new guard doesn't fire — the regression we care about here is CASCADE
+    // from invoices to invoice_items / invoice_status_history.
+    testDb.raw.exec(
+      `UPDATE invoices SET created_at = '2010-01-01 00:00:00' WHERE id = ${invId}`,
+    );
+
     await invoices.deleteInvoice(invId);
 
     expect((await invoiceItems.listByInvoice(invId)).rows).toEqual([]);

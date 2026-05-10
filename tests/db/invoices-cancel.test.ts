@@ -102,10 +102,16 @@ describe("DAT-2.b: TS pre-checks for issued-invoice immutability", () => {
     expect(got?.notes).toBeNull();
   });
 
-  test("deleteInvoice on a draft succeeds", async () => {
+  test("deleteInvoice on a draft succeeds (once outside retention window)", async () => {
     const { companyId, customerId } = await seed();
     const invId = await invoices.createInvoice(
       blankInvoice(companyId, customerId, "INV-DEL-DRAFT"),
+    );
+    // COMP-1.a (#90): age the row past the 10-year retention window so the
+    // new guard doesn't fire — the regression we care about here is the
+    // draft / non-draft branch, not retention.
+    testDb.raw.exec(
+      `UPDATE invoices SET created_at = '2010-01-01 00:00:00' WHERE id = ${invId}`,
     );
     await invoices.deleteInvoice(invId);
     expect(await invoices.getInvoiceById(invId)).toBeUndefined();

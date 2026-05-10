@@ -1,4 +1,5 @@
 import { getDb, withTransaction, safeFields } from "./connection";
+import { assertOutsideRetention } from "./retention";
 import type { Invoice, InvoiceItem } from "./types";
 
 export type InvoiceWithCustomer = Invoice & { customer_name: string | null };
@@ -191,6 +192,19 @@ export async function deleteInvoice(id: number): Promise<void> {
   if (existing && existing.status !== "draft") {
     throw invoiceImmutableError(
       `Rechnung im Status '${existing.status}' kann nicht gelöscht werden`,
+    );
+  }
+
+  // COMP-1.a (#90): GoBD §147 AO retention guard. Even drafts that are old
+  // enough to fall outside the window are still books-relevant, so we apply
+  // the guard for any existing row regardless of status. The
+  // InvoiceImmutable check above already covers issued/storno rows; in
+  // practice this branch fires for an old `draft` that was never issued.
+  if (existing) {
+    assertOutsideRetention(
+      "Rechnung",
+      existing.legal_country_code,
+      existing.created_at,
     );
   }
 
