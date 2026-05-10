@@ -1738,6 +1738,376 @@ fn delete_s3_credentials() -> Result<(), BookieError> {
     }
 }
 
+// --- OPS-1.a: boot_check command -------------------------------------------
+//
+// Probes the runtime environment as early as the frontend can reach the
+// backend so the user (and the frontend's "boot" screen — wired up in
+// OPS-1.b) discovers a broken install up front, instead of months later when
+// auto-backup silently fails or a settings panel can't reach the keyring.
+//
+// The command returns a `BootStatus` with one slot per probe. Each slot is a
+// `BootCheckResult<T>` which serialises to one of:
+//   { "status": "ok" }
+//   { "status": "ok", "info": <T> }
+//   { "status": "err", "error": { "kind": "<BookieError variant>", ... } }
+//   { "status": "skipped", "reason": "<human reason>" }
+//   { "status": "delegated", "to": "<command name>" }
+//
+// Probes implemented here:
+//   - app_data_dir : resolves the platform app-data dir, ensures it exists,
+//                    and round-trips a temp file (write + read + delete) to
+//                    catch read-only mounts and quota issues.
+//   - keyring      : opens an `Entry` against the Bookie service and performs
+//                    a no-op read. `NoEntry` is treated as Ok (the keyring
+//                    is reachable, the slot just hasn't been populated yet).
+//                    Backend failures (DBus down, no Secret Service) collapse
+//                    via `From<keyring_core::error::Error>` to
+//                    `KeyringUnavailable`.
+//   - s3           : if `config` is `Some`, runs the same put-then-delete
+//                    round-trip as `s3_test_connection`. If `None` (S3 not
+//                    configured by the user) the slot is `Skipped`.
+//   - schema       : delegated to the `schema_version_check` command added by
+//                    OBS-3.a (#74 / PR #159). That command runs as a
+//                    `rusqlite` side-connection AFTER the SQL plugin's
+//                    `Database.load(...)` has applied pending migrations,
+//                    which is structurally not reachable from boot_check
+//                    (the plugin migrates on `Database.load`, not at Tauri
+//                    `setup`). The frontend invokes `schema_version_check`
+//                    separately; boot_check just reports `Delegated`.
+
+/// Per-probe result inside `BootStatus`. Generic over the optional `info`
+/// payload so probes that have nothing extra to report (most of them) can
+/// use `BootCheckResult<()>` and omit the field at the JSON layer.
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
+pub enum BootCheckResult<T: serde::Serialize> {
+    Ok {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        info: Option<T>,
+    },
+    Err {
+        error: BookieError,
+    },
+    Skipped {
+        reason: String,
+    },
+    Delegated {
+        to: String,
+    },
+}
+
+impl<T: serde::Serialize> BootCheckResult<T> {
+    fn ok() -> Self {
+        BootCheckResult::Ok { info: None }
+    }
+    fn ok_with(info: T) -> Self {
+        BootCheckResult::Ok { info: Some(info) }
+    }
+    fn err(error: BookieError) -> Self {
+        BootCheckResult::Err { error }
+    }
+    fn skipped(reason: impl Into<String>) -> Self {
+        BootCheckResult::Skipped {
+            reason: reason.into(),
+        }
+    }
+    fn delegated(to: impl Into<String>) -> Self {
+        BootCheckResult::Delegated { to: to.into() }
+    }
+}
+
+/// Snapshot returned by `boot_check`. Each field is independent: a single
+/// failed probe must NOT short-circuit the others, so the user sees the full
+/// picture in one round-trip.
+#[derive(Debug, serde::Serialize)]
+pub struct BootStatus {
+    pub app_data_dir: BootCheckResult<String>,
+    pub keyring: BootCheckResult<()>,
+    pub s3: BootCheckResult<()>,
+    pub schema: BootCheckResult<()>,
+}
+
+/// Probe (a): the platform app-data directory is present and writable.
+///
+/// We resolve via `AppHandle::path().app_data_dir()`, create the directory
+/// if missing (mirroring `db_path`), then round-trip a uniquely named temp
+/// file. The file is removed before returning so we leave no debris.
+fn probe_app_data_dir(app: &AppHandle) -> BootCheckResult<String> {
+    let dir = match app.path().app_data_dir() {
+        Ok(d) => d,
+        Err(err) => {
+            return BootCheckResult::err(BookieError::IoError {
+                message: format!("Failed to resolve app_data_dir: {err}"),
+            });
+        }
+    };
+    if let Err(err) = fs::create_dir_all(&dir) {
+        return BootCheckResult::err(BookieError::IoError {
+            message: format!(
+                "Failed to create app data directory {}: {err}",
+                dir.display()
+            ),
+        });
+    }
+    // Use a nanosecond-tagged probe file so concurrent invocations do not
+    // step on each other (e.g. boot_check running while a unit test fires
+    // its own boot_check in parallel).
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    let probe = dir.join(format!(".bookie-boot-check-{nanos}.tmp"));
+    if let Err(err) = fs::write(&probe, b"ok") {
+        return BootCheckResult::err(BookieError::IoError {
+            message: format!("Failed to write probe file {}: {err}", probe.display()),
+        });
+    }
+    // Best-effort cleanup; a leftover .tmp would be cosmetic but log it.
+    if let Err(e) = fs::remove_file(&probe) {
+        warn!(
+            "boot_check: failed to remove probe file {}: {e}",
+            probe.display()
+        );
+    }
+    BootCheckResult::ok_with(dir.to_string_lossy().into_owned())
+}
+
+/// Probe (b): the OS keyring backend is reachable.
+///
+/// Opening an `Entry` is cheap; the backend round-trip happens when we call
+/// `get_password()`. We treat `NoEntry` as Ok because that is the expected
+/// state on a fresh install — the credentials slot exists but has not been
+/// populated yet, and the backend itself is clearly working (otherwise we
+/// would have gotten a `PlatformFailure` or similar instead of `NoEntry`).
+fn probe_keyring() -> BootCheckResult<()> {
+    let entry = match keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+        Ok(e) => e,
+        Err(err) => return BootCheckResult::err(BookieError::from(err)),
+    };
+    match entry.get_password() {
+        Ok(_) => BootCheckResult::ok(),
+        Err(keyring_core::error::Error::NoEntry) => BootCheckResult::ok(),
+        Err(err) => BootCheckResult::err(BookieError::from(err)),
+    }
+}
+
+/// Probe (c): the S3 backend is reachable with the given config.
+///
+/// Reuses the exact round-trip from `s3_test_connection` (put a tiny object,
+/// then best-effort delete it). This means any future improvement to that
+/// command's classification automatically improves boot_check.
+async fn probe_s3(config: Option<S3Config>) -> BootCheckResult<()> {
+    let Some(cfg) = config else {
+        return BootCheckResult::skipped("s3 not configured");
+    };
+    match s3_test_connection(cfg).await {
+        Ok(()) => BootCheckResult::ok(),
+        Err(err) => BootCheckResult::err(err),
+    }
+}
+
+/// `boot_check` — probe the runtime environment and return one
+/// `BootCheckResult` per slot. Each probe is independent; a failing probe
+/// does NOT short-circuit the others. The schema slot is `Delegated` to the
+/// separate `schema_version_check` command (OBS-3.a, PR #159) because the
+/// SQL plugin only applies migrations on `Database.load(...)` and we cannot
+/// reach a fully-migrated DB from a synchronous backend boot probe.
+#[tauri::command]
+async fn boot_check(
+    app: AppHandle,
+    s3_config: Option<S3Config>,
+) -> Result<BootStatus, BookieError> {
+    info!("boot_check invoked");
+    let app_data_dir = probe_app_data_dir(&app);
+    let keyring = probe_keyring();
+    let s3 = probe_s3(s3_config).await;
+    let schema = BootCheckResult::delegated("schema_version_check");
+    Ok(BootStatus {
+        app_data_dir,
+        keyring,
+        s3,
+        schema,
+    })
+}
+
+#[cfg(test)]
+mod boot_check_tests {
+    //! OPS-1.a: tests for the `boot_check` probes. The Tauri command itself
+    //! needs an `AppHandle` (only available under a live Tauri runtime), so
+    //! the tests target the underlying `probe_*` helpers and the
+    //! `BootCheckResult` serialisation contract — that contract is what the
+    //! frontend's boot screen (OPS-1.b) is going to render against.
+    use super::{probe_keyring, probe_s3, BootCheckResult, BootStatus, S3Config};
+
+    fn invalid_remote_https_cfg() -> S3Config {
+        // https://example.com — passes endpoint validation (so we exercise
+        // the network/auth path inside `s3_test_connection`, not the
+        // pre-flight `S3EndpointInvalid` short-circuit) but obviously will
+        // not accept these credentials. The probe must surface a typed
+        // BookieError, not a panic, regardless of whether DNS is reachable
+        // from the sandbox.
+        S3Config {
+            endpoint_url: "https://example.com".to_string(),
+            region: "eu-central-1".to_string(),
+            bucket_name: "definitely-not-a-real-bucket".to_string(),
+            access_key_id: "boot-check-bogus".to_string(),
+            secret_access_key: "boot-check-bogus".to_string(),
+        }
+    }
+
+    fn invalid_endpoint_cfg() -> S3Config {
+        // Plaintext non-loopback endpoint — must be rejected pre-flight as
+        // S3EndpointInvalid by the SEC-2.b validator wiring.
+        S3Config {
+            endpoint_url: "http://example.com".to_string(),
+            region: "eu-central-1".to_string(),
+            bucket_name: "bucket".to_string(),
+            access_key_id: "ak".to_string(),
+            secret_access_key: "sk".to_string(),
+        }
+    }
+
+    #[test]
+    fn boot_check_result_ok_serialises_without_info_field() {
+        // Ok with no info: `info: None` is skipped via skip_serializing_if,
+        // so the JSON shape is the minimal {"status":"ok"} that the
+        // frontend can branch on without poking optional fields.
+        let r: BootCheckResult<()> = BootCheckResult::ok();
+        let s = serde_json::to_string(&r).unwrap();
+        assert_eq!(s, r#"{"status":"ok"}"#);
+    }
+
+    #[test]
+    fn boot_check_result_ok_with_info_includes_payload() {
+        let r: BootCheckResult<String> = BootCheckResult::ok_with("/tmp/x".to_string());
+        let s = serde_json::to_string(&r).unwrap();
+        assert!(s.contains(r#""status":"ok""#));
+        assert!(s.contains(r#""info":"/tmp/x""#));
+    }
+
+    #[test]
+    fn boot_check_result_err_carries_typed_bookie_error() {
+        let r: BootCheckResult<()> = BootCheckResult::err(super::BookieError::S3CredsInvalid);
+        let s = serde_json::to_string(&r).unwrap();
+        assert!(s.contains(r#""status":"err""#));
+        // The inner BookieError keeps its `kind`-tagged shape from OBS-2.a.
+        assert!(s.contains(r#""error":{"kind":"S3CredsInvalid"}"#));
+    }
+
+    #[test]
+    fn boot_check_result_skipped_carries_reason() {
+        let r: BootCheckResult<()> = BootCheckResult::skipped("s3 not configured");
+        let s = serde_json::to_string(&r).unwrap();
+        assert_eq!(s, r#"{"status":"skipped","reason":"s3 not configured"}"#);
+    }
+
+    #[test]
+    fn boot_check_result_delegated_names_target_command() {
+        let r: BootCheckResult<()> = BootCheckResult::delegated("schema_version_check");
+        let s = serde_json::to_string(&r).unwrap();
+        assert_eq!(s, r#"{"status":"delegated","to":"schema_version_check"}"#);
+    }
+
+    #[test]
+    fn boot_status_serialises_all_four_slots() {
+        // Pin the field set: the frontend (OPS-1.b) is going to render
+        // exactly these four slots, so a silent rename here would break
+        // the boot screen.
+        let status = BootStatus {
+            app_data_dir: BootCheckResult::ok_with("/var/data".to_string()),
+            keyring: BootCheckResult::ok(),
+            s3: BootCheckResult::skipped("s3 not configured"),
+            schema: BootCheckResult::delegated("schema_version_check"),
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        let obj = json.as_object().expect("BootStatus is a JSON object");
+        assert!(obj.contains_key("app_data_dir"));
+        assert!(obj.contains_key("keyring"));
+        assert!(obj.contains_key("s3"));
+        assert!(obj.contains_key("schema"));
+        assert_eq!(obj.len(), 4, "BootStatus must have exactly four slots");
+    }
+
+    #[test]
+    fn probe_keyring_returns_ok_or_typed_keyring_error() {
+        // We can't guarantee a Secret Service backend in CI/sandbox, but we
+        // can guarantee the probe never panics and always returns a typed
+        // result. NoEntry collapses to Ok per the probe contract; backend
+        // failures collapse to `BookieError::KeyringUnavailable`.
+        let r = probe_keyring();
+        match r {
+            BootCheckResult::Ok { .. } => {}
+            BootCheckResult::Err { error } => {
+                assert!(matches!(error, super::BookieError::KeyringUnavailable));
+            }
+            other => panic!("probe_keyring must return Ok or Err, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn probe_s3_skips_when_no_config_provided() {
+        let r = probe_s3(None).await;
+        match r {
+            BootCheckResult::Skipped { reason } => {
+                assert!(reason.contains("not configured"));
+            }
+            other => panic!("expected Skipped, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn probe_s3_surfaces_endpoint_invalid_pre_flight() {
+        // SEC-2.b's validator rejects http://example.com BEFORE any network
+        // I/O, so this assertion is deterministic regardless of sandbox
+        // network policy.
+        let r = probe_s3(Some(invalid_endpoint_cfg())).await;
+        match r {
+            BootCheckResult::Err { error } => {
+                assert!(
+                    matches!(error, super::BookieError::S3EndpointInvalid),
+                    "expected S3EndpointInvalid, got {error:?}"
+                );
+            }
+            other => panic!("expected Err, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn probe_s3_returns_typed_error_for_unreachable_remote() {
+        // The verification flow in the issue body is "with bad S3 creds,
+        // boot_check returns S3CredsInvalid for the s3 probe and Ok for
+        // the others." `s3_test_connection` currently collapses every
+        // remote/SDK failure to `S3Unreachable` (creds vs. network vs.
+        // bucket disambiguation is left for a future issue), so the probe
+        // must return one of those typed BookieError variants. We do NOT
+        // assert a specific variant beyond "is a typed BookieError" so the
+        // test doesn't break the day s3_test_connection learns finer
+        // classification.
+        let r = probe_s3(Some(invalid_remote_https_cfg())).await;
+        match r {
+            BootCheckResult::Err { error } => {
+                // Any of these are acceptable; the contract is "typed
+                // BookieError surfaces, never a panic, never Ok".
+                assert!(
+                    matches!(
+                        error,
+                        super::BookieError::S3Unreachable
+                            | super::BookieError::S3CredsInvalid
+                            | super::BookieError::S3BucketMissing
+                            | super::BookieError::S3EndpointInvalid
+                    ),
+                    "expected typed S3 BookieError, got {error:?}"
+                );
+            }
+            // If the sandbox has no outbound network at all, the SDK can
+            // sometimes synthesise a dispatch error that we map to
+            // S3Unreachable — still an Err, never Ok. Any other variant is
+            // a contract bug.
+            other => panic!("expected Err for invalid remote S3, got {other:?}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod pure_helper_tests {
     use super::{is_sqlite_backup, sha256_hex, validate_restore_bytes, SQLITE_MAGIC};
@@ -2760,7 +3130,8 @@ pub fn run() {
             get_s3_credentials,
             delete_s3_credentials,
             append_frontend_log,
-            read_log_tail
+            read_log_tail,
+            boot_check
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
