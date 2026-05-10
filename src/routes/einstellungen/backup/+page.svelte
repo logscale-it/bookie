@@ -16,6 +16,15 @@
 	let s3BackupLoading = $state(false);
 	let s3Feedback = $state('');
 
+	// COMP-1.b: GoBD-Export. Default the year range to the previous calendar
+	// year (the typical Betriebsprüfung target). Operators can widen the
+	// range to cover multiple fiscal years in a single archive.
+	const currentYear = new Date().getFullYear();
+	let gobdFromYear = $state<number>(currentYear - 1);
+	let gobdToYear = $state<number>(currentYear - 1);
+	let gobdLoading = $state(false);
+	let gobdFeedback = $state('');
+
 	onMount(async () => {
 		s3 = await getS3Settings();
 	});
@@ -76,6 +85,26 @@
 		await saveS3Settings(s3);
 	}
 
+	async function handleGobdExport() {
+		gobdFeedback = '';
+		if (!Number.isInteger(gobdFromYear) || !Number.isInteger(gobdToYear) || gobdFromYear > gobdToYear) {
+			gobdFeedback = t('settings.gobdInvalidRange');
+			return;
+		}
+		gobdLoading = true;
+		try {
+			const payload = await invoke<BackupPayload>('export_gobd', {
+				fromYear: gobdFromYear,
+				toYear: gobdToYear
+			});
+			downloadFile(payload.file_name, payload.bytes);
+			gobdFeedback = t('settings.gobdExported');
+		} catch (e) {
+			gobdFeedback = `${t('common.error')}: ${e}`;
+		}
+		gobdLoading = false;
+	}
+
 	async function handleS3Backup() {
 		if (!s3) return;
 		s3BackupLoading = true;
@@ -112,6 +141,48 @@
 			{t('settings.restore')}
 		</button>
 		{#if feedback}<p class="text-xs text-emerald-600">{feedback}</p>{/if}
+	</section>
+
+	<section class="card space-y-4">
+		<h2 class="text-base font-semibold">{t('settings.gobdTitle')}</h2>
+		<p class="text-sm text-zinc-500 dark:text-zinc-400">
+			{t('settings.gobdDesc')}
+		</p>
+		<div class="flex flex-wrap items-end gap-3">
+			<label class="flex flex-col gap-1 text-sm">
+				<span class="font-medium">{t('settings.gobdFromYear')}</span>
+				<input
+					type="number"
+					bind:value={gobdFromYear}
+					min="2000"
+					max="2100"
+					step="1"
+					class="input-base w-28"
+				/>
+			</label>
+			<label class="flex flex-col gap-1 text-sm">
+				<span class="font-medium">{t('settings.gobdToYear')}</span>
+				<input
+					type="number"
+					bind:value={gobdToYear}
+					min="2000"
+					max="2100"
+					step="1"
+					class="input-base w-28"
+				/>
+			</label>
+			<button
+				type="button"
+				onclick={handleGobdExport}
+				disabled={gobdLoading}
+				class="btn-primary"
+			>
+				{gobdLoading ? t('settings.gobdExporting') : t('settings.gobdExport')}
+			</button>
+		</div>
+		{#if gobdFeedback}
+			<p class="text-xs {gobdFeedback.startsWith('Fehler') || gobdFeedback.startsWith('Error') || gobdFeedback === t('settings.gobdInvalidRange') ? 'text-red-600' : 'text-emerald-600'}">{gobdFeedback}</p>
+		{/if}
 	</section>
 
 	<section class="card space-y-4">
