@@ -75,6 +75,27 @@ impl From<std::io::Error> for BookieError {
     }
 }
 
+impl From<keyring_core::error::Error> for BookieError {
+    fn from(_e: keyring_core::error::Error) -> Self {
+        // The keyring crate surfaces every backend failure (DBus down, no
+        // Secret Service, locked KWallet, ...) through this error type. From
+        // the application's point of view they all mean "the OS keyring is
+        // not usable right now", which is exactly what `KeyringUnavailable`
+        // signals. `keyring_core::error::Error::NoEntry` is a logical "absent" rather
+        // than an availability failure, so call sites that care match on it
+        // explicitly before falling through to `?` / this impl.
+        BookieError::KeyringUnavailable
+    }
+}
+
+impl From<serde_json::Error> for BookieError {
+    fn from(e: serde_json::Error) -> Self {
+        BookieError::Unknown {
+            message: format!("Serialization error: {e}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod bookie_error_tests {
     use super::BookieError;
@@ -113,6 +134,27 @@ mod bookie_error_tests {
         match bookie_err {
             BookieError::IoError { message } => assert!(message.contains("no such file")),
             other => panic!("expected IoError, got {other:?}"),
+        }
+    }
+
+    // OBS-2.b: regression tests for the `From` impls added to support `?` in
+    // the migrated Tauri commands. Every keyring backend failure collapses to
+    // a single variant by design (see the `From<keyring_core::error::Error>` doc comment).
+    #[test]
+    fn from_keyring_error_maps_to_keyring_unavailable() {
+        let bookie_err = BookieError::from(keyring_core::error::Error::NoEntry);
+        assert!(matches!(bookie_err, BookieError::KeyringUnavailable));
+    }
+
+    #[test]
+    fn from_serde_json_error_maps_to_unknown_with_message() {
+        let serde_err = serde_json::from_str::<u32>("not a number").unwrap_err();
+        let bookie_err = BookieError::from(serde_err);
+        match bookie_err {
+            BookieError::Unknown { message } => {
+                assert!(message.contains("Serialization error"));
+            }
+            other => panic!("expected Unknown, got {other:?}"),
         }
     }
 }
@@ -399,11 +441,13 @@ fn app_migrations() -> Vec<Migration> {
     ]
 }
 
-fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn db_path(app: &AppHandle) -> Result<PathBuf, BookieError> {
     let app_data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|err| format!("Failed to resolve app_data_dir: {err}"))?;
+        .map_err(|err| BookieError::IoError {
+            message: format!("Failed to resolve app_data_dir: {err}"),
+        })?;
     let app_data_db = app_data_dir.join(DB_FILE_NAME);
 
     if app_data_db.exists() {
@@ -415,19 +459,22 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
         return Ok(current_dir_db);
     }
 
-    fs::create_dir_all(&app_data_dir)
-        .map_err(|err| format!("Failed to create app data directory: {err}"))?;
+    fs::create_dir_all(&app_data_dir).map_err(|err| BookieError::IoError {
+        message: format!("Failed to create app data directory: {err}"),
+    })?;
 
     Ok(app_data_db)
 }
 
 #[tauri::command]
-fn backup_database(app: AppHandle) -> Result<BackupPayload, String> {
+fn backup_database(app: AppHandle) -> Result<BackupPayload, BookieError> {
     info!("Creating database backup");
     let db_file = db_path(&app)?;
     let bytes = fs::read(&db_file).map_err(|err| {
         error!("Failed to read backup: {err}");
-        format!("Failed to read backup: {err}")
+        BookieError::IoError {
+            message: format!("Failed to read backup: {err}"),
+        }
     })?;
 
     info!("Backup created: {} bytes", bytes.len());
@@ -454,9 +501,15 @@ fn validate_restore_bytes(bytes: &[u8]) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
+fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), BookieError> {
     info!("Database restore started ({} bytes)", bytes.len());
-    validate_restore_bytes(&bytes)?;
+    // `validate_restore_bytes` is a pure helper that still returns String for
+    // its own unit tests; map its rejection messages into BackupCorrupt at the
+    // command boundary.
+    validate_restore_bytes(&bytes).map_err(|msg| {
+        error!("Restore validation failed: {msg}");
+        BookieError::BackupCorrupt
+    })?;
 
     let db_file = db_path(&app)?;
 
@@ -479,7 +532,9 @@ fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
 
     fs::write(db_file, bytes).map_err(|err| {
         error!("Failed to restore backup: {err}");
-        format!("Failed to restore backup: {err}")
+        BookieError::IoError {
+            message: format!("Failed to restore backup: {err}"),
+        }
     })?;
 
     info!("Database restored successfully");
@@ -487,9 +542,11 @@ fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
+fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), BookieError> {
     info!("Writing file: {path}");
-    fs::write(&path, &data).map_err(|e| format!("Failed to write file: {e}"))
+    fs::write(&path, &data).map_err(|e| BookieError::IoError {
+        message: format!("Failed to write file: {e}"),
+    })
 }
 
 #[derive(Deserialize)]
@@ -739,7 +796,7 @@ fn format_s3_error<E: std::fmt::Debug>(err: &aws_sdk_s3::error::SdkError<E>) -> 
 }
 
 #[tauri::command]
-async fn s3_test_connection(config: S3Config) -> Result<(), String> {
+async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
     info!("S3 connection test: bucket={}", config.bucket_name);
     let client = config.build_client();
     let test_key = ".bookie-connection-test";
@@ -756,7 +813,10 @@ async fn s3_test_connection(config: S3Config) -> Result<(), String> {
         .map_err(|e| {
             let msg = format_s3_error(&e);
             error!("S3 connection test failed: {msg}");
-            format!("S3 connection failed: {msg}")
+            // Catch-all for the connection test: any failure here means the
+            // user's S3 config could not round-trip a put_object, which is
+            // exactly what S3Unreachable signals at the API surface.
+            BookieError::S3Unreachable
         })?;
 
     let _ = client
@@ -957,7 +1017,7 @@ async fn s3_upload_file(
     file_name: String,
     data: Vec<u8>,
     content_type: String,
-) -> Result<String, String> {
+) -> Result<String, BookieError> {
     let prefix = path_prefix.trim_end_matches('/');
     let key = if prefix.is_empty() {
         file_name
@@ -990,7 +1050,11 @@ async fn s3_upload_file(
         .map_err(|e| {
             let msg = format_s3_error(&e);
             error!("S3 upload failed: key={key}, {msg}");
-            format!("S3 upload failed: {msg}")
+            // Match the precedent set by `restore_db_backup`: surface generic
+            // S3 transport / server failures as `S3Unreachable`. A finer-grained
+            // mapping (creds vs. bucket vs. network) would require parsing the
+            // SDK error variant tree and is left for a follow-up.
+            BookieError::S3Unreachable
         })?;
 
     info!("S3 upload successful: key={key}");
@@ -1003,7 +1067,7 @@ async fn s3_upload_file(
 }
 
 #[tauri::command]
-async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, String> {
+async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, BookieError> {
     info!("S3 download: key={key}");
     let client = config.build_client();
 
@@ -1016,14 +1080,18 @@ async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, Stri
         .map_err(|e| {
             let msg = format_s3_error(&e);
             error!("S3 download failed: key={key}, {msg}");
-            format!("S3 download failed: {msg}")
+            // S3Unreachable: catch-all for SDK errors at the download
+            // boundary (mirrors `restore_db_backup`'s mapping).
+            BookieError::S3Unreachable
         })?;
 
     let bytes = resp
         .body
         .collect()
         .await
-        .map_err(|e| format!("S3 download read error: {e}"))?
+        .map_err(|e| BookieError::IoError {
+            message: format!("S3 download read error: {e}"),
+        })?
         .into_bytes();
 
     info!("S3 download successful: key={key}, size={}", bytes.len());
@@ -1074,7 +1142,7 @@ async fn restore_db_backup(
 ) -> Result<(), BookieError> {
     info!("Restore from S3: key={key}, allow_missing_sidecar={allow_missing_sidecar}");
 
-    let db_file = db_path(&app).map_err(|message| BookieError::IoError { message })?;
+    let db_file = db_path(&app)?;
     // Tmp file lives in the same parent as the live DB so that the rename in
     // step 8 is atomic — see `restore_tmp_path`.
     let tmp_file = restore_tmp_path(&db_file);
@@ -1284,7 +1352,7 @@ async fn restore_db_backup(
 }
 
 #[tauri::command]
-async fn s3_delete_file(config: S3Config, key: String) -> Result<(), String> {
+async fn s3_delete_file(config: S3Config, key: String) -> Result<(), BookieError> {
     info!("S3 delete: key={key}");
     let client = config.build_client();
 
@@ -1297,7 +1365,8 @@ async fn s3_delete_file(config: S3Config, key: String) -> Result<(), String> {
         .map_err(|e| {
             let msg = format_s3_error(&e);
             error!("S3 delete failed: key={key}, {msg}");
-            format!("S3 delete failed: {msg}")
+            // S3Unreachable: catch-all for SDK errors at the delete boundary.
+            BookieError::S3Unreachable
         })?;
 
     info!("S3 delete successful: key={key}");
@@ -1309,12 +1378,17 @@ async fn s3_presign_download_url(
     config: S3Config,
     key: String,
     expires_in_seconds: u64,
-) -> Result<String, String> {
+) -> Result<String, BookieError> {
     info!("Presigned URL: key={key}, expires_in={expires_in_seconds}s");
     let client = config.build_client();
 
+    // Bad expiry configuration is an internal programming error from the
+    // user's perspective (the frontend picks the expiry), not an S3 outage.
+    // Map it through the catch-all so the actual SDK message survives.
     let presigning_config = PresigningConfig::expires_in(Duration::from_secs(expires_in_seconds))
-        .map_err(|e| format!("Presigning config failed: {e}"))?;
+        .map_err(|e| BookieError::Unknown {
+        message: format!("Presigning config failed: {e}"),
+    })?;
 
     let presigned = client
         .get_object()
@@ -1322,7 +1396,10 @@ async fn s3_presign_download_url(
         .key(&key)
         .presigned(presigning_config)
         .await
-        .map_err(|e| format!("Presigned URL failed: {e}"))?;
+        .map_err(|e| {
+            error!("Presigned URL failed: key={key}, {e}");
+            BookieError::S3Unreachable
+        })?;
 
     let url = presigned.uri().to_string();
     info!("Presigned URL created: key={key}");
@@ -1339,9 +1416,17 @@ struct S3Credentials {
 }
 
 #[tauri::command]
-fn store_s3_credentials(access_key_id: String, secret_access_key: String) -> Result<(), String> {
+fn store_s3_credentials(
+    access_key_id: String,
+    secret_access_key: String,
+) -> Result<(), BookieError> {
     if access_key_id.is_empty() || secret_access_key.is_empty() {
-        return Err("Access Key ID and Secret Access Key must not be empty".into());
+        // Empty-input validation does not match any domain variant; the
+        // catch-all preserves the operator-facing message for the log and
+        // for any future TS surfacing in OBS-2.c.
+        return Err(BookieError::Unknown {
+            message: "Access Key ID and Secret Access Key must not be empty".to_string(),
+        });
     }
 
     info!(
@@ -1350,29 +1435,25 @@ fn store_s3_credentials(access_key_id: String, secret_access_key: String) -> Res
         secret_access_key.len()
     );
 
-    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(|e| format!("Keyring error: {e}"))?;
+    // `From<keyring_core::error::Error>` collapses to `KeyringUnavailable`; the
+    // `?` operator does the conversion for every keyring call below.
+    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
 
     let creds = S3Credentials {
         access_key_id,
         secret_access_key,
     };
-    let json = serde_json::to_string(&creds).map_err(|e| format!("Serialization failed: {e}"))?;
+    // `From<serde_json::Error>` maps to `Unknown { message }`.
+    let json = serde_json::to_string(&creds)?;
 
-    entry
-        .set_password(&json)
-        .map_err(|e| format!("Keyring storage failed: {e}"))?;
+    entry.set_password(&json)?;
 
     // Verify the credentials were actually persisted
-    let readback = entry
-        .get_password()
-        .map_err(|e| format!("Keyring verification read failed: {e}"))?;
+    let readback = entry.get_password()?;
     if readback != json {
-        return Err(
-            "Keyring verification failed: stored credentials do not match. \
-            The OS keyring service may not be working correctly."
-                .into(),
-        );
+        // Persisted bytes differ from what we wrote — treat as a
+        // keyring backend malfunction.
+        return Err(BookieError::KeyringUnavailable);
     }
 
     info!("S3 credentials stored and verified in keyring successfully");
@@ -1380,15 +1461,15 @@ fn store_s3_credentials(access_key_id: String, secret_access_key: String) -> Res
 }
 
 #[tauri::command]
-fn get_s3_credentials() -> Result<S3Credentials, String> {
+fn get_s3_credentials() -> Result<S3Credentials, BookieError> {
     info!("Reading S3 credentials from keyring");
-    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(|e| format!("Keyring error: {e}"))?;
+    // `?` uses `From<keyring_core::error::Error>` -> `KeyringUnavailable`.
+    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
 
     match entry.get_password() {
         Ok(json) => {
-            let creds: S3Credentials =
-                serde_json::from_str(&json).map_err(|e| format!("Deserialization failed: {e}"))?;
+            // `?` uses `From<serde_json::Error>` -> `Unknown { message }`.
+            let creds: S3Credentials = serde_json::from_str(&json)?;
             if creds.access_key_id.is_empty() || creds.secret_access_key.is_empty() {
                 warn!("Keyring entry exists but credentials are empty");
             } else {
@@ -1401,29 +1482,39 @@ fn get_s3_credentials() -> Result<S3Credentials, String> {
             Ok(creds)
         }
         Err(keyring_core::error::Error::NoEntry) => {
+            // The "absent credentials" case is not a keyring malfunction —
+            // BookieError currently has no dedicated "missing entry" variant,
+            // so we route through the catch-all and preserve the legacy
+            // sentinel string. `frontend src/lib/db/settings.ts` simply logs
+            // and ignores this error, so behaviour is unchanged. (OBS-2.c
+            // can introduce a typed variant when it mirrors BookieError to TS.)
             warn!("No S3 credentials found in keyring");
-            Err("no_entry".into())
+            Err(BookieError::Unknown {
+                message: "no_entry".to_string(),
+            })
         }
         Err(e) => {
             warn!("Keyring read error: {e}");
-            Err(format!("Keyring read error: {e}"))
+            Err(BookieError::from(e))
         }
     }
 }
 
 #[tauri::command]
-fn delete_s3_credentials() -> Result<(), String> {
+fn delete_s3_credentials() -> Result<(), BookieError> {
     info!("Deleting S3 credentials from keyring");
-    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .map_err(|e| format!("Keyring error: {e}"))?;
+    // `?` uses `From<keyring_core::error::Error>` -> `KeyringUnavailable`.
+    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
 
     match entry.delete_credential() {
         Ok(()) => {
             info!("S3 credentials deleted successfully");
             Ok(())
         }
+        // Idempotent semantics: deleting an absent entry is a no-op success,
+        // matching the previous behaviour.
         Err(keyring_core::error::Error::NoEntry) => Ok(()),
-        Err(e) => Err(format!("Keyring deletion failed: {e}")),
+        Err(e) => Err(BookieError::from(e)),
     }
 }
 
