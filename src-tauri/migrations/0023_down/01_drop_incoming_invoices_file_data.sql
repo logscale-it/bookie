@@ -1,0 +1,27 @@
+-- DAT-5.c rollback: re-add `incoming_invoices.file_data` as a nullable BLOB.
+--
+-- This restores the column so the schema can accept the legacy code paths
+-- again, but the actual byte content of every previously-stored PDF is
+-- permanently lost when 0023 up runs. Rows will have `file_data IS NULL`
+-- after rollback regardless of what they held before the drop.
+--
+-- The column is re-added at the end of the table rather than at its
+-- original physical position (between `status` and `file_name`). This is
+-- semantically equivalent — SQLite addressing is column-name based — but
+-- means the textual `CREATE TABLE` snapshot in `sqlite_schema.sql` will
+-- differ from the pre-up snapshot. The migration round-trip harness in
+-- `src-tauri/tests/migrations.rs` catches that as a mismatch, which is
+-- why this migration is marked `.noop_down` (the marker file lives in
+-- `src-tauri/migrations/0023/.noop_down`). The harness still applies this
+-- SQL so syntax errors are surfaced as warnings; only the schema-equality
+-- assertion is downgraded.
+--
+-- A full table-rebuild down (CREATE TABLE _new with `file_data` at its
+-- original position, INSERT SELECT, DROP, RENAME) was considered and
+-- rejected: the data cannot be recovered either way, so reproducing the
+-- exact original column order has no operational value and adds dozens of
+-- lines that must be kept in sync with every prior column-adding
+-- migration on this table (0009 s3_key, 0022 local_path). Future column
+-- additions would silently drift from this rebuild and produce confusing
+-- post-rollback schemas.
+ALTER TABLE incoming_invoices ADD COLUMN file_data BLOB;
