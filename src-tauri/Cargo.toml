@@ -40,6 +40,12 @@ url = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# Used by tests/migrations.rs (TEST-2.a) to run each migration against a
+# fresh in-memory SQLite DB and assert the down migration restores the
+# pre-up schema. `bundled` keeps the test self-contained (no system
+# libsqlite3 required) and matches the libsqlite3-sys version already in
+# the lockfile via tauri-plugin-sql -> sqlx-sqlite.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [profile.release]
 panic = "abort" # Strip expensive panic clean-up logic
