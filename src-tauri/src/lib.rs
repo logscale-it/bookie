@@ -453,6 +453,18 @@ fn app_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0022_down/01_incoming_invoices_local_path.sql"),
             kind: MigrationKind::Down,
         },
+        Migration {
+            version: 24,
+            description: "einvoice_format_up",
+            sql: include_str!("../migrations/0024/01_einvoice_format.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 24,
+            description: "einvoice_format_down",
+            sql: include_str!("../migrations/0024_down/01_einvoice_format.sql"),
+            kind: MigrationKind::Down,
+        },
     ]
 }
 

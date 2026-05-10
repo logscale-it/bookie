@@ -44,6 +44,7 @@ const ORGANIZATION_DEFAULT: UpsertOrganizationSettings = {
   website: "",
   default_locale: "de",
   default_legal_country: "DE",
+  einvoice_format: "plain",
 };
 
 const INVOICE_DEFAULT: UpsertInvoiceSettings = {
@@ -75,8 +76,8 @@ export async function saveOrganizationSettings(
 ): Promise<void> {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO settings_organization (id, name, country, address, street, postal_code, city, email, phone_number, registering_id, bank_name, bank_iban, bank_account_holder, vatin, website, default_locale, default_legal_country)
-		 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    `INSERT INTO settings_organization (id, name, country, address, street, postal_code, city, email, phone_number, registering_id, bank_name, bank_iban, bank_account_holder, vatin, website, default_locale, default_legal_country, einvoice_format)
+		 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		 ON CONFLICT(id) DO UPDATE SET
 		 name = excluded.name,
 		 country = excluded.country,
@@ -94,6 +95,7 @@ export async function saveOrganizationSettings(
 		 website = excluded.website,
 		 default_locale = excluded.default_locale,
 		 default_legal_country = excluded.default_legal_country,
+		 einvoice_format = excluded.einvoice_format,
 		 updated_at = CURRENT_TIMESTAMP`,
     [
       data.name,
@@ -112,6 +114,7 @@ export async function saveOrganizationSettings(
       data.website,
       data.default_locale,
       data.default_legal_country,
+      data.einvoice_format,
     ],
   );
 }

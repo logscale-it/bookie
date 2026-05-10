@@ -103,7 +103,7 @@
 	let company = $state<Company | null>(null);
 	let customers = $state<Customer[]>([]);
 	let vatTaxes = $state<VatTax[]>([]);
-	let orgSettings = $state({ name: '', country: '', address: '', street: '', postal_code: '', city: '', email: '', phone_number: '', registering_id: '', bank_name: '', bank_iban: '', bank_account_holder: '', vatin: '', website: '', default_locale: '', default_legal_country: '' });
+	let orgSettings = $state({ name: '', country: '', address: '', street: '', postal_code: '', city: '', email: '', phone_number: '', registering_id: '', bank_name: '', bank_iban: '', bank_account_holder: '', vatin: '', website: '', default_locale: '', default_legal_country: '', einvoice_format: 'plain' as 'plain' | 'zugferd' | 'xrechnung' });
 	let invoiceSettings = $state({ currency: 'EUR', decimal_places: 2, days_till_due: 14, due_surcharge: 0, notes: '', invoice_number_format: 'RE-{YYYY}-{COUNT}', invoice_number_incrementor: 1, company_logo_data_url: null as string | null });
 
 	let loading = $state(true);

@@ -34,6 +34,7 @@ describe("organization settings", () => {
     expect(got.name).toBe("");
     expect(got.default_locale).toBe("de");
     expect(got.default_legal_country).toBe("DE");
+    expect(got.einvoice_format).toBe("plain");
   });
 
   test("upserts on id=1 (insert then update)", async () => {
@@ -42,6 +43,7 @@ describe("organization settings", () => {
       postal_code: "10115", city: "Berlin", email: "a@b.de", phone_number: "",
       registering_id: "", bank_name: "", bank_iban: "", bank_account_holder: "",
       vatin: "", website: "", default_locale: "de", default_legal_country: "DE",
+      einvoice_format: "plain",
     });
     let got = await settings.getOrganizationSettings();
     expect(got.name).toBe("First");
@@ -56,6 +58,54 @@ describe("organization settings", () => {
       "SELECT COUNT(*) AS count FROM settings_organization",
     );
     expect(rows[0].count).toBe(1);
+  });
+
+  // COMP-3.a: e-invoice format selector lives on the organisation settings.
+  describe("einvoice_format", () => {
+    test("persists and returns each allowed value", async () => {
+      const base = {
+        name: "Acme", country: "DE", address: "", street: "Str 1",
+        postal_code: "10115", city: "Berlin", email: "", phone_number: "",
+        registering_id: "", bank_name: "", bank_iban: "",
+        bank_account_holder: "", vatin: "", website: "",
+        default_locale: "de", default_legal_country: "DE",
+      } as const;
+
+      for (const fmt of ["plain", "zugferd", "xrechnung"] as const) {
+        await settings.saveOrganizationSettings({ ...base, einvoice_format: fmt });
+        const got = await settings.getOrganizationSettings();
+        expect(got.einvoice_format).toBe(fmt);
+      }
+    });
+
+    test("CHECK constraint rejects unknown values at the DB layer", async () => {
+      // First seed a valid row so we can attempt an UPDATE that violates the
+      // CHECK constraint without tripping NOT NULL on other columns.
+      await settings.saveOrganizationSettings({
+        name: "Acme", country: "DE", address: "", street: "", postal_code: "",
+        city: "", email: "", phone_number: "", registering_id: "",
+        bank_name: "", bank_iban: "", bank_account_holder: "", vatin: "",
+        website: "", default_locale: "de", default_legal_country: "DE",
+        einvoice_format: "plain",
+      });
+
+      expect(() =>
+        testDb.raw.exec(
+          "UPDATE settings_organization SET einvoice_format = 'bogus' WHERE id = 1",
+        ),
+      ).toThrow();
+    });
+
+    test("default for a freshly-inserted row is 'plain'", async () => {
+      // Bypass the helper so we exercise the column DEFAULT directly.
+      testDb.raw.exec(
+        "INSERT INTO settings_organization (id, name) VALUES (1, 'X')",
+      );
+      const rows = await testDb.select<{ einvoice_format: string }[]>(
+        "SELECT einvoice_format FROM settings_organization WHERE id = 1",
+      );
+      expect(rows[0].einvoice_format).toBe("plain");
+    });
   });
 });
 

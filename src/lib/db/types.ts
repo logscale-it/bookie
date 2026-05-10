@@ -166,9 +166,27 @@ export interface OrganizationSettings {
   website: string;
   default_locale: string;
   default_legal_country: string;
+  einvoice_format: EInvoiceFormat;
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * COMP-3.a: Output format for issued invoices.
+ *  - 'plain'     — pdf-lib PDF only (current behaviour, default).
+ *  - 'zugferd'   — hybrid PDF/A-3 with embedded XML (planned in COMP-3.b).
+ *  - 'xrechnung' — pure XRechnung XML (planned in COMP-3.b).
+ *
+ * The XML emitter lands in COMP-3.b; this enum only captures the user's
+ * selection so it can be persisted and surfaced in the UI.
+ */
+export type EInvoiceFormat = "plain" | "zugferd" | "xrechnung";
+
+export const EINVOICE_FORMATS: readonly EInvoiceFormat[] = [
+  "plain",
+  "zugferd",
+  "xrechnung",
+] as const;
 
 export interface InvoiceSettings {
   id: number;
