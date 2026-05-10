@@ -1,7 +1,4 @@
-//! TEST-3.b (#89): full lifecycle end-to-end test (v2 — distinct filename
-//! and test name from the parallel branch behind PR #176 so the two can
-//! coexist on disk and either may land first without symbol or path
-//! collisions).
+//! TEST-3.b (#89): full lifecycle end-to-end test.
 //!
 //! What this test proves
 //! ---------------------
@@ -44,7 +41,7 @@
 //!
 //! ```text
 //! cargo test --features e2e --manifest-path src-tauri/Cargo.toml \
-//!     --test lifecycle_e2e_v2 -- --nocapture
+//!     --test lifecycle_e2e -- --nocapture
 //! ```
 //!
 //! See:
@@ -87,14 +84,14 @@ const RESTORE_TMP_SUFFIX: &str = ".restore.tmp";
 /// S3 key for the backup blob. The sidecar is uploaded at
 /// `{BACKUP_KEY}.sha256` (same convention as REL-1.a's
 /// `upload_sha256_sidecar` in `src/lib.rs`).
-const BACKUP_KEY: &str = "lifecycle-v2/backup.db";
+const BACKUP_KEY: &str = "lifecycle/backup.db";
 
 // ---------------------------------------------------------------------------
 // 0. Workspace + migration replay helpers
 // ---------------------------------------------------------------------------
 
 /// Build a fresh per-run scratch directory under
-/// `target/test-artifacts/lifecycle_e2e_v2/<timestamp>/`. Co-locating with
+/// `target/test-artifacts/lifecycle_e2e/<timestamp>/`. Co-locating with
 /// build artefacts means `cargo clean` collects them; the timestamp keeps
 /// reruns from clobbering each other if Drop order races during a panic.
 fn fresh_workdir() -> PathBuf {
@@ -105,7 +102,7 @@ fn fresh_workdir() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("test-artifacts")
-        .join("lifecycle_e2e_v2")
+        .join("lifecycle_e2e")
         .join(format!("run-{nanos}"));
     fs::create_dir_all(&dir).expect("create scratch dir");
     dir
@@ -422,11 +419,8 @@ fn sha256_hex(data: &[u8]) -> String {
 // ---------------------------------------------------------------------------
 
 /// Single linear test so failures pinpoint the exact step that drifted.
-/// Function name is deliberately distinct from the parallel branch's
-/// `lifecycle_round_trip` so the two test binaries can sit side by side
-/// during the review window.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lifecycle_e2e_v2_full_round_trip() {
+async fn lifecycle_e2e_full_round_trip() {
     // -----------------------------------------------------------------
     // Step 0: workspace + ephemeral MinIO container.
     // -----------------------------------------------------------------
