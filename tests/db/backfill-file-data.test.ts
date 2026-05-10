@@ -167,10 +167,9 @@ async function rawInsert(opts: {
   const r = await db.execute(
     `INSERT INTO incoming_invoices (
        company_id, supplier_id, invoice_number, invoice_date,
-       net_amount, tax_amount, gross_amount,
        net_cents, tax_cents, gross_cents,
        status, file_data, file_name, file_type, s3_key, local_path, notes
-     ) VALUES ($1, $2, $3, '2026-04-15', 0, 0, 0,
+     ) VALUES ($1, $2, $3, '2026-04-15',
               10000, 1900, 11900, 'offen', $4, $5, 'application/pdf',
               $6, $7, NULL)`,
     [

@@ -62,9 +62,6 @@ export interface Invoice {
   service_period_start: string | null;
   service_period_end: string | null;
   currency: string;
-  net_amount: number;
-  tax_amount: number;
-  gross_amount: number;
   net_cents: number;
   tax_cents: number;
   gross_cents: number;
@@ -101,9 +98,7 @@ export interface InvoiceItem {
   description: string;
   quantity: number;
   unit: string | null;
-  unit_price_net: number;
   tax_rate: number;
-  line_total_net: number;
   unit_price_net_cents: number;
   line_total_net_cents: number;
   created_at: string;
@@ -129,7 +124,6 @@ export interface Payment {
   id: number;
   invoice_id: number;
   payment_date: string;
-  amount: number;
   amount_cents: number;
   method: string | null;
   reference: string | null;
@@ -199,9 +193,6 @@ export interface IncomingInvoice {
   supplier_id: number | null;
   invoice_number: string | null;
   invoice_date: string;
-  net_amount: number;
-  tax_amount: number;
-  gross_amount: number;
   net_cents: number;
   tax_cents: number;
   gross_cents: number;
