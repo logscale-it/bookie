@@ -6,13 +6,40 @@
 	import { startAutoBackupScheduler } from '$lib/s3/auto-backup';
 	import { t, setLocale, type Locale } from '$lib/i18n';
 	import { getOrganizationSettings } from '$lib/db/settings';
+	import {
+		runSchemaVersionCheck,
+		type MigrationOutOfDateError
+	} from '$lib/boot/schema-check';
+	import MigrationOutOfDateDialog from '../common/MigrationOutOfDateDialog.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
+	// OBS-3.b: gate the entire app shell behind a schema-version check. If
+	// the on-disk DB doesn't match the version this binary was compiled
+	// against, render the recovery dialog *instead of* the business UI so
+	// no command can read or mutate data with a mismatched schema.
+	let bootChecked = $state(false);
+	let migrationError = $state<MigrationOutOfDateError | null>(null);
+
 	onMount(async () => {
+		const result = await runSchemaVersionCheck();
+		if (!result.ok && result.error.kind === 'MigrationOutOfDate') {
+			migrationError = result.error;
+			bootChecked = true;
+			return;
+		}
+		// Non-version boot failures (e.g. a corrupt file) fall through to
+		// the normal app shell — surface as the existing per-page errors
+		// rather than blocking the entire UI on something the dialog
+		// cannot fix.
+		bootChecked = true;
 		startAutoBackupScheduler();
-		const orgSettings = await getOrganizationSettings();
-		if (orgSettings.default_locale) setLocale(orgSettings.default_locale as Locale);
+		try {
+			const orgSettings = await getOrganizationSettings();
+			if (orgSettings.default_locale) setLocale(orgSettings.default_locale as Locale);
+		} catch {
+			/* org settings best-effort; do not block app on a missing row */
+		}
 	});
 
 	const navItems = [
@@ -63,6 +90,22 @@
 	const isActive = (href: string, pathname: string) => pathname === href || pathname.startsWith(`${href}/`);
 </script>
 
+{#if migrationError}
+	<!--
+		OBS-3.b: hard-stop on a schema-version mismatch. Render ONLY the
+		recovery dialog so no business UI (and crucially, no automatic
+		backup scheduler or DB query) can run against an incompatible
+		database.
+	-->
+	<MigrationOutOfDateDialog actual={migrationError.actual} expected={migrationError.expected} />
+{:else if !bootChecked}
+	<!--
+		Brief boot window. Render an empty shell with the same chrome
+		colors so we don't flash the navigation or empty data tables
+		before the version check resolves.
+	-->
+	<div class="flex h-screen items-center justify-center bg-zinc-100 dark:bg-zinc-900"></div>
+{:else}
 <div class="flex h-screen overflow-hidden bg-zinc-100 text-sm text-zinc-900 antialiased dark:bg-zinc-900 dark:text-zinc-100">
 	<!-- Desktop sidebar -->
 	<aside class="hidden w-72 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:block dark:border-zinc-700 dark:bg-zinc-800/60">
@@ -101,3 +144,4 @@
 		{/each}
 	</nav>
 </div>
+{/if}
