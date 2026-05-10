@@ -5,42 +5,119 @@
 	import { onMount } from 'svelte';
 	import { startAutoBackupScheduler } from '$lib/s3/auto-backup';
 	import { t, setLocale, type Locale } from '$lib/i18n';
-	import { getOrganizationSettings } from '$lib/db/settings';
+	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
 	import {
 		runSchemaVersionCheck,
 		type MigrationOutOfDateError
 	} from '$lib/boot/schema-check';
 	import MigrationOutOfDateDialog from '../common/MigrationOutOfDateDialog.svelte';
+	import BootDiagnostics from '$lib/diagnostics/BootDiagnostics.svelte';
+	import {
+		runBootCheck,
+		s3ConfigFromSettings,
+		hasBlockingFailure,
+		hasS3Warning,
+		type BootStatus
+	} from '$lib/diagnostics/boot';
+	import { createLogger } from '$lib/logger';
 
 	let { children }: { children: Snippet } = $props();
+
+	const log = createLogger('boot');
 
 	// OBS-3.b: gate the entire app shell behind a schema-version check. If
 	// the on-disk DB doesn't match the version this binary was compiled
 	// against, render the recovery dialog *instead of* the business UI so
 	// no command can read or mutate data with a mismatched schema.
+	//
+	// OPS-1.b: additionally gate on boot_check. While `bootStatus === null`
+	// we render a neutral splash; once it resolves, a blocking failure swaps
+	// the entire shell for `<BootDiagnostics />` (nav becomes unreachable).
+	// S3 failure surfaces as a non-blocking warning banner above the normal
+	// layout. The two flows are layered: a MigrationOutOfDate from the
+	// schema-version check short-circuits to its dedicated recovery dialog;
+	// otherwise we fall through to the general boot_check diagnostics.
 	let bootChecked = $state(false);
 	let migrationError = $state<MigrationOutOfDateError | null>(null);
+	let bootStatus = $state<BootStatus | null>(null);
+	let bootError = $state<string | null>(null);
+
+	async function performBootCheck(): Promise<void> {
+		bootError = null;
+		try {
+			// Best-effort load of S3 settings so the backend's S3 probe runs
+			// when the user has actually configured a bucket. If settings
+			// reads fail (e.g. DB not yet migrated), we still want to invoke
+			// boot_check so the user sees the underlying breakage in the
+			// diagnostics view rather than a blank screen.
+			let s3Config = null;
+			try {
+				const s3 = await getS3Settings();
+				s3Config = s3ConfigFromSettings(s3);
+			} catch (e) {
+				log.warn('Failed to load S3 settings for boot_check', e);
+			}
+			bootStatus = await runBootCheck(s3Config);
+		} catch (e) {
+			// boot_check itself blew up (e.g. command not registered, bridge
+			// failure). Surface as a synthetic blocking failure so the user
+			// is not silently dropped into a half-broken app.
+			log.error('boot_check invocation failed', e);
+			bootError = e instanceof Error ? e.message : String(e);
+			bootStatus = {
+				app_data_dir: { status: 'err', error: { kind: 'Unknown', message: bootError } },
+				keyring: { status: 'skipped', reason: 'boot_check failed' },
+				s3: { status: 'skipped', reason: 'boot_check failed' },
+				schema: { status: 'skipped', reason: 'boot_check failed' }
+			};
+		}
+	}
 
 	onMount(async () => {
+		// Schema-version check first: a MigrationOutOfDate is a very specific
+		// recovery flow (OBS-3.b) that must not be muddled with the general
+		// boot_check diagnostics view. If the schema is OK or the check
+		// failed for a non-version reason, fall through to boot_check.
 		const result = await runSchemaVersionCheck();
 		if (!result.ok && result.error.kind === 'MigrationOutOfDate') {
 			migrationError = result.error;
 			bootChecked = true;
 			return;
 		}
-		// Non-version boot failures (e.g. a corrupt file) fall through to
-		// the normal app shell — surface as the existing per-page errors
-		// rather than blocking the entire UI on something the dialog
-		// cannot fix.
+		// Run boot_check FIRST (before any side-effectful schedulers) so we
+		// never start auto-backup against a broken environment (e.g. a
+		// read-only app-data dir would just fail silently).
+		await performBootCheck();
 		bootChecked = true;
+		if (bootStatus && hasBlockingFailure(bootStatus)) {
+			// Blocking failure: do not start side-effectful work, do not load
+			// org settings (the DB itself may be unreachable). The user fixes
+			// the issue and clicks "Erneut prüfen" which re-runs the flow via
+			// `performBootCheck`.
+			return;
+		}
 		startAutoBackupScheduler();
 		try {
 			const orgSettings = await getOrganizationSettings();
 			if (orgSettings.default_locale) setLocale(orgSettings.default_locale as Locale);
-		} catch {
-			/* org settings best-effort; do not block app on a missing row */
+		} catch (e) {
+			log.warn('Failed to load organization settings on boot', e);
 		}
 	});
+
+	async function retry(): Promise<void> {
+		bootStatus = null;
+		await performBootCheck();
+		if (bootStatus && !hasBlockingFailure(bootStatus)) {
+			startAutoBackupScheduler();
+			try {
+				const orgSettings = await getOrganizationSettings();
+				if (orgSettings.default_locale) setLocale(orgSettings.default_locale as Locale);
+			} catch (e) {
+				log.warn('Failed to load organization settings after retry', e);
+			}
+		}
+	}
 
 	const navItems = [
 		{
@@ -98,50 +175,67 @@
 		database.
 	-->
 	<MigrationOutOfDateDialog actual={migrationError.actual} expected={migrationError.expected} />
-{:else if !bootChecked}
-	<!--
-		Brief boot window. Render an empty shell with the same chrome
-		colors so we don't flash the navigation or empty data tables
-		before the version check resolves.
-	-->
-	<div class="flex h-screen items-center justify-center bg-zinc-100 dark:bg-zinc-900"></div>
+{:else if !bootChecked || bootStatus === null}
+	<!-- Boot probe in flight: neutral splash, NO nav reachable yet. -->
+	<div
+		class="flex h-screen w-screen items-center justify-center bg-zinc-100 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+		data-testid="boot-loading"
+	>
+		<span>{t('common.loading')}</span>
+	</div>
+{:else if hasBlockingFailure(bootStatus)}
+	<!-- Blocking failure: full-window diagnostics view, nav unreachable. -->
+	<BootDiagnostics status={bootStatus} onRetry={retry} />
 {:else}
-<div class="flex h-screen overflow-hidden bg-zinc-100 text-sm text-zinc-900 antialiased dark:bg-zinc-900 dark:text-zinc-100">
-	<!-- Desktop sidebar -->
-	<aside class="hidden w-72 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:block dark:border-zinc-700 dark:bg-zinc-800/60">
-		<div class="mb-6 flex items-center gap-2.5">
-			<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg" />
-			<span class="text-base font-semibold tracking-tight">Bookie</span>
-		</div>
-		<nav class="flex flex-col gap-1">
+	<div class="flex h-screen overflow-hidden bg-zinc-100 text-sm text-zinc-900 antialiased dark:bg-zinc-900 dark:text-zinc-100">
+		<!-- Desktop sidebar -->
+		<aside class="hidden w-72 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:block dark:border-zinc-700 dark:bg-zinc-800/60">
+			<div class="mb-6 flex items-center gap-2.5">
+				<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg" />
+				<span class="text-base font-semibold tracking-tight">Bookie</span>
+			</div>
+			<nav class="flex flex-col gap-1">
+				{#each navItems as item}
+					<a
+						href={item.href}
+						class={`rounded-md px-3 py-2 text-sm font-medium transition ${isActive(item.href, page.url.pathname) ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}
+					>
+						{item.label}
+					</a>
+				{/each}
+			</nav>
+		</aside>
+
+		<main class="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6">
+			{#if hasS3Warning(bootStatus)}
+				<!-- OPS-1.b: S3 failure is a warning, not blocking. Surface a
+				     non-modal banner so the user knows auto-backup is broken
+				     without locking them out of the app. -->
+				<div
+					class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100"
+					role="status"
+					data-testid="boot-s3-warning"
+				>
+					S3-Speicher ist nicht erreichbar. Automatische Backups funktionieren
+					möglicherweise nicht. Prüfen Sie die S3-Einstellungen.
+				</div>
+			{/if}
+			{@render children()}
+		</main>
+
+		<!-- Mobile bottom navigation -->
+		<nav class="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-zinc-200 bg-white md:hidden dark:border-zinc-700 dark:bg-zinc-800">
 			{#each navItems as item}
 				<a
 					href={item.href}
-					class={`rounded-md px-3 py-2 text-sm font-medium transition ${isActive(item.href, page.url.pathname) ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}
+					class={`flex flex-col items-center gap-0.5 px-1 py-1 text-center transition ${isActive(item.href, page.url.pathname) ? 'text-blue-600' : 'text-zinc-500 dark:text-zinc-400'}`}
 				>
-					{item.label}
+					<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+						<path stroke-linecap="round" stroke-linejoin="round" d={item.icon} />
+					</svg>
+					<span class="text-[10px] leading-tight">{item.shortLabel}</span>
 				</a>
 			{/each}
 		</nav>
-	</aside>
-
-	<main class="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6">
-		{@render children()}
-	</main>
-
-	<!-- Mobile bottom navigation -->
-	<nav class="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-zinc-200 bg-white md:hidden dark:border-zinc-700 dark:bg-zinc-800">
-		{#each navItems as item}
-			<a
-				href={item.href}
-				class={`flex flex-col items-center gap-0.5 px-1 py-1 text-center transition ${isActive(item.href, page.url.pathname) ? 'text-blue-600' : 'text-zinc-500 dark:text-zinc-400'}`}
-			>
-				<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-					<path stroke-linecap="round" stroke-linejoin="round" d={item.icon} />
-				</svg>
-				<span class="text-[10px] leading-tight">{item.shortLabel}</span>
-			</a>
-		{/each}
-	</nav>
-</div>
+	</div>
 {/if}
