@@ -43,11 +43,18 @@ url = "2"
 # encryption backends — `deflate` via `flate2` is sufficient for CSV
 # payloads).
 zip = { version = "2", default-features = false, features = ["deflate"] }
-# Read-only access to the bundled SQLite DB during GoBD export. The
-# tauri-plugin-sql infrastructure (sqlx) is async-only and not safe to call
-# while the live DB pool may also be held, so we open a fresh read-only
-# connection from the on-disk file. `bundled` keeps the build self-contained
-# and matches the existing dev-dependency entry.
+# Read-only access to the bundled SQLite DB. Two callers share this dep:
+#   * COMP-1.b GoBD-Export — opens a fresh read-only connection from the
+#     on-disk file because the tauri-plugin-sql infrastructure (sqlx) is
+#     async-only and not safe to call while the live DB pool may also be
+#     held.
+#   * OBS-3.a schema_version_check — side connection to the same SQLite
+#     file the tauri-plugin-sql pool manages, used to verify
+#     `_sqlx_migrations.max(version) == EXPECTED_SCHEMA_VERSION` before
+#     exposing business commands.
+# `bundled` matches the libsqlite3-sys version already pulled in by
+# sqlx-sqlite via tauri-plugin-sql, so this does not introduce a second
+# native sqlite library.
 rusqlite = { version = "0.32", features = ["bundled"] }
 # E2E-only: ephemeral MinIO container fixture for end-to-end S3 round-trip
 # tests (TEST-3.a). Declared here (not in [dev-dependencies]) because Cargo
@@ -61,10 +68,13 @@ testcontainers-modules = { version = "0.15", features = ["minio"], optional = tr
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-# rusqlite is now declared as a runtime dep (see [dependencies] above) for
-# the COMP-1.b GoBD-Export path; it remains in scope for tests/migrations.rs
-# (TEST-2.a) and tests/restore_integration.rs (REL-1.d) without needing a
-# separate dev-dependencies entry.
+# `rusqlite` is also a regular runtime dependency (see [dependencies] above)
+# for the COMP-1.b GoBD-Export path and the OBS-3.a schema_version_check.
+# tests/migrations.rs (TEST-2.a) drives each migration against a fresh
+# in-memory SQLite DB and tests/restore_integration.rs (REL-1.d) and
+# tests/schema_version_check.rs (OBS-3.a) probe on-disk fixtures using the
+# same crate; declaring it once at the [dependencies] level is sufficient
+# and avoids the duplicate-feature warning.
 
 [features]
 # E2E test feature: enables Docker-backed fixtures (e.g. MinIO) used by
