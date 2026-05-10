@@ -465,6 +465,25 @@ fn app_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0024_down/01_einvoice_format.sql"),
             kind: MigrationKind::Down,
         },
+        // NOTE: Migration 0023 (DAT-5.c, drop incoming_invoices.file_data)
+        // exists on disk under `migrations/0023/` but is not registered here.
+        // That predates this PR; if the file_data column is still present at
+        // runtime, the 0025 incoming_invoices rebuild below silently omits
+        // it from the new table (the SELECT only names the columns we keep),
+        // so the column is effectively dropped either way. Re-registering
+        // 0023 is left for a follow-up so this PR stays focused on DAT-1.e.
+        Migration {
+            version: 25,
+            description: "drop_legacy_real_money_columns_up",
+            sql: include_str!("../migrations/0025/01_drop_legacy_real_money_columns.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 25,
+            description: "drop_legacy_real_money_columns_down",
+            sql: include_str!("../migrations/0025_down/01_recreate_legacy_real_money_columns.sql"),
+            kind: MigrationKind::Down,
+        },
     ]
 }
 

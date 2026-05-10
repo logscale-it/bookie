@@ -136,12 +136,13 @@ fn insert_draft_invoice(
     tax_cents: i64,
     gross_cents: i64,
 ) -> i64 {
+    // DAT-1.e (#55, migration 0025): the legacy REAL money columns are
+    // dropped, so the INSERT only names the `*_cents` columns.
     conn.execute(
         "INSERT INTO invoices \
          (company_id, customer_id, invoice_number, issue_date, \
-          net_amount, tax_amount, gross_amount, \
           net_cents, tax_cents, gross_cents) \
-         VALUES (?1, ?2, ?3, '2026-01-01', 0, 0, 0, ?4, ?5, ?6)",
+         VALUES (?1, ?2, ?3, '2026-01-01', ?4, ?5, ?6)",
         rusqlite::params![
             company_id,
             customer_id,
