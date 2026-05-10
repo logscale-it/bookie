@@ -1,20 +1,12 @@
 import { getDb, safeFields } from "./connection";
 import type { IncomingInvoice } from "./types";
 
-// DAT-1.d (#54): writes are repointed to `*_cents`. The legacy REAL columns
-// `net_amount` / `tax_amount` / `gross_amount` are no longer written here;
-// they have `NOT NULL CHECK (>= 0)` (see migration 0007) and no usable
-// DEFAULT, so the INSERT writes `0` explicitly. They are dropped in
-// DAT-1.e (#55).
+// DAT-1.d (#54) / DAT-1.e (#55): all reads and writes use `*_cents`. The
+// legacy REAL columns `net_amount` / `tax_amount` / `gross_amount` were
+// dropped from the schema in migration 0022.
 type CreateIncomingInvoice = Omit<
   IncomingInvoice,
-  | "id"
-  | "created_at"
-  | "updated_at"
-  | "net_amount"
-  | "tax_amount"
-  | "gross_amount"
-  | "gross_cents"
+  "id" | "created_at" | "updated_at" | "gross_cents"
 >;
 type UpdateIncomingInvoice = Partial<Omit<CreateIncomingInvoice, "company_id">>;
 
@@ -54,7 +46,6 @@ export async function listIncomingInvoices(
     (IncomingInvoiceWithSupplier & { _total_count: number })[]
   >(
     `SELECT ii.id, ii.company_id, ii.supplier_id, ii.invoice_number, ii.invoice_date,
-		        ii.net_amount, ii.tax_amount, ii.gross_amount,
 		        ii.net_cents, ii.tax_cents, ii.gross_cents, ii.status,
 		        ii.file_name, ii.file_type, ii.s3_key, ii.notes, ii.created_at, ii.updated_at,
 		        c.name as supplier_name, COUNT(*) OVER() AS _total_count
@@ -86,16 +77,14 @@ export async function createIncomingInvoice(
   data: CreateIncomingInvoice,
 ): Promise<number> {
   const db = await getDb();
-  // Money columns: only `*_cents` are written. The legacy REAL columns are
-  // `NOT NULL CHECK (>= 0)` with no DEFAULT (migration 0007), so we satisfy
-  // them with literal `0` until DAT-1.e (#55) drops them. `gross_cents` is
-  // derived once at write time so the reader sees a consistent total.
+  // Money columns: only `*_cents` exist after DAT-1.e (#55). `gross_cents`
+  // is derived once at write time so the reader sees a consistent total.
   const grossCents = data.net_cents + data.tax_cents;
   const result = await db.execute(
     `INSERT INTO incoming_invoices (company_id, supplier_id, invoice_number, invoice_date,
-		  net_amount, tax_amount, gross_amount, net_cents, tax_cents, gross_cents,
+		  net_cents, tax_cents, gross_cents,
 		  status, file_data, file_name, file_type, s3_key, notes)
-		 VALUES ($1, $2, $3, $4, 0, 0, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
       data.company_id,
       data.supplier_id,

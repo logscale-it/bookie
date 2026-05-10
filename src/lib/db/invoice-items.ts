@@ -1,13 +1,10 @@
 import { getDb, safeFields } from "./connection";
 import type { InvoiceItem } from "./types";
 
-// DAT-1.d (#54): writes are repointed to `*_cents`. The legacy REAL columns
-// `unit_price_net` / `line_total_net` keep their migration `DEFAULT 0` and
-// will be dropped in DAT-1.e (#55).
-type CreateInvoiceItem = Omit<
-  InvoiceItem,
-  "id" | "created_at" | "updated_at" | "unit_price_net" | "line_total_net"
->;
+// DAT-1.d (#54) / DAT-1.e (#55): all reads and writes use `*_cents`. The
+// legacy REAL columns `unit_price_net` / `line_total_net` were dropped from
+// the schema in migration 0022.
+type CreateInvoiceItem = Omit<InvoiceItem, "id" | "created_at" | "updated_at">;
 type UpdateInvoiceItem = Partial<Omit<CreateInvoiceItem, "invoice_id">>;
 
 const ALLOWED_COLUMNS = [
@@ -50,8 +47,7 @@ export async function createInvoiceItem(
   data: CreateInvoiceItem,
 ): Promise<number> {
   const db = await getDb();
-  // Money columns: only `*_cents` are written. Legacy REAL columns fall back
-  // to their migration `DEFAULT 0` — DAT-1.e (#55) drops them entirely.
+  // Money columns: only `*_cents` exist after DAT-1.e (#55).
   const result = await db.execute(
     `INSERT INTO invoice_items (invoice_id, project_id, time_entry_id, position, description, quantity, unit, unit_price_net_cents, tax_rate, line_total_net_cents)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,

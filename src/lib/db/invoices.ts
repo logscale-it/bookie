@@ -3,11 +3,10 @@ import type { Invoice, InvoiceItem } from "./types";
 
 export type InvoiceWithCustomer = Invoice & { customer_name: string | null };
 
-// DAT-1.d (#54): writes are repointed to `*_cents` (INTEGER minor units).
-// The legacy REAL columns (`net_amount`, `tax_amount`, `gross_amount`) are
-// kept in the read shape for compatibility but are no longer written here —
-// they fall back to their `DEFAULT 0` from migration 0001 and are dropped
-// in DAT-1.e (#55).
+// DAT-1.d (#54) / DAT-1.e (#55): all reads and writes use `*_cents`
+// (INTEGER minor units). The legacy REAL columns (`net_amount`,
+// `tax_amount`, `gross_amount`) were dropped from the schema in migration
+// 0022, so they no longer appear in the read shape or any SQL here.
 //
 // `references_invoice_id` and `cancellation_reason` are written exclusively
 // by `cancelInvoice` (DAT-2.b). External callers must not be able to set
@@ -38,9 +37,6 @@ type CreateInvoice = Omit<
   | "id"
   | "created_at"
   | "updated_at"
-  | "net_amount"
-  | "tax_amount"
-  | "gross_amount"
   | "references_invoice_id"
   | "cancellation_reason"
 >;
@@ -115,9 +111,7 @@ export async function getInvoiceById(id: number): Promise<Invoice | undefined> {
 
 export async function createInvoice(data: CreateInvoice): Promise<number> {
   const db = await getDb();
-  // Money columns: only the integer-cent columns are written. The legacy REAL
-  // columns (`net_amount`, `tax_amount`, `gross_amount`) keep their migration
-  // default of 0 — DAT-1.e (#55) drops them entirely.
+  // Money columns: only the integer-cent columns exist after DAT-1.e (#55).
   const result = await db.execute(
     `INSERT INTO invoices (company_id, customer_id, project_id, invoice_number, status, issue_date, due_date, service_period_start, service_period_end, currency, net_cents, tax_cents, gross_cents, issuer_name, issuer_tax_number, issuer_vat_id, issuer_bank_account_holder, issuer_bank_iban, issuer_bank_bic, issuer_bank_name, recipient_name, recipient_street, recipient_postal_code, recipient_city, recipient_country_code, notes)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)`,
@@ -250,13 +244,13 @@ export async function updateInvoiceStatus(
  * - The storno's `invoice_number` is `<original.invoice_number>-storno-N`,
  *   where N starts at 1 and increments only if a storno for this original
  *   already exists (defensive: the typical flow stops after one storno).
- * - `net_cents`, `tax_cents`, `gross_cents`, `net_amount`, `tax_amount`,
- *   `gross_amount`, `due_surcharge` are all negated.
+ * - `net_cents`, `tax_cents`, `gross_cents`, `due_surcharge` are all
+ *   negated.
  * - `status` is `'issued'`. A row in `invoice_status_history` records the
  *   transition from NULL -> 'issued' so the storno appears in audit views.
  * - Line items from the original are mirrored with `quantity` and
- *   `line_total_net(_cents)` negated; `unit_price_net(_cents)` is kept
- *   positive so the invariant line_total = quantity * unit_price holds.
+ *   `line_total_net_cents` negated; `unit_price_net_cents` is kept positive
+ *   so the invariant line_total = quantity * unit_price holds.
  * - `cancellation_reason` stores the user-supplied `reason`.
  * - Drafts cannot be cancelled — they should be deleted via deleteInvoice.
  *   This guard throws InvoiceImmutable too, since the user is trying to
@@ -305,7 +299,6 @@ export async function cancelInvoice(
          company_id, customer_id, project_id, invoice_number, status,
          issue_date, due_date, service_period_start, service_period_end,
          currency,
-         net_amount, tax_amount, gross_amount,
          net_cents, tax_cents, gross_cents,
          issuer_name, issuer_tax_number, issuer_vat_id,
          issuer_bank_account_holder, issuer_bank_iban, issuer_bank_bic,
@@ -321,12 +314,11 @@ export async function cancelInvoice(
          $10, $11, $12,
          $13, $14, $15,
          $16, $17, $18,
-         $19, $20, $21,
-         $22,
-         $23, $24, $25,
-         $26, $27,
-         $28, $29, $30, $31,
-         $32, $33, $34
+         $19,
+         $20, $21, $22,
+         $23, $24,
+         $25, $26, $27, $28,
+         $29, $30, $31
        )`,
       [
         original.company_id,
@@ -338,9 +330,6 @@ export async function cancelInvoice(
         original.service_period_start,
         original.service_period_end,
         original.currency,
-        -original.net_amount,
-        -original.tax_amount,
-        -original.gross_amount,
         -original.net_cents,
         -original.tax_cents,
         -original.gross_cents,
@@ -368,8 +357,8 @@ export async function cancelInvoice(
     const stornoId = result.lastInsertId!;
 
     // Mirror line items with negated quantity & line totals. We keep
-    // unit_price_net positive so the invariant
-    //   line_total_net = quantity * unit_price_net
+    // unit_price_net_cents positive so the invariant
+    //   line_total_net_cents = quantity * unit_price_net_cents
     // continues to hold for the storno row, which makes downstream tax
     // calculations and PDF rendering symmetric with the original.
     const items = await db.select<InvoiceItem[]>(
@@ -380,12 +369,12 @@ export async function cancelInvoice(
       await db.execute(
         `INSERT INTO invoice_items (
            invoice_id, project_id, time_entry_id, position, description,
-           quantity, unit, unit_price_net, tax_rate, line_total_net,
+           quantity, unit, tax_rate,
            unit_price_net_cents, line_total_net_cents
          ) VALUES (
            $1, $2, $3, $4, $5,
-           $6, $7, $8, $9, $10,
-           $11, $12
+           $6, $7, $8,
+           $9, $10
          )`,
         [
           stornoId,
@@ -395,9 +384,7 @@ export async function cancelInvoice(
           item.description,
           -item.quantity,
           item.unit,
-          item.unit_price_net,
           item.tax_rate,
-          -item.line_total_net,
           item.unit_price_net_cents,
           -item.line_total_net_cents,
         ],
