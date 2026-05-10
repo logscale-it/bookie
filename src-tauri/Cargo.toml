@@ -55,6 +55,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # libsqlite3 required) and matches the libsqlite3-sys version already in
 # the lockfile via tauri-plugin-sql -> sqlx-sqlite.
 rusqlite = { version = "0.32", features = ["bundled"] }
+# Used by the REL-2.c retry-helper unit test to construct a stubbed
+# `SdkError::ServiceError` carrying a synthetic HTTP 503 response. Both
+# crates are already in the dependency graph via `aws-sdk-s3`; declaring
+# them here only makes their public types nameable from test code.
+aws-smithy-runtime-api = "1"
+aws-smithy-types = "1"
 
 [features]
 # E2E test feature: enables Docker-backed fixtures (e.g. MinIO) used by

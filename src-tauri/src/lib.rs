@@ -2284,6 +2284,71 @@ mod retry_tests {
     fn jitter_zero_base_is_zero() {
         assert_eq!(super::jitter_full(0), 0);
     }
+
+    // REL-2.c: assert that the retry helper recovers from a single transient
+    // S3 5xx response by exercising the *real* `IsRetryable` impl on
+    // `aws_sdk_s3::error::SdkError`. The closure returns a stubbed
+    // `SdkError::ServiceError` carrying an HTTP 503 raw response on the first
+    // call and a successful payload on the second call. The wrapper must:
+    //   1. classify the 503 as retryable (via the `SdkError` impl, not the
+    //      `TestErr` shortcut used by the other tests in this module),
+    //   2. return `Ok` on the second attempt, and
+    //   3. complete well below a generous time bound -- proving that the
+    //      bounded backoff does not pile up exponentially before recovering.
+    #[tokio::test]
+    async fn retry_helper_succeeds_after_one_transient_503() {
+        use aws_sdk_s3::error::SdkError;
+        use aws_smithy_runtime_api::client::orchestrator::HttpResponse;
+        use aws_smithy_runtime_api::http::StatusCode;
+        use aws_smithy_types::body::SdkBody;
+        use std::time::Instant;
+
+        // Stub service-error payload `E`. Any type works; `SdkError::ServiceError`
+        // does not constrain it and `IsRetryable` only inspects the raw status.
+        #[derive(Debug)]
+        struct StubServiceError;
+
+        let calls = Cell::new(0u32);
+        let started = Instant::now();
+
+        let res: Result<&'static str, SdkError<StubServiceError, HttpResponse>> = with_retry(
+            || {
+                let n = calls.get() + 1;
+                calls.set(n);
+                async move {
+                    if n == 1 {
+                        // First attempt: stub a 503 Service Unavailable. The
+                        // `IsRetryable` impl in production code maps 5xx and
+                        // 429 to `true`, so this must trigger one retry.
+                        let raw = HttpResponse::new(
+                            StatusCode::try_from(503).expect("valid status"),
+                            SdkBody::empty(),
+                        );
+                        Err(SdkError::service_error(StubServiceError, raw))
+                    } else {
+                        // Second attempt: simulate the SDK returning success.
+                        Ok("ok")
+                    }
+                }
+            },
+            // Use the documented production policy (3 attempts, 250ms base)
+            // so the test exercises the real backoff schedule, not a
+            // nanosecond-shaved one. With one retry the worst-case sleep is
+            // 250ms * 1.5 (max jitter) = 375ms; the bound below leaves
+            // generous slack for slow CI runners.
+            RetryPolicy::s3_default(),
+        )
+        .await;
+
+        let elapsed = started.elapsed();
+
+        assert_eq!(res.ok(), Some("ok"), "wrapper should recover on attempt 2");
+        assert_eq!(calls.get(), 2, "should be exactly two attempts");
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "elapsed {elapsed:?} exceeds 2s bound -- backoff may be piling up"
+        );
+    }
 }
 
 #[cfg(test)]
