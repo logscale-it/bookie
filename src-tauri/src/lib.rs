@@ -594,7 +594,17 @@ struct S3Config {
 }
 
 impl S3Config {
-    fn build_client(&self) -> S3Client {
+    /// Build a configured `S3Client` for this config.
+    ///
+    /// SEC-2.b: a non-empty `endpoint_url` is run through `validate_endpoint`
+    /// before the client is constructed. Any rejection (non-https for a
+    /// non-loopback host, malformed URL, unsupported scheme) is surfaced as
+    /// `BookieError::S3EndpointInvalid` so that callers — both the
+    /// `s3_test_connection` command and every other S3 command — fail fast
+    /// with a typed error instead of attempting a plaintext request. An
+    /// empty `endpoint_url` means "use the AWS default endpoint" and is
+    /// allowed unchanged.
+    fn build_client(&self) -> Result<S3Client, BookieError> {
         let credentials = Credentials::new(
             &self.access_key_id,
             &self.secret_access_key,
@@ -616,10 +626,14 @@ impl S3Config {
 
         let ep = self.endpoint_url.trim_end_matches('/');
         if !ep.is_empty() {
+            validate_endpoint(ep).map_err(|msg| {
+                error!("S3 endpoint validation failed: {msg}");
+                BookieError::S3EndpointInvalid
+            })?;
             builder = builder.endpoint_url(ep).force_path_style(true);
         }
 
-        S3Client::from_conf(builder.build())
+        Ok(S3Client::from_conf(builder.build()))
     }
 }
 
@@ -784,8 +798,7 @@ fn next_rand_u64() -> u64 {
 /// - `https://` is always allowed
 /// - `http://` is allowed only for localhost, 127.0.0.1, or ::1
 /// - Any other scheme or malformed URL is rejected
-// Wired into S3Config builder in SEC-2.b (#37 → #38).
-#[allow(dead_code)]
+// Wired into S3Config builder and `s3_test_connection` in SEC-2.b (#37 → #38).
 fn validate_endpoint(url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url)
         .map_err(|_| format!("Invalid URL: '{}' does not parse as a valid URL", url))?;
@@ -832,7 +845,19 @@ fn format_s3_error<E: std::fmt::Debug>(err: &aws_sdk_s3::error::SdkError<E>) -> 
 #[tauri::command]
 async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
     info!("S3 connection test: bucket={}", config.bucket_name);
-    let client = config.build_client();
+    // SEC-2.b: explicitly validate the endpoint before any network I/O so the
+    // user gets a typed `S3EndpointInvalid` rejection on the settings page
+    // instead of an opaque dispatch error from the SDK. `build_client` also
+    // re-validates as defence in depth, but doing it here keeps the contract
+    // documented in the issue (validate inside `s3_test_connection`).
+    let ep = config.endpoint_url.trim_end_matches('/');
+    if !ep.is_empty() {
+        validate_endpoint(ep).map_err(|msg| {
+            error!("S3 connection test rejected: {msg}");
+            BookieError::S3EndpointInvalid
+        })?;
+    }
+    let client = config.build_client()?;
     let test_key = ".bookie-connection-test";
 
     client
@@ -1060,7 +1085,7 @@ async fn s3_upload_file(
     };
 
     info!("S3 upload: key={key}, size={}", data.len());
-    let client = config.build_client();
+    let client = config.build_client()?;
 
     // Detect SQLite backups by magic header so we can attach a SHA-256 sidecar.
     // Other upload paths (invoice PDFs, connection-test blobs) are unaffected.
@@ -1103,7 +1128,7 @@ async fn s3_upload_file(
 #[tauri::command]
 async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, BookieError> {
     info!("S3 download: key={key}");
-    let client = config.build_client();
+    let client = config.build_client()?;
 
     let resp = client
         .get_object()
@@ -1184,7 +1209,7 @@ async fn restore_db_backup(
     // Best-effort cleanup of any leftover .tmp from a previous failed run.
     let _ = remove_if_exists(&tmp_file);
 
-    let client = config.build_client();
+    let client = config.build_client()?;
 
     // 1. Download the backup into the .tmp file.
     let backup_resp = client
@@ -1388,7 +1413,7 @@ async fn restore_db_backup(
 #[tauri::command]
 async fn s3_delete_file(config: S3Config, key: String) -> Result<(), BookieError> {
     info!("S3 delete: key={key}");
-    let client = config.build_client();
+    let client = config.build_client()?;
 
     client
         .delete_object()
@@ -1414,7 +1439,7 @@ async fn s3_presign_download_url(
     expires_in_seconds: u64,
 ) -> Result<String, BookieError> {
     info!("Presigned URL: key={key}, expires_in={expires_in_seconds}s");
-    let client = config.build_client();
+    let client = config.build_client()?;
 
     // Bad expiry configuration is an internal programming error from the
     // user's perspective (the frontend picks the expiry), not an S3 outage.
@@ -1844,7 +1869,9 @@ mod s3_round_trip {
     }
 
     async fn ensure_bucket() {
-        let client = cfg().build_client();
+        let client = cfg()
+            .build_client()
+            .expect("test cfg endpoint must validate");
         let location = CreateBucketConfiguration::builder()
             .location_constraint(BucketLocationConstraint::from(REGION))
             .build();
@@ -2326,5 +2353,105 @@ mod validate_endpoint_tests {
     fn validate_endpoint_empty_string_fails() {
         let result = validate_endpoint("");
         assert!(result.is_err());
+    }
+}
+
+/// SEC-2.b: tests that exercise the wiring of `validate_endpoint` into the
+/// `S3Config` build path and into `s3_test_connection`. These do NOT require
+/// a live S3 / MinIO instance — they only assert that an invalid endpoint
+/// is rejected before any network I/O is attempted.
+#[cfg(test)]
+mod s3_endpoint_validation_wiring_tests {
+    use super::*;
+
+    fn cfg_with_endpoint(endpoint: &str) -> S3Config {
+        S3Config {
+            endpoint_url: endpoint.to_string(),
+            region: "eu-central-1".to_string(),
+            bucket_name: "bucket".to_string(),
+            access_key_id: "ak".to_string(),
+            secret_access_key: "sk".to_string(),
+        }
+    }
+
+    #[test]
+    fn build_client_rejects_plaintext_remote_endpoint() {
+        let err = cfg_with_endpoint("http://example.com")
+            .build_client()
+            .expect_err("plaintext non-localhost endpoint must be rejected");
+        assert!(matches!(err, BookieError::S3EndpointInvalid));
+    }
+
+    #[test]
+    fn build_client_rejects_malformed_endpoint() {
+        let err = cfg_with_endpoint("https//typo.example")
+            .build_client()
+            .expect_err("malformed URL must be rejected");
+        assert!(matches!(err, BookieError::S3EndpointInvalid));
+    }
+
+    #[test]
+    fn build_client_rejects_unsupported_scheme() {
+        let err = cfg_with_endpoint("ftp://example.com")
+            .build_client()
+            .expect_err("non-http(s) scheme must be rejected");
+        assert!(matches!(err, BookieError::S3EndpointInvalid));
+    }
+
+    #[test]
+    fn build_client_accepts_https_remote_endpoint() {
+        cfg_with_endpoint("https://s3.example.com")
+            .build_client()
+            .expect("https endpoint must be accepted");
+    }
+
+    #[test]
+    fn build_client_accepts_http_localhost_endpoint() {
+        cfg_with_endpoint("http://localhost:9000")
+            .build_client()
+            .expect("http://localhost must be accepted");
+    }
+
+    #[test]
+    fn build_client_accepts_http_127_0_0_1_endpoint() {
+        cfg_with_endpoint("http://127.0.0.1:9000")
+            .build_client()
+            .expect("http://127.0.0.1 must be accepted");
+    }
+
+    #[test]
+    fn build_client_accepts_empty_endpoint_for_aws_default() {
+        // An empty endpoint means "use the AWS default endpoint" — the
+        // validator must NOT block this case (no user-supplied URL to check).
+        cfg_with_endpoint("")
+            .build_client()
+            .expect("empty endpoint must be accepted (AWS default)");
+    }
+
+    #[test]
+    fn build_client_strips_trailing_slash_before_validation() {
+        // Trailing slashes are stripped before both validation and use; the
+        // common settings-page paste of "https://s3.example.com/" must work.
+        cfg_with_endpoint("https://s3.example.com/")
+            .build_client()
+            .expect("trailing slash must not break validation");
+    }
+
+    #[tokio::test]
+    async fn test_connection_rejects_plaintext_remote_endpoint() {
+        // Must fail with S3EndpointInvalid BEFORE attempting any network I/O,
+        // so this test does not require a live S3 backend.
+        let err = s3_test_connection(cfg_with_endpoint("http://example.com"))
+            .await
+            .expect_err("plaintext remote endpoint must be rejected");
+        assert!(matches!(err, BookieError::S3EndpointInvalid));
+    }
+
+    #[tokio::test]
+    async fn test_connection_rejects_malformed_endpoint() {
+        let err = s3_test_connection(cfg_with_endpoint("https//typo.example"))
+            .await
+            .expect_err("malformed URL must be rejected");
+        assert!(matches!(err, BookieError::S3EndpointInvalid));
     }
 }
