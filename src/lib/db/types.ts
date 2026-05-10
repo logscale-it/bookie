@@ -206,15 +206,18 @@ export interface IncomingInvoice {
   tax_cents: number;
   gross_cents: number;
   status: string;
-  file_data: number[] | null;
+  // DAT-5.b (#66): the legacy `file_data` BLOB column is no longer exposed
+  // on the type. New rows store their PDF in either S3 (`s3_key`) or on disk
+  // (`local_path`). The `incoming_invoices` table retains the column so the
+  // DAT-5.a backfill can read+null it; `backfill-file-data.ts` is the only
+  // remaining file-data reader and types the BLOB locally on its query.
   file_name: string | null;
   file_type: string | null;
   s3_key: string | null;
   /**
-   * Filesystem path under `<appdata>/incoming_invoices/` populated by the
-   * DAT-5.a backfill when no S3 is configured. NULL on rows that were
-   * evacuated to S3, on rows with no file at all, or on rows that haven't
-   * been backfilled yet.
+   * Filesystem path under `<appdata>/incoming_invoices/` populated either by
+   * the DAT-5.a backfill or by the no-S3 upload path in the UI. NULL on rows
+   * that were evacuated to S3 and on rows with no file attached.
    */
   local_path: string | null;
   notes: string | null;

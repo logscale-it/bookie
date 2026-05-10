@@ -115,6 +115,22 @@ import {
 import * as settings from "../../src/lib/db/settings";
 import { getDb } from "../../src/lib/db/connection";
 
+/**
+ * DAT-5.b (#66): the production `getIncomingInvoiceFile` no longer surfaces
+ * `file_data` (the read paths assume the BLOB is gone). The DAT-5.a backfill
+ * tests still need to assert on the raw column to verify the BLOB was
+ * cleared; this helper goes around the typed wrapper to read it directly.
+ */
+async function rawFileDataLength(id: number): Promise<number | null> {
+  const db = await getDb();
+  const rows = await db.select<{ file_data: number[] | null }[]>(
+    "SELECT file_data FROM incoming_invoices WHERE id = $1",
+    [id],
+  );
+  const fd = rows[0]?.file_data;
+  return fd === null || fd === undefined ? null : fd.length;
+}
+
 let counter = 0;
 async function seed() {
   counter++;
@@ -275,7 +291,8 @@ describe("backfill incoming_invoices.file_data — DAT-5.a", () => {
       `/tmp/bookie-test/incoming_invoices/${id}.pdf`,
     );
     expect(after?.s3_key).toBeNull();
-    expect(after?.file_data).toBeNull();
+    // DAT-5.b: read the raw column — the typed helper no longer exposes it.
+    expect(await rawFileDataLength(id)).toBeNull();
   });
 
   test("s3 target uploads, sets s3_key, NULLs file_data", async () => {
@@ -306,7 +323,7 @@ describe("backfill incoming_invoices.file_data — DAT-5.a", () => {
     const after = await ii.getIncomingInvoiceFile(id);
     expect(after?.s3_key).toBe("rechnungen/rechnung.pdf");
     expect(after?.local_path).toBeNull();
-    expect(after?.file_data).toBeNull();
+    expect(await rawFileDataLength(id)).toBeNull();
   });
 
   test("s3 target falls back to incoming-<id>.pdf when file_name is NULL", async () => {
@@ -392,12 +409,13 @@ describe("backfill incoming_invoices.file_data — DAT-5.a", () => {
 
     const okAfter = await ii.getIncomingInvoiceFile(okId);
     expect(okAfter?.s3_key).toBe("rechnungen/ok.pdf");
-    expect(okAfter?.file_data).toBeNull();
+    expect(await rawFileDataLength(okId)).toBeNull();
 
     const failAfter = await ii.getIncomingInvoiceFile(failId);
     expect(failAfter?.s3_key).toBeNull();
     expect(failAfter?.local_path).toBeNull();
-    expect(failAfter?.file_data).not.toBeNull();
+    // DAT-5.b: read the raw column directly; failure leaves the BLOB.
+    expect(await rawFileDataLength(failId)).not.toBeNull();
   });
 
   test("post-run verification: no row keeps file_data, every filed row has s3_key or local_path", async () => {

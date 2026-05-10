@@ -6,6 +6,12 @@ import type { IncomingInvoice } from "./types";
 // they have `NOT NULL CHECK (>= 0)` (see migration 0007) and no usable
 // DEFAULT, so the INSERT writes `0` explicitly. They are dropped in
 // DAT-1.e (#55).
+//
+// DAT-5.b (#66): `local_path` is populated by the DAT-5.a backfill OR by the
+// no-S3 upload path in the UI; either way it is supplied here when the row
+// has a file on disk. The `file_data` BLOB column is no longer touched by
+// any read or write in this module — the only remaining reference to it
+// lives in `backfill-file-data.ts`, which exists solely to evacuate it.
 type CreateIncomingInvoice = Omit<
   IncomingInvoice,
   | "id"
@@ -15,13 +21,12 @@ type CreateIncomingInvoice = Omit<
   | "tax_amount"
   | "gross_amount"
   | "gross_cents"
-  // DAT-5.a: `local_path` is populated only by the backfill script
-  // (`backfill-file-data.ts`), never by the create path. Callers leave
-  // it out; the column defaults to NULL at the SQL layer.
-  | "local_path"
 >;
 type UpdateIncomingInvoice = Partial<Omit<CreateIncomingInvoice, "company_id">>;
 
+// DAT-5.b: `file_data` removed. New rows store their PDF either in S3
+// (`s3_key`) or on disk (`local_path`). The column is still present in the
+// schema for the in-flight backfill but is never written from this module.
 const ALLOWED_COLUMNS = [
   "supplier_id",
   "invoice_number",
@@ -30,7 +35,6 @@ const ALLOWED_COLUMNS = [
   "tax_cents",
   "gross_cents",
   "status",
-  "file_data",
   "file_name",
   "file_type",
   "s3_key",
@@ -96,11 +100,15 @@ export async function createIncomingInvoice(
   // `NOT NULL CHECK (>= 0)` with no DEFAULT (migration 0007), so we satisfy
   // them with literal `0` until DAT-1.e (#55) drops them. `gross_cents` is
   // derived once at write time so the reader sees a consistent total.
+  //
+  // DAT-5.b: the legacy `file_data` BLOB column is intentionally not in the
+  // INSERT list. It defaults to NULL at the SQL layer; new rows route their
+  // PDF to `s3_key` (S3 path) or `local_path` (disk path) instead.
   const grossCents = data.net_cents + data.tax_cents;
   const result = await db.execute(
     `INSERT INTO incoming_invoices (company_id, supplier_id, invoice_number, invoice_date,
 		  net_amount, tax_amount, gross_amount, net_cents, tax_cents, gross_cents,
-		  status, file_data, file_name, file_type, s3_key, notes)
+		  status, file_name, file_type, s3_key, local_path, notes)
 		 VALUES ($1, $2, $3, $4, 0, 0, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
       data.company_id,
@@ -111,10 +119,10 @@ export async function createIncomingInvoice(
       data.tax_cents,
       grossCents,
       data.status,
-      data.file_data,
       data.file_name,
       data.file_type,
       data.s3_key,
+      data.local_path,
       data.notes,
     ],
   );
@@ -183,9 +191,14 @@ export async function deleteIncomingInvoice(id: number): Promise<void> {
   await db.execute("DELETE FROM incoming_invoices WHERE id = $1", [id]);
 }
 
+// DAT-5.b: read path returns ONLY `s3_key` / `local_path` — the legacy
+// `file_data` BLOB is no longer surfaced. Callers that previously fell
+// through to it must now treat a row with neither column populated as
+// "no file attached". Rows that still hold a BLOB on disk should be
+// evacuated by `backfillIncomingInvoiceFileData` (DAT-5.a) before being
+// read through this function.
 export async function getIncomingInvoiceFile(id: number): Promise<
   | {
-      file_data: number[] | null;
       file_name: string | null;
       file_type: string | null;
       s3_key: string | null;
@@ -196,14 +209,13 @@ export async function getIncomingInvoiceFile(id: number): Promise<
   const db = await getDb();
   const rows = await db.select<
     {
-      file_data: number[] | null;
       file_name: string | null;
       file_type: string | null;
       s3_key: string | null;
       local_path: string | null;
     }[]
   >(
-    "SELECT file_data, file_name, file_type, s3_key, local_path FROM incoming_invoices WHERE id = $1",
+    "SELECT file_name, file_type, s3_key, local_path FROM incoming_invoices WHERE id = $1",
     [id],
   );
   return rows[0];
