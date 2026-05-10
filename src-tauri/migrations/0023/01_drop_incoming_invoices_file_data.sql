@@ -1,0 +1,23 @@
+-- DAT-5.c: Drop the legacy `incoming_invoices.file_data` BLOB column.
+--
+-- Migration 0007 introduced `file_data BLOB` as the only place a supplier
+-- PDF lived. Migration 0009 added `s3_key TEXT` as the new home for users
+-- with S3 enabled, and migration 0022 added `local_path TEXT` so users
+-- without S3 also have a deterministic on-disk location. The DAT-5.a
+-- backfill (`src/lib/db/backfill-file-data.ts`) evacuates every remaining
+-- BLOB into one of those two locations and NULLs out `file_data` per row.
+-- DAT-5.b removed the read paths' fallback to `file_data` so the column is
+-- no longer queried at runtime. This migration removes the column itself.
+--
+-- WARNING: any data still present in `file_data` is permanently lost when
+-- this migration runs. The DAT-5.a backfill is a prerequisite, not enforced
+-- here — operators are responsible for invoking it before this migration
+-- ships in a release that touches their installation. The down migration
+-- can re-add the column, but cannot recover the bytes (see 0023_down).
+--
+-- SQLite supports `DROP COLUMN` since 3.35 (2021). The Tauri SQL plugin
+-- ships rusqlite with a bundled SQLite well past that version, so this is
+-- safe in practice. No triggers or indexes reference `file_data` (verified
+-- against migrations 0007..0022), so SQLite's restriction on dropping
+-- columns referenced by schema objects does not apply.
+ALTER TABLE incoming_invoices DROP COLUMN file_data;

@@ -1,0 +1,11 @@
+DAT-5.c is a destructive column drop. The down migration re-adds
+`file_data BLOB` at the end of the table rather than at its original
+physical position (column 9 of the original CREATE TABLE in 0007). The
+schema is semantically equivalent — column lookups are by name — but the
+textual `CREATE TABLE` differs from the pre-up snapshot, which the
+round-trip harness in `src-tauri/tests/migrations.rs` reports as a
+mismatch. The marker downgrades that mismatch to a WARN.
+
+The down SQL is still executed by the harness, so syntax errors are
+surfaced. See `0023_down/01_drop_incoming_invoices_file_data.sql` for
+why a full table-rebuild rollback was rejected.
