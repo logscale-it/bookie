@@ -63,7 +63,8 @@ testcontainers-modules = { version = "0.15", features = ["minio"], optional = tr
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # rusqlite is now declared as a runtime dep (see [dependencies] above) for
 # the COMP-1.b GoBD-Export path; it remains in scope for tests/migrations.rs
-# (TEST-2.a) without needing a separate dev-dependencies entry.
+# (TEST-2.a) and tests/restore_integration.rs (REL-1.d) without needing a
+# separate dev-dependencies entry.
 
 [features]
 # E2E test feature: enables Docker-backed fixtures (e.g. MinIO) used by
