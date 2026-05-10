@@ -67,6 +67,16 @@ export default {
 		exporting: 'Exportiert…',
 		exportSuccess: 'Export erfolgreich gespeichert.',
 		exportError: 'Export fehlgeschlagen',
+		autoBackupFailed: 'Letzte automatische Sicherung fehlgeschlagen.',
+		autoBackupFailedAt: 'Letzte automatische Sicherung fehlgeschlagen am {date}.',
+		autoBackupFailureReason: 'Ursache',
+		autoBackupReason: {
+			auth_error: 'Zugriff verweigert (Anmeldedaten prüfen)',
+			bucket_not_found: 'Bucket nicht gefunden',
+			network_error: 'Netzwerkfehler',
+			local_backup_error: 'Lokale Sicherung fehlgeschlagen',
+			unknown_error: 'Unbekannter Fehler'
+		},
 		months: ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
 	},
 	invoices: {

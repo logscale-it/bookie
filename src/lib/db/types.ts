@@ -222,6 +222,8 @@ export interface IncomingInvoice {
   updated_at: string;
 }
 
+export type AutoBackupStatus = "success" | "failure";
+
 export interface S3Settings {
   id: number;
   enabled: number;
@@ -233,6 +235,8 @@ export interface S3Settings {
   path_prefix: string;
   auto_backup_enabled: number;
   last_auto_backup_at: string | null;
+  last_auto_backup_status: AutoBackupStatus | null;
+  last_auto_backup_error: string | null;
   created_at: string;
   updated_at: string;
 }
