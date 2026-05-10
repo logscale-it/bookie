@@ -37,6 +37,15 @@ keyring = "4"
 keyring-core = "1"
 sha2 = "0.10"
 url = "2"
+# E2E-only: ephemeral MinIO container fixture for end-to-end S3 round-trip
+# tests (TEST-3.a). Declared here (not in [dev-dependencies]) because Cargo
+# does not allow dev-dependencies to be `optional`. Pulled in only when the
+# `e2e` feature is enabled, so a default `cargo build` / `cargo test` does
+# not try to compile or invoke Docker. The crates have no runtime effect on
+# the shipped binary because they're behind `#[cfg(feature = "e2e")]` in the
+# integration tests under `tests/` and never referenced from `src/`.
+testcontainers = { version = "0.27", optional = true }
+testcontainers-modules = { version = "0.15", features = ["minio"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -46,6 +55,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # libsqlite3 required) and matches the libsqlite3-sys version already in
 # the lockfile via tauri-plugin-sql -> sqlx-sqlite.
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+[features]
+# E2E test feature: enables Docker-backed fixtures (e.g. MinIO) used by
+# integration tests under `src-tauri/tests/`. Off by default so plain
+# `cargo test` works without a Docker daemon.
+e2e = ["dep:testcontainers", "dep:testcontainers-modules"]
 
 [profile.release]
 panic = "abort" # Strip expensive panic clean-up logic
