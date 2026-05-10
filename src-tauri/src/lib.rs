@@ -25,6 +25,20 @@ const DB_FILE_NAME: &str = "bookie.db";
 const KEYRING_SERVICE: &str = "com.ranelkarimov.bookie";
 const KEYRING_USER: &str = "s3_credentials";
 
+/// OBS-3.a: highest migration version this build of Bookie expects in
+/// `_sqlx_migrations`. Must match the highest `NNNN` directory under
+/// `src-tauri/migrations/` at compile time. Bumped in lock-step with new
+/// migrations so a binary refuses to run against a DB it can neither
+/// upgrade (forward migrations are owned by the plugin) nor safely use
+/// (the schema may have moved on under it).
+///
+/// When you add a migration `NNNN/`, also bump this constant to `NNNN`.
+/// `tests/migrations.rs` will fail in CI if `app_migrations()` and the
+/// migration directories disagree, and the integration test suite for
+/// `schema_version_check` will fail if this constant disagrees with
+/// `app_migrations()`.
+pub const EXPECTED_SCHEMA_VERSION: i64 = 25;
+
 /// Typed error enum for all Bookie backend operations.
 ///
 /// Serialises with `serde(tag = "kind")` so unit variants produce
@@ -45,10 +59,23 @@ pub enum BookieError {
     BackupSidecarMismatch,
     BackupSidecarMissing,
     KeyringUnavailable,
-    MigrationOutOfDate,
+    /// The DB schema version recorded in `_sqlx_migrations` does not match
+    /// `EXPECTED_SCHEMA_VERSION` baked into this build. Either the user is
+    /// running an older binary against a newer DB (forward-incompatible) or
+    /// a newer binary against a DB that hasn't finished migrating yet.
+    /// OBS-3.a: surfaced by `schema_version_check` at boot before any
+    /// business command can mutate state.
+    MigrationOutOfDate {
+        actual: i64,
+        expected: i64,
+    },
     InvoiceImmutable,
-    IoError { message: String },
-    Unknown { message: String },
+    IoError {
+        message: String,
+    },
+    Unknown {
+        message: String,
+    },
 }
 
 impl std::fmt::Display for BookieError {
@@ -62,7 +89,10 @@ impl std::fmt::Display for BookieError {
             BookieError::BackupSidecarMismatch => write!(f, "Backup sidecar checksum mismatch"),
             BookieError::BackupSidecarMissing => write!(f, "Backup sidecar (.sha256) not found"),
             BookieError::KeyringUnavailable => write!(f, "OS keyring is unavailable"),
-            BookieError::MigrationOutOfDate => write!(f, "Database migration is out of date"),
+            BookieError::MigrationOutOfDate { actual, expected } => write!(
+                f,
+                "Database schema version {actual} does not match expected {expected}",
+            ),
             BookieError::InvoiceImmutable => write!(f, "Invoice cannot be modified"),
             BookieError::IoError { message } => write!(f, "I/O error: {message}"),
             BookieError::Unknown { message } => write!(f, "Unknown error: {message}"),
@@ -160,6 +190,134 @@ mod bookie_error_tests {
             other => panic!("expected Unknown, got {other:?}"),
         }
     }
+
+    // OBS-3.a: serde round-trip for `MigrationOutOfDate { actual, expected }`
+    // pins the JSON the frontend sees so the TS error mirror in
+    // `src/lib/shared/errors.ts` (OBS-2.c, PR #153) can match the field
+    // shape exactly. If you change the variant payload, this test fails
+    // first — and the TS mirror needs the same change.
+    #[test]
+    fn migration_out_of_date_round_trips_with_actual_and_expected() {
+        let original = BookieError::MigrationOutOfDate {
+            actual: 21,
+            expected: 22,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        assert!(json.contains(r#""kind":"MigrationOutOfDate""#));
+        assert!(json.contains(r#""actual":21"#));
+        assert!(json.contains(r#""expected":22"#));
+        let parsed: BookieError = serde_json::from_str(&json).unwrap();
+        match parsed {
+            BookieError::MigrationOutOfDate { actual, expected } => {
+                assert_eq!(actual, 21);
+                assert_eq!(expected, 22);
+            }
+            other => panic!("expected MigrationOutOfDate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn migration_out_of_date_display_includes_both_versions() {
+        let err = BookieError::MigrationOutOfDate {
+            actual: 5,
+            expected: 22,
+        };
+        let s = format!("{err}");
+        assert!(s.contains("5"), "display missing actual: {s}");
+        assert!(s.contains("22"), "display missing expected: {s}");
+    }
+}
+
+/// OBS-3.a: probe `_sqlx_migrations` on the SQLite file at `db_path` and
+/// assert that the highest applied migration matches
+/// `EXPECTED_SCHEMA_VERSION`. The check opens its own short-lived
+/// `rusqlite` connection (read-only) to avoid contending with the
+/// long-lived `sqlx::Pool` owned by `tauri-plugin-sql`. SQLite supports
+/// concurrent readers in any journal mode; this side connection neither
+/// writes nor holds a transaction.
+///
+/// The table name `_sqlx_migrations` and the `version BIGINT PRIMARY KEY`
+/// column are defined by `sqlx-sqlite::migrate::Migrate::ensure_migrations_table`
+/// (see sqlx-sqlite/src/migrate.rs). If a future plugin upgrade changes the
+/// schema, this check must be updated.
+///
+/// Failure modes:
+///   * The file doesn't exist or is unreadable → `BookieError::IoError`.
+///   * `_sqlx_migrations` doesn't exist or is empty → `MigrationOutOfDate { actual: 0, expected }`.
+///     This covers the "fresh DB, plugin hasn't migrated yet" case as well
+///     as a corrupt file.
+///   * `max(version)` differs from `EXPECTED_SCHEMA_VERSION` →
+///     `MigrationOutOfDate { actual, expected }`.
+pub fn check_schema_version_at(db_path: &Path, expected: i64) -> Result<(), BookieError> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|e| BookieError::IoError {
+        message: format!(
+            "Failed to open {} for schema version check: {e}",
+            db_path.display()
+        ),
+    })?;
+
+    // Does the migration tracking table exist? If not, treat as "no
+    // migrations applied" → actual=0. The plugin always creates this
+    // table the first time it runs migrations against the file.
+    let table_exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| BookieError::IoError {
+            message: format!("Failed to inspect sqlite_master: {e}"),
+        })?;
+
+    if table_exists == 0 {
+        return Err(BookieError::MigrationOutOfDate {
+            actual: 0,
+            expected,
+        });
+    }
+
+    // `version` is a BIGINT PRIMARY KEY. `MAX(version)` returns NULL on an
+    // empty table — surface that as `actual=0` so downstream callers see a
+    // single, well-typed error.
+    let actual: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM _sqlx_migrations WHERE success = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| BookieError::IoError {
+            message: format!("Failed to read _sqlx_migrations: {e}"),
+        })?;
+
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(BookieError::MigrationOutOfDate { actual, expected })
+    }
+}
+
+/// Tauri command wrapper around `check_schema_version_at` that resolves the
+/// app's DB path the same way the rest of the backend does (`db_path`). The
+/// frontend MUST invoke this once after `Database.load()` has returned
+/// (which is when the plugin actually applies pending migrations) and
+/// before any business command is sent. If this returns
+/// `BookieError::MigrationOutOfDate`, the frontend renders a hard-stop
+/// "this binary is incompatible with this database file" screen and
+/// refuses to send any further commands. Per the OBS-3.a issue, the app
+/// must refuse to run on mismatch — this command is the chokepoint.
+///
+/// Design choice (a) per the issue: side rusqlite connection rather than
+/// going through the JS `Database` plugin. Avoids an async hop, keeps
+/// version arithmetic in Rust, and the read-only flag means we never
+/// contend with the sqlx pool.
+#[tauri::command]
+fn schema_version_check(app: AppHandle) -> Result<(), BookieError> {
+    let db_file = db_path(&app)?;
+    check_schema_version_at(&db_file, EXPECTED_SCHEMA_VERSION)
 }
 
 #[derive(Serialize)]
@@ -2760,7 +2918,8 @@ pub fn run() {
             get_s3_credentials,
             delete_s3_credentials,
             append_frontend_log,
-            read_log_tail
+            read_log_tail,
+            schema_version_check
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
