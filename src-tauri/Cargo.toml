@@ -61,7 +61,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # `bundled` matches the libsqlite3-sys version already pulled in by
 # sqlx-sqlite via tauri-plugin-sql, so this does not introduce a second
 # native sqlite library.
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 # E2E-only: ephemeral MinIO container fixture for end-to-end S3 round-trip
 # tests (TEST-3.a). Declared here (not in [dev-dependencies]) because Cargo
 # does not allow dev-dependencies to be `optional`. Pulled in only when the
