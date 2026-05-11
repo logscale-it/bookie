@@ -3422,6 +3422,20 @@ pub fn run() {
     let _ = keyring::use_native_store(false);
 
     tauri::Builder::default()
+        // REL-4.b: single-instance lock. Bookie's SQLite DB runs in WAL mode;
+        // two processes opening the same `bookie.db` race on the WAL/SHM files
+        // and surface `database is locked` errors (see `docs/operations.md`
+        // §5.3). Register this plugin *first* so the second invocation is
+        // refused before any other plugin (notably tauri-plugin-sql) tries to
+        // attach to the database. The handler focuses the existing main
+        // window instead of spawning a new process.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(
             tauri_plugin_sql::Builder::new()
                 .add_migrations(DB_URL, app_migrations())
