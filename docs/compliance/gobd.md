@@ -166,9 +166,14 @@ werden.
   einzigen Abfrage `WHERE entity_id = <id> AND entity_type IN ('invoices',
 'invoice_items', 'payments')` rekonstruierbar ist.
 - Audit-Zeilen sind ihrerseits append-only: die Anwendung ruft niemals
-  `UPDATE`/`DELETE` auf `invoice_audit` auf. Eine SQL-seitige Sperre dieser
-  Tabelle gegen direkte Manipulation ist im Zuge von COMP-1.a (Abschnitt
-  2.5) vorgesehen.
+  `UPDATE`/`DELETE` auf `invoice_audit` auf. Die SQL-seitige Sperre dieser
+  Tabelle gegen direkte Manipulation ist mit **Migration 0026**
+  (`src-tauri/migrations/0026/01_invoice_audit_immutable.sql`, DAT-6.a)
+  **umgesetzt**: Die BEFORE-Trigger `invoice_audit_immutable_update` und
+  `invoice_audit_immutable_delete` werfen `RAISE(ABORT,
+'audit_immutable')` bei jedem Versuch eines `UPDATE` oder `DELETE` auf
+  `invoice_audit`. Inserts durch die Trigger aus Migration 0019 bleiben
+  erlaubt.
 
 **Indizes für Auditierbarkeit:**
 
@@ -355,9 +360,10 @@ Für eine konkrete Außenprüfung legt die Inhaberin folgendes vor (vgl.
 
 ## 5. Änderungs- und Versionshinweise
 
-| Datum      | Änderung                          |
-| ---------- | --------------------------------- |
-| 2026-05-10 | Erstfassung (Issue #92, COMP-1.c) |
+| Datum      | Änderung                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| 2026-05-10 | Erstfassung (Issue #92, COMP-1.c)                                                             |
+| 2026-05-11 | Append-only-Enforcement für `invoice_audit` via SQL-Trigger umgesetzt (Migration 0026, DAT-6) |
 
 Wenn sich an einer der referenzierten Stellen (`invoice_audit`-Schema,
 Immutabilitäts-Trigger, Export-Format, Retention-Wrapper) etwas ändert, ist
