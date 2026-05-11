@@ -37,7 +37,7 @@ const KEYRING_USER: &str = "s3_credentials";
 /// migration directories disagree, and the integration test suite for
 /// `schema_version_check` will fail if this constant disagrees with
 /// `app_migrations()`.
-pub const EXPECTED_SCHEMA_VERSION: i64 = 25;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 26;
 
 /// Typed error enum for all Bookie backend operations.
 ///
@@ -1196,6 +1196,17 @@ fn app_migrations() -> Vec<Migration> {
             description: "drop_legacy_real_money_columns_down",
             sql: include_str!("../migrations/0025_down/01_recreate_legacy_real_money_columns.sql"),
             kind: MigrationKind::Down,
+        },
+        // DAT-6.a: SQL-side append-only enforcement on `invoice_audit`.
+        // Two BEFORE triggers that RAISE(ABORT, 'audit_immutable') on any
+        // UPDATE or DELETE attempt against the audit table. Closes the gap
+        // documented in `docs/compliance/gobd.md` §2.3 ("vorgesehen").
+        // The matching Down migration is delivered by DAT-6.b (#196).
+        Migration {
+            version: 26,
+            description: "invoice_audit_immutable_up",
+            sql: include_str!("../migrations/0026/01_invoice_audit_immutable.sql"),
+            kind: MigrationKind::Up,
         },
     ]
 }

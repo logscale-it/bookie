@@ -80,7 +80,7 @@ use rusqlite::{Connection, OpenFlags};
 /// `EXPECTED_SCHEMA_VERSION` baked into the binary; the cross-check test
 /// in this file then doubles as a guard that the two definitions don't
 /// drift apart.
-const EXPECTED_SCHEMA_VERSION: i64 = 25;
+const EXPECTED_SCHEMA_VERSION: i64 = 26;
 
 /// Local mirror of the production `BookieError::MigrationOutOfDate`
 /// variant. This is intentionally a parallel definition rather than an
