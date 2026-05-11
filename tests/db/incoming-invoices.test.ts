@@ -8,20 +8,42 @@ let counter = 0;
 async function seed() {
   counter++;
   const companyId = await companies.createCompany({
-    name: `Co-${counter}`, legal_name: null, street: null, postal_code: null,
-    city: null, country_code: "DE", tax_number: null, vat_id: null,
-    bank_account_holder: null, bank_iban: null, bank_bic: null, bank_name: null,
+    name: `Co-${counter}`,
+    legal_name: null,
+    street: null,
+    postal_code: null,
+    city: null,
+    country_code: "DE",
+    tax_number: null,
+    vat_id: null,
+    bank_account_holder: null,
+    bank_iban: null,
+    bank_bic: null,
+    bank_name: null,
   });
   const supplierId = await customers.createCustomer({
-    company_id: companyId, customer_number: null, name: "Supplier Co",
-    contact_name: null, email: null, phone: null, street: null,
-    postal_code: null, city: null, country_code: "DE",
-    vat_id: null, website: null, type: "lieferant",
+    company_id: companyId,
+    customer_number: null,
+    name: "Supplier Co",
+    contact_name: null,
+    email: null,
+    phone: null,
+    street: null,
+    postal_code: null,
+    city: null,
+    country_code: "DE",
+    vat_id: null,
+    website: null,
+    type: "lieferant",
   });
   return { companyId, supplierId };
 }
 
-function blankIncoming(companyId: number, supplierId: number | null, invoiceNumber: string) {
+function blankIncoming(
+  companyId: number,
+  supplierId: number | null,
+  invoiceNumber: string,
+) {
   return {
     company_id: companyId,
     supplier_id: supplierId,
@@ -41,14 +63,18 @@ function blankIncoming(companyId: number, supplierId: number | null, invoiceNumb
 describe("incoming invoices", () => {
   test("create computes gross_cents = net_cents + tax_cents", async () => {
     const { companyId, supplierId } = await seed();
-    const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-001"));
+    const id = await ii.createIncomingInvoice(
+      blankIncoming(companyId, supplierId, "S-001"),
+    );
     const got = await ii.getIncomingInvoiceById(id);
     expect(got?.gross_cents).toBe(11900);
   });
 
   test("update with new net/tax recomputes gross_cents", async () => {
     const { companyId, supplierId } = await seed();
-    const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-002"));
+    const id = await ii.createIncomingInvoice(
+      blankIncoming(companyId, supplierId, "S-002"),
+    );
     await ii.updateIncomingInvoice(id, { net_cents: 20000, tax_cents: 3800 });
     const got = await ii.getIncomingInvoiceById(id);
     expect(got?.net_cents).toBe(20000);
@@ -58,7 +84,9 @@ describe("incoming invoices", () => {
 
   test("update without amount change keeps gross stable", async () => {
     const { companyId, supplierId } = await seed();
-    const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-003"));
+    const id = await ii.createIncomingInvoice(
+      blankIncoming(companyId, supplierId, "S-003"),
+    );
     await ii.updateIncomingInvoice(id, { notes: "hello" });
     const got = await ii.getIncomingInvoiceById(id);
     expect(got?.gross_cents).toBe(11900);
@@ -82,7 +110,9 @@ describe("incoming invoices", () => {
 
   test("updateIncomingInvoiceStatus changes only status", async () => {
     const { companyId, supplierId } = await seed();
-    const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-STAT"));
+    const id = await ii.createIncomingInvoice(
+      blankIncoming(companyId, supplierId, "S-STAT"),
+    );
     await ii.updateIncomingInvoiceStatus(id, "bezahlt");
     const got = await ii.getIncomingInvoiceById(id);
     expect(got?.status).toBe("bezahlt");
@@ -134,6 +164,7 @@ describe("incoming invoices", () => {
     // or local_path (the exact rows DAT-5.a evacuates). The production
     // create wrapper deliberately doesn't write `file_data`, so we go
     // through the raw bun:sqlite handle.
+    testDb.raw.exec("ALTER TABLE incoming_invoices ADD COLUMN file_data BLOB");
     testDb.raw
       .query("UPDATE incoming_invoices SET file_data = $blob WHERE id = $id")
       .run({ $blob: new Uint8Array([0x25, 0x50, 0x44, 0x46]), $id: id });
@@ -147,7 +178,9 @@ describe("incoming invoices", () => {
 
   test("delete removes the row", async () => {
     const { companyId, supplierId } = await seed();
-    const id = await ii.createIncomingInvoice(blankIncoming(companyId, supplierId, "S-DEL"));
+    const id = await ii.createIncomingInvoice(
+      blankIncoming(companyId, supplierId, "S-DEL"),
+    );
     await ii.deleteIncomingInvoice(id);
     expect(await ii.getIncomingInvoiceById(id)).toBeUndefined();
   });

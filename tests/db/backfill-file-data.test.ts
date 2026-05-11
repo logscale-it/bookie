@@ -180,13 +180,19 @@ async function rawInsert(opts: {
   // hand-writing the INSERT keeps the test focused on what the backfill
   // sees and avoids re-asserting all the *_cents fields).
   const db = await getDb();
+  try {
+    await db.execute("ALTER TABLE incoming_invoices ADD COLUMN file_data BLOB");
+  } catch {
+    // The production schema drops this column in migration 0023. These
+    // tests recreate it as a legacy fixture; repeat calls can ignore the
+    // duplicate-column error.
+  }
   const r = await db.execute(
     `INSERT INTO incoming_invoices (
        company_id, supplier_id, invoice_number, invoice_date,
-       net_amount, tax_amount, gross_amount,
        net_cents, tax_cents, gross_cents,
        status, file_data, file_name, file_type, s3_key, local_path, notes
-     ) VALUES ($1, $2, $3, '2026-04-15', 0, 0, 0,
+     ) VALUES ($1, $2, $3, '2026-04-15',
               10000, 1900, 11900, 'offen', $4, $5, 'application/pdf',
               $6, $7, NULL)`,
     [

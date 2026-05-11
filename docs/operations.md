@@ -21,11 +21,11 @@ die Kopien im S3-Speicher.
 
 ### Pfad zur Datenbank `bookie.db`
 
-| Betriebssystem | Pfad                                                                                |
-| -------------- | ----------------------------------------------------------------------------------- |
-| Windows        | `C:\Users\<Benutzer>\AppData\Roaming\com.ranelkarimov.bookie\bookie.db`             |
-| macOS          | `~/Library/Application Support/com.ranelkarimov.bookie/bookie.db`                   |
-| Linux          | `~/.local/share/com.ranelkarimov.bookie/bookie.db`                                  |
+| Betriebssystem | Pfad                                                                    |
+| -------------- | ----------------------------------------------------------------------- |
+| Windows        | `C:\Users\<Benutzer>\AppData\Roaming\com.ranelkarimov.bookie\bookie.db` |
+| macOS          | `~/Library/Application Support/com.ranelkarimov.bookie/bookie.db`       |
+| Linux          | `~/.local/share/com.ranelkarimov.bookie/bookie.db`                      |
 
 Neben `bookie.db` können temporäre SQLite-Dateien `bookie.db-wal` und
 `bookie.db-shm` im selben Ordner liegen. Diese gehören zur laufenden
@@ -33,11 +33,11 @@ Datenbank und dürfen nicht einzeln kopiert oder gelöscht werden.
 
 ### Pfad zu den Log-Dateien
 
-| Betriebssystem | Pfad                                                                            |
-| -------------- | ------------------------------------------------------------------------------- |
-| Windows        | `C:\Users\<Benutzer>\AppData\Local\com.ranelkarimov.bookie\logs\`               |
-| macOS          | `~/Library/Logs/com.ranelkarimov.bookie/`                                       |
-| Linux          | `~/.local/share/com.ranelkarimov.bookie/logs/`                                  |
+| Betriebssystem | Pfad                                                              |
+| -------------- | ----------------------------------------------------------------- |
+| Windows        | `C:\Users\<Benutzer>\AppData\Local\com.ranelkarimov.bookie\logs\` |
+| macOS          | `~/Library/Logs/com.ranelkarimov.bookie/`                         |
+| Linux          | `~/.local/share/com.ranelkarimov.bookie/logs/`                    |
 
 Die Log-Dateien heißen `bookie.<JJJJ-MM-TT>.log`. Es werden die letzten
 14 Tage aufbewahrt, ältere Dateien werden automatisch gelöscht.
@@ -74,7 +74,7 @@ Auf dem alten Gerät:
 Auf dem neuen Gerät:
 
 1. Installieren Sie Bookie aus den Releases auf
-   <https://github.com/Ranelkin/bookie/releases/latest>.
+   <https://github.com/logscale-it/bookie/releases/latest>.
 2. Starten Sie die App einmal, damit der Datenordner angelegt wird, und
    schließen Sie sie wieder.
 3. Öffnen Sie Bookie erneut und gehen Sie zu
@@ -269,9 +269,9 @@ Symptom: Die App startet, zeigt aber keine Daten oder meldet
 
 Mögliche Ursachen und Lösungen:
 
-1. Eine zweite Bookie-Instanz läuft noch. Schließen Sie alle
-   Bookie-Fenster über den Task-Manager (Windows: Strg + Umschalt + Esc;
-   macOS: Aktivitätsanzeige; Linux: `pkill -f bookie`).
+1. Bookie verhindert zweite gleichzeitige Starts und fokussiert stattdessen
+   das bereits geöffnete Fenster; dieser Fall sollte nicht mehr zu
+   Datenbanksperren führen.
 2. Im Datenordner (siehe Abschnitt 1) liegen `bookie.db-wal` oder
    `bookie.db-shm` aus einer abgestürzten Sitzung. Solange keine
    Bookie-Instanz läuft, dürfen Sie diese beiden Dateien löschen
@@ -292,7 +292,7 @@ Lösung:
    - Liegt es lokal vor: per Weg A (Abschnitt 2).
    - Liegt es in S3 vor: per Weg B (Abschnitt 2).
 4. Wenn auch das fehlschlägt: Öffnen Sie ein Issue auf
-   <https://github.com/Ranelkin/bookie/issues> und hängen Sie die
+   <https://github.com/logscale-it/bookie/issues> und hängen Sie die
    Log-Datei an (keine `bookie.db`! — diese enthält Geschäftsdaten).
 
 ### 5.5 Datenbank korrupt

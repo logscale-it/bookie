@@ -79,9 +79,12 @@ src-tauri/                  Rust backend (Tauri v2)
 All of these must pass before pushing (enforced in GitHub Actions):
 
 1. `bun run check`
-2. `bunx prettier --check "src/**/*.{svelte,ts,js,css,html}"`
+2. `bun test`
 3. `cargo fmt --check --manifest-path src-tauri/Cargo.toml`
 4. `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`
+5. `cargo test --manifest-path src-tauri/Cargo.toml`
+6. `cargo audit --deny warnings` from `src-tauri/`
+7. `bun audit --audit-level=high`
 
 ## Git Workflow
 

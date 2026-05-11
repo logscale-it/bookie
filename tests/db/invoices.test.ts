@@ -11,15 +11,32 @@ async function seed() {
   counter++;
   const companyId = await companies.createCompany({
     name: `Co-${counter}`,
-    legal_name: null, street: null, postal_code: null, city: null,
-    country_code: "DE", tax_number: null, vat_id: null,
-    bank_account_holder: null, bank_iban: null, bank_bic: null, bank_name: null,
+    legal_name: null,
+    street: null,
+    postal_code: null,
+    city: null,
+    country_code: "DE",
+    tax_number: null,
+    vat_id: null,
+    bank_account_holder: null,
+    bank_iban: null,
+    bank_bic: null,
+    bank_name: null,
   });
   const customerId = await customers.createCustomer({
-    company_id: companyId, customer_number: null, name: "Cu",
-    contact_name: null, email: null, phone: null, street: null,
-    postal_code: null, city: null, country_code: "DE",
-    vat_id: null, website: null, type: "kunde",
+    company_id: companyId,
+    customer_number: null,
+    name: "Cu",
+    contact_name: null,
+    email: null,
+    phone: null,
+    street: null,
+    postal_code: null,
+    city: null,
+    country_code: "DE",
+    vat_id: null,
+    website: null,
+    type: "kunde",
   });
   return { companyId, customerId };
 }
@@ -28,7 +45,12 @@ function blankInvoice(
   companyId: number,
   customerId: number,
   invoiceNumber: string,
-  overrides: Partial<{ status: string; netCents: number; taxCents: number; grossCents: number }> = {},
+  overrides: Partial<{
+    status: string;
+    netCents: number;
+    taxCents: number;
+    grossCents: number;
+  }> = {},
 ) {
   return {
     company_id: companyId,
@@ -44,32 +66,57 @@ function blankInvoice(
     net_cents: overrides.netCents ?? 0,
     tax_cents: overrides.taxCents ?? 0,
     gross_cents: overrides.grossCents ?? 0,
-    issuer_name: null, issuer_tax_number: null, issuer_vat_id: null,
-    issuer_bank_account_holder: null, issuer_bank_iban: null,
-    issuer_bank_bic: null, issuer_bank_name: null,
-    recipient_name: null, recipient_street: null,
-    recipient_postal_code: null, recipient_city: null,
+    issuer_name: null,
+    issuer_tax_number: null,
+    issuer_vat_id: null,
+    issuer_bank_account_holder: null,
+    issuer_bank_iban: null,
+    issuer_bank_bic: null,
+    issuer_bank_name: null,
+    recipient_name: null,
+    recipient_street: null,
+    recipient_postal_code: null,
+    recipient_city: null,
     recipient_country_code: null,
-    delivery_date: null, due_surcharge: 0,
-    language: "de", legal_country_code: "DE",
-    notes: null, s3_key: null,
+    delivery_date: null,
+    due_surcharge: 0,
+    language: "de",
+    legal_country_code: "DE",
+    notes: null,
+    s3_key: null,
   };
 }
 
 describe("invoices CRUD + items + status history", () => {
   test("create invoice + add items, list by invoice in position order", async () => {
     const { companyId, customerId } = await seed();
-    const invId = await invoices.createInvoice(blankInvoice(companyId, customerId, "INV-001"));
+    const invId = await invoices.createInvoice(
+      blankInvoice(companyId, customerId, "INV-001"),
+    );
 
     await invoiceItems.createInvoiceItem({
-      invoice_id: invId, project_id: null, time_entry_id: null,
-      position: 2, description: "Second", quantity: 1, unit: "Std",
-      unit_price_net_cents: 5000, tax_rate: 19, line_total_net_cents: 5000,
+      invoice_id: invId,
+      project_id: null,
+      time_entry_id: null,
+      position: 2,
+      description: "Second",
+      quantity: 1,
+      unit: "Std",
+      unit_price_net_cents: 5000,
+      tax_rate: 19,
+      line_total_net_cents: 5000,
     });
     await invoiceItems.createInvoiceItem({
-      invoice_id: invId, project_id: null, time_entry_id: null,
-      position: 1, description: "First", quantity: 2, unit: "Std",
-      unit_price_net_cents: 10000, tax_rate: 19, line_total_net_cents: 20000,
+      invoice_id: invId,
+      project_id: null,
+      time_entry_id: null,
+      position: 1,
+      description: "First",
+      quantity: 2,
+      unit: "Std",
+      unit_price_net_cents: 10000,
+      tax_rate: 19,
+      line_total_net_cents: 20000,
     });
 
     const items = (await invoiceItems.listByInvoice(invId)).rows;
@@ -79,7 +126,9 @@ describe("invoices CRUD + items + status history", () => {
 
   test("invoice_number UNIQUE constraint prevents duplicates", async () => {
     const { companyId, customerId } = await seed();
-    await invoices.createInvoice(blankInvoice(companyId, customerId, "INV-DUP"));
+    await invoices.createInvoice(
+      blankInvoice(companyId, customerId, "INV-DUP"),
+    );
     await expect(
       invoices.createInvoice(blankInvoice(companyId, customerId, "INV-DUP")),
     ).rejects.toThrow();
@@ -105,9 +154,7 @@ describe("invoices CRUD + items + status history", () => {
     expect(list.map((i) => i.invoice_number)).toEqual(["A2", "A1"]);
   });
 
-  test("createInvoice does not write the legacy REAL columns (DAT-1.d verification)", async () => {
-    // The verification criterion for DAT-1.d (#54): newly-written rows must
-    // leave the legacy REAL columns at their migration default of 0.
+  test("createInvoice uses the post-0025 cent-only schema", async () => {
     const { companyId, customerId } = await seed();
     const invId = await invoices.createInvoice({
       ...blankInvoice(companyId, customerId, "INV-LEGACY-0"),
@@ -115,20 +162,27 @@ describe("invoices CRUD + items + status history", () => {
       tax_cents: 2345,
       gross_cents: 14690,
     });
-    const legacy = await testDb.select<
-      { net_amount: number; tax_amount: number; gross_amount: number }[]
-    >(
-      "SELECT net_amount, tax_amount, gross_amount FROM invoices WHERE id = $1",
-      [invId],
+    const columns = await testDb.select<{ name: string }[]>(
+      "PRAGMA table_info(invoices)",
     );
-    expect(legacy[0].net_amount).toBe(0);
-    expect(legacy[0].tax_amount).toBe(0);
-    expect(legacy[0].gross_amount).toBe(0);
+    expect(columns.map((c) => c.name)).not.toContain("net_amount");
+    const [row] = await testDb.select<
+      { net_cents: number; tax_cents: number; gross_cents: number }[]
+    >("SELECT net_cents, tax_cents, gross_cents FROM invoices WHERE id = $1", [
+      invId,
+    ]);
+    expect(row).toEqual({
+      net_cents: 12345,
+      tax_cents: 2345,
+      gross_cents: 14690,
+    });
   });
 
   test("updateInvoiceStatus writes status AND appends to history transactionally", async () => {
     const { companyId, customerId } = await seed();
-    const invId = await invoices.createInvoice(blankInvoice(companyId, customerId, "INV-STAT"));
+    const invId = await invoices.createInvoice(
+      blankInvoice(companyId, customerId, "INV-STAT"),
+    );
 
     await invoices.updateInvoiceStatus(invId, "draft", "issued");
     await invoices.updateInvoiceStatus(invId, "issued", "paid");
@@ -150,7 +204,9 @@ describe("invoices CRUD + items + status history", () => {
 
   test("status update rolls back on failure (transaction)", async () => {
     const { companyId, customerId } = await seed();
-    const invId = await invoices.createInvoice(blankInvoice(companyId, customerId, "INV-RB"));
+    const invId = await invoices.createInvoice(
+      blankInvoice(companyId, customerId, "INV-RB"),
+    );
 
     // Drop history table mid-flight to force the second statement to fail.
     testDb.raw.exec("DROP TABLE invoice_status_history");
@@ -165,11 +221,20 @@ describe("invoices CRUD + items + status history", () => {
 
   test("CASCADE: deleting draft invoice removes its items and status history", async () => {
     const { companyId, customerId } = await seed();
-    const invId = await invoices.createInvoice(blankInvoice(companyId, customerId, "INV-CASC"));
+    const invId = await invoices.createInvoice(
+      blankInvoice(companyId, customerId, "INV-CASC"),
+    );
     await invoiceItems.createInvoiceItem({
-      invoice_id: invId, project_id: null, time_entry_id: null,
-      position: 1, description: "X", quantity: 1, unit: null,
-      unit_price_net_cents: 1000, tax_rate: 19, line_total_net_cents: 1000,
+      invoice_id: invId,
+      project_id: null,
+      time_entry_id: null,
+      position: 1,
+      description: "X",
+      quantity: 1,
+      unit: null,
+      unit_price_net_cents: 1000,
+      tax_rate: 19,
+      line_total_net_cents: 1000,
     });
     // History row created without leaving draft, so the immutability trigger
     // (which forbids deleting non-draft invoices) does not apply.

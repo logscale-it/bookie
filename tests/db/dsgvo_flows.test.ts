@@ -613,6 +613,7 @@ describe("COMP-2.c: DSGVO export + erasure flows", () => {
     // subject. Per dsgvo_export.collectCustomerData, this is the
     // canonical way historical references survive.
     const deletedInv = await seedDraftInvoice(companyId, customerId, "INV-DEL");
+    ageInvoice(deletedInv, "2010-01-01 00:00:00");
     await invoices.deleteInvoice(deletedInv);
 
     // Plus one aged-out draft that will be blanked + drive the customer

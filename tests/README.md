@@ -94,23 +94,44 @@ so a bare `cargo test` skips it silently.
   - Shared Rust test helpers belong in a sibling module file under
     `src-tauri/tests/` and are pulled in with `mod common;`.
 
+## Manual smoke tests
+
+### Single-instance launch guard
+
+This check covers REL-4.c. It is manual because a headless CI job cannot
+reliably prove desktop window focus across Linux, macOS, and Windows.
+
+1. Start the development instance:
+   ```bash
+   bun run tauri dev
+   ```
+2. Build the desktop bundle:
+   ```bash
+   bun run tauri build
+   ```
+3. While the development instance is still open, launch the built binary from
+   `src-tauri/target/release/` or the platform bundle under
+   `src-tauri/target/release/bundle/`.
+4. Confirm the existing Bookie window is focused, no second window remains
+   open, and the logs do not contain `database is locked`.
+
 ## CI mapping
 
-The intended CI mapping lives in `.github/workflows/ci.yml.disabled`:
+The intended CI mapping lives in `.github/workflows/ci.yml`:
 
-| Job              | Command                                                  | What it covers                                                      |
-| ---------------- | -------------------------------------------------------- | ------------------------------------------------------------------- |
-| `test-frontend`  | `bunx svelte-kit sync` then `bun test`                   | Everything under `tests/` (Bun runner discovers `**/*.test.ts`)     |
-| `test-backend`   | `cargo test --manifest-path src-tauri/Cargo.toml`        | Inline `#[cfg(test)]` modules in `src-tauri/src/` plus the integration binaries in `src-tauri/tests/` |
-| `security-rust`  | `cargo audit --deny warnings` (in `src-tauri/`)          | Rust dependency CVEs                                                |
-| `security-frontend` | `bun audit --audit-level=high`                        | Frontend dependency CVEs                                            |
+| Job                 | Command                                                                                                                          | What it covers                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `quality-frontend`  | `bun run check`                                                                                                                  | Svelte/TypeScript type checking                                                                       |
+| `quality-backend`   | `cargo fmt --check --manifest-path src-tauri/Cargo.toml` then `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` | Rust formatting and linting                                                                           |
+| `test-frontend`     | `bunx svelte-kit sync` then `bun test`                                                                                           | Everything under `tests/` (Bun runner discovers `**/*.test.ts`)                                       |
+| `test-backend`      | `cargo test --manifest-path src-tauri/Cargo.toml`                                                                                | Inline `#[cfg(test)]` modules in `src-tauri/src/` plus the integration binaries in `src-tauri/tests/` |
+| `security-rust`     | `cargo audit --deny warnings` (in `src-tauri/`)                                                                                  | Rust dependency CVEs                                                                                  |
+| `security-frontend` | `bun audit --audit-level=high`                                                                                                   | Frontend dependency CVEs                                                                              |
 
-**Current state:** all GitHub Actions workflows are disabled — the file is
-checked in as `ci.yml.disabled` rather than `ci.yml` (commit `685379c`,
-"chore(ci): disable all GitHub Actions workflows"). Tests still run locally
-with the commands above. The `bun run test:all` npm script and the S3
-round-trip module both reference a `scripts/test-all.sh` (which is intended
-to start MinIO and export `BOOKIE_TEST_S3=1` so the gated tests run); that
-script is not yet checked in at the time of writing, so today the S3
-round-trip tests skip silently. When CI is re-enabled, rename the workflow
-back to `ci.yml`.
+**Current state:** GitHub Actions CI is restored as `.github/workflows/ci.yml`
+and runs the mapping above on pushes and pull requests targeting `master`.
+Tests still run locally with the same commands. The `bun run test:all` npm
+script and the S3 round-trip module both reference a `scripts/test-all.sh`
+(which is intended to start MinIO and export `BOOKIE_TEST_S3=1` so the gated
+tests run); that script is not yet checked in at the time of writing, so
+today the S3 round-trip tests skip silently.

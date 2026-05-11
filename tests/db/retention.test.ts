@@ -90,11 +90,7 @@ async function seedDraftInvoice(): Promise<{
  * that lets us simulate a row that has aged out of the retention window
  * without waiting 11 years.
  */
-function ageRow(
-  table: string,
-  id: number,
-  createdAt: string,
-): void {
+function ageRow(table: string, id: number, createdAt: string): void {
   testDb.raw.exec(
     `UPDATE ${table} SET created_at = '${createdAt}' WHERE id = ${id}`,
   );
@@ -268,26 +264,32 @@ describe("COMP-1.a: deleteAuditRow retention guard", () => {
     expect(still).toHaveLength(1);
   });
 
-  test("permits delete after backdating ts_unix_us past the window", async () => {
+  test("still cannot delete after backdating ts_unix_us past the window because invoice_audit is append-only", async () => {
     const { invId } = await seedDraftInvoice();
-    const rows = await testDb.select<{ id: number }[]>(
-      "SELECT id FROM invoice_audit WHERE entity_type = 'invoices' AND entity_id = $1",
-      [invId],
-    );
-    const auditId = rows[0].id;
     // 11 years ago, in microseconds since the Unix epoch.
-    const elevenYearsAgoUs = (Date.now() - 11 * 365.25 * 24 * 3600 * 1000) * 1000;
-    testDb.raw.exec(
-      `UPDATE invoice_audit SET ts_unix_us = ${Math.floor(elevenYearsAgoUs)} WHERE id = ${auditId}`,
+    const elevenYearsAgoUs =
+      (Date.now() - 11 * 365.25 * 24 * 3600 * 1000) * 1000;
+    const inserted = await testDb.execute(
+      `INSERT INTO invoice_audit (entity_type, entity_id, op, actor, ts_unix_us, fields_diff)
+       VALUES ('invoices', $1, 'update', 'test', $2, '{}')`,
+      [invId, Math.floor(elevenYearsAgoUs)],
     );
+    const auditId = inserted.lastInsertId!;
 
-    await audit.deleteAuditRow(auditId); // must not throw
+    let thrown: Error | undefined;
+    try {
+      await audit.deleteAuditRow(auditId);
+    } catch (e) {
+      thrown = e as Error;
+    }
+    expect(thrown).toBeDefined();
+    expect(thrown!.message).toContain("audit_immutable");
 
     const still = await testDb.select<{ id: number }[]>(
       "SELECT id FROM invoice_audit WHERE id = $1",
       [auditId],
     );
-    expect(still).toHaveLength(0);
+    expect(still).toHaveLength(1);
   });
 
   test("missing-id audit delete is a no-op", async () => {
