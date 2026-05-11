@@ -24,6 +24,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-dialog = "2"
+# REL-4.a: enforce single-instance lock at process start. Bookie's SQLite-WAL
+# data dir cannot be shared by two concurrent processes (see
+# `docs/operations.md` §5.3) — this plugin's callback (wired in REL-4.b) will
+# focus the existing window and exit the second launcher instead of letting
+# both instances open the same `bookie.db`.
+tauri-plugin-single-instance = "2"
 aws-sdk-s3 = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
 aws-credential-types = "1"
 tokio = { version = "1", default-features = false, features = ["time", "macros", "rt"] }
