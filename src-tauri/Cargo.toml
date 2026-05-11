@@ -41,7 +41,7 @@ tracing-appender = "0.2"
 tracing-log = "0.2"
 keyring = "4"
 keyring-core = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 url = "2"
 # COMP-1.b: GoBD-Export ZIP generator. `zip` is used to build the export
 # archive (per-table CSV + manifest + signature) in `export_gobd`.
