@@ -1,4 +1,8 @@
 {
+  "identifier": "over-permissive-audit-artifact",
+  "description": "Inert capability wrapper so Tauri's capability loader can parse this SEC-4.b audit artifact. Runtime permissions remain in default.json.",
+  "windows": ["main"],
+  "permissions": [],
   "$comment": "SEC-4.b: diff of the permissions granted by `src-tauri/capabilities/default.json` against the call-site inventory in `src-tauri/capabilities/inventory.json` (SEC-4.a). Every string in `over_permissive` appears in `default.json`'s `permissions` array but does NOT appear in `inventory.json`'s `permissions_used`. SEC-4.c (issue #190) has consumed this artifact: the three aggregates flagged below (`dialog:default`, `opener:default`, `sql:default`) were removed from `default.json` and replaced with the narrower permissions they had been transitively granting (per the `inverse_diff_audit_trail` note). As a result, the live diff `granted \\ used` is now empty; the historical entries are preserved in `historical_pre_sec_4c` so the rationale and audit trail remain reviewable. The tripwire test in `tests/capabilities/over-permissive.test.ts` continues to assert that the current `over_permissive` array equals the live diff, so any future regression (someone re-adding an over-permissive aggregate to `default.json`) will fail loudly.",
   "generated_at": "2026-05-11T00:00:00Z",
   "sources": {

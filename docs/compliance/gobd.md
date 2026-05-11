@@ -12,7 +12,7 @@
 > COMP-1-Maßnahmen und kennzeichnet bei jeder Garantie ausdrücklich, ob sie
 > bereits **umgesetzt** ist (auf `master` gemerged), sich **in Review** in
 > einem offenen Pull Request befindet, oder **geplant** ist. Stand:
-> 2026-05-10. Vor jedem Stichtags-Release ist dieses Dokument zu
+> 2026-05-11. Vor jedem Stichtags-Release ist dieses Dokument zu
 > aktualisieren.
 
 ---
@@ -200,49 +200,48 @@ Spalten der `invoices`-Zeile speichert (`recipient_name`, `recipient_street`,
 `issuer_name`, `issuer_tax_number`, `issuer_vat_id`, `issuer_bank_*`). Eine
 spätere Adressänderung im Kundenstamm ändert die archivierte Rechnung nicht.
 
-### 2.5 10-jährige Aufbewahrungsfrist (COMP-1.a) — **geplant**
+### 2.5 10-jährige Aufbewahrungsfrist (COMP-1.a) — **umgesetzt**
 
 **Anforderung (§ 147 Abs. 3 AO, § 14b UStG):** Buchungsbelege, Bücher und
 Aufzeichnungen sind **zehn Jahre** aufzubewahren. Die Frist beginnt mit
 dem Schluss des Kalenderjahres, in dem der Beleg entstanden ist (§ 147
 Abs. 4 AO).
 
-**Aktueller Stand:** Die SQL-seitige Unveränderbarkeit (Abschnitt 2.1)
-verhindert bereits, dass festgeschriebene Rechnungen gelöscht werden. Eine
-**ausdrückliche Retention-Schranke**, die auch andere destruktive Pfade
-(`payments`, `invoice_audit`) absichert und ihre 10-Jahres-Grenze gegen
-`legal_profile.retention_years` parametrisiert, ist als COMP-1.a (#90)
-spezifiziert, aber **noch nicht umgesetzt**.
+**Umsetzung:**
 
-**Geplante Umsetzung (siehe Issue #90):**
+- `src/lib/db/retention.ts` enthält die zentrale Retention-Prüfung
+  `assertOutsideRetention(entityLabel, countryCode, createdAt)`.
+- Die Frist wird aus dem jeweiligen Legal Profile gelesen
+  (`retentionYears`; für `DE` = 10 Jahre). Kann ein Land nicht sicher
+  aufgelöst werden, fällt die Prüfung bewusst auf `DE` zurück.
+- Die Delete-Pfade für `invoices` (`deleteInvoice`), `payments`
+  (`deletePayment`) und künftige Wartungspfade für `invoice_audit`
+  (`deleteAuditRow`) rufen die Prüfung vor der destruktiven Operation auf.
+- Innerhalb der Frist wird ein typisierter TS-Fehler mit
+  `err.name = "RetentionViolation"` geworfen. Die UI kann dadurch ohne
+  String-Matching auf den fachlichen Fehler reagieren.
+- Festgeschriebene Rechnungen bleiben zusätzlich durch die SQL-Trigger aus
+  Abschnitt 2.1 geschützt. `invoice_audit` bleibt zusätzlich durch Migration
+  `0026` append-only; der Retention-Wrapper verhindert, dass künftige
+  Wartungstools diese fachliche Schranke umgehen.
 
-- Wrapper um die Delete-Pfade von `invoices` (drafts), `payments` und
-  `invoice_audit` in `src/lib/db/`.
-- Vergleicht `created_at` gegen `legal_profile.retention_years` (DE: 10).
-- Innerhalb der Frist: typisierter Fehler `BookieError::RetentionViolation`.
-- Außerhalb der Frist: Löschung erlaubt; im selben Schritt eine
-  Audit-Notiz `op = 'delete', actor = '<retention-cleanup>'` schreiben,
-  damit auch die Säuberung selbst nachvollziehbar bleibt.
+**Verifikation:** Ein Delete eines bestehenden Payments oder einer
+Draft-Rechnung innerhalb der Retention-Frist schlägt vor dem SQLite-Statement
+mit `RetentionViolation` fehl. Für `invoice_audit` schlagen direkte
+`UPDATE`/`DELETE`-Versuche mit `audit_immutable` fehl (DAT-6.a, Migration
+`0026`).
 
-Bis dahin ist die operative Garantie: **kein Code-Pfad in Bookie löscht
-heute Audit-Zeilen oder festgeschriebene Rechnungen.** Der Trigger aus
-Abschnitt 2.1 verhindert direkte SQL-Manipulation; die Anwendung selbst
-bietet keine UI dafür.
-
-### 2.6 Datenexport für die Außenprüfung (COMP-1.b) — **in Review (PR #158)**
+### 2.6 Datenexport für die Außenprüfung (COMP-1.b) — **umgesetzt**
 
 **Anforderung (GoBD Rz. 158 ff., § 147 Abs. 6 AO, „Datenträgerüberlassung"
 Z3):** Die Steuerpflichtige muss der Finanzverwaltung auf Verlangen die
 gespeicherten Unterlagen auf einem maschinell auswertbaren Datenträger
 zur Verfügung stellen.
 
-**Stand:** Implementiert in PR #158 (Issue #91), liegt zur Review vor und
-ist **noch nicht auf `master`**. Bis zum Merge gilt die manuelle
-Vorgehensweise aus `docs/operations.md`, Abschnitt 4.
+**Umsetzung:**
 
-**Geplante Umsetzung (per PR #158):**
-
-- Tauri-Befehl `export_gobd(from_year, to_year)` in `src-tauri/src/gobd.rs`.
+- Tauri-Befehl `export_gobd(from_year, to_year)` in `src-tauri/src/lib.rs`;
+  die Archiv-Erzeugung liegt in `src-tauri/src/gobd.rs`.
 - Erzeugt ein ZIP-Archiv namens `gobd-export-<from>-<to>.zip` mit
   folgendem Aufbau:
 
@@ -271,22 +270,26 @@ Vorgehensweise aus `docs/operations.md`, Abschnitt 4.
 
 ```json
 {
-  "version": "1.0",
-  "from_year": 2024,
-  "to_year": 2024,
-  "exported_at_utc": "2026-05-08T09:14:27Z",
-  "schema_user_version": 22,
-  "files": {
-    "companies.csv": { "sha256": "f3a1…", "bytes": 1842 },
-    "customers.csv": { "sha256": "8c2e…", "bytes": 12489 },
-    "invoices.csv": { "sha256": "0a77…", "bytes": 84231 },
-    "invoice_items.csv": { "sha256": "d4b9…", "bytes": 213004 },
-    "payments.csv": { "sha256": "2e17…", "bytes": 19233 },
-    "invoice_audit.csv": { "sha256": "97ce…", "bytes": 552884 },
-    "schema_version.txt": { "sha256": "1b40…", "bytes": 3217 }
-  }
+  "format_version": 1,
+  "generated_at": "2026-05-11T09:14:27Z",
+  "year_range": {
+    "from": 2024,
+    "to": 2024
+  },
+  "files": [
+    { "path": "companies.csv", "sha256": "f3a1…", "bytes": 1842 },
+    { "path": "customers.csv", "sha256": "8c2e…", "bytes": 12489 },
+    { "path": "invoices.csv", "sha256": "0a77…", "bytes": 84231 },
+    { "path": "invoice_items.csv", "sha256": "d4b9…", "bytes": 213004 },
+    { "path": "payments.csv", "sha256": "2e17…", "bytes": 19233 },
+    { "path": "invoice_audit.csv", "sha256": "97ce…", "bytes": 552884 },
+    { "path": "schema_version.txt", "sha256": "1b40…", "bytes": 3217 }
+  ]
 }
 ```
+
+`schema_version.txt` enthält den aktuellen SQLite-Stand
+`user_version=26` sowie die Spaltenliste je exportierter Tabelle.
 
 `export_signature.txt` enthält genau einen SHA-256-Hex-String — die
 Prüfsumme von `manifest.json`. Verifikation auf Linux/macOS:
@@ -312,10 +315,9 @@ später festgeschrieben (`status: draft → issued`), Zahlungseingang am
 
 #### 2.6.3 UI-Einstieg
 
-Nach dem Merge von PR #158 ist der Export unter **Einstellungen → Backup
-& Wiederherstellung → GoBD-Export** verfügbar; Operatorin wählt
-Geschäftsjahre `from`–`to` und bekommt das ZIP über den
-Speichern-Dialog des Betriebssystems.
+Der Export ist unter **Einstellungen → Backup & Wiederherstellung →
+GoBD-Export** verfügbar; Operatorin wählt Geschäftsjahre `from`–`to` und
+bekommt das ZIP über den Speichern-Dialog des Betriebssystems.
 
 ---
 
@@ -329,7 +331,7 @@ Speichern-Dialog des Betriebssystems.
 | Zeitgerechtigkeit               | `created_at`/`updated_at` werden DB-seitig per `DEFAULT CURRENT_TIMESTAMP` gesetzt; Audit-Zeitstempel in Mikrosekunden                            |
 | Ordnung                         | Eindeutige `invoice_number` pro `company_id`; Storno-Suffix `<orig>-storno-<N>` zählt monoton                                                     |
 | Unveränderbarkeit               | Trigger `invoices_immutable_update` und `invoices_immutable_delete` (Abschnitt 2.1); Audit-Tabelle append-only                                    |
-| Aufbewahrung 10 Jahre           | Heute durch Unveränderbarkeit + fehlende Lösch-UI sichergestellt; explizite Schranke COMP-1.a in Arbeit (Abschnitt 2.5)                           |
+| Aufbewahrung 10 Jahre           | Retention-Guard auf destruktiven Pfaden, parametrisiert über Legal Profiles (`retentionYears`; DE = 10), plus SQL-Immutability (Abschnitt 2.5)       |
 | Maschinelle Auswertbarkeit (Z3) | CSV-Export nach RFC 4180; Audit-Diffs als JSON-Strings im Diff-Feld (Abschnitt 2.6)                                                               |
 
 ---
@@ -350,8 +352,7 @@ Für eine konkrete Außenprüfung legt die Inhaberin folgendes vor (vgl.
 `docs/operations.md`, Abschnitt 4):
 
 1. Datenbank-Snapshot `bookie.db` als technischer Vollexport.
-2. Sobald COMP-1.b gemerged ist: GoBD-Export-ZIP (Abschnitt 2.6) für den
-   Prüfungszeitraum.
+2. GoBD-Export-ZIP (Abschnitt 2.6) für den Prüfungszeitraum.
 3. PDFs aller Ausgangsrechnungen des Prüfungszeitraums.
 4. Eingangsrechnungen aus dem S3-Bucket bzw. dem lokalen Belegordner.
 5. Dieses Dokument als Verfahrensdokumentation.
@@ -364,6 +365,7 @@ Für eine konkrete Außenprüfung legt die Inhaberin folgendes vor (vgl.
 | ---------- | --------------------------------------------------------------------------------------------- |
 | 2026-05-10 | Erstfassung (Issue #92, COMP-1.c)                                                             |
 | 2026-05-11 | Append-only-Enforcement für `invoice_audit` via SQL-Trigger umgesetzt (Migration 0026, DAT-6) |
+| 2026-05-11 | COMP-1.a Retention-Guard und COMP-1.b GoBD-Export als auf `master` umgesetzt nachgezogen      |
 
 Wenn sich an einer der referenzierten Stellen (`invoice_audit`-Schema,
 Immutabilitäts-Trigger, Export-Format, Retention-Wrapper) etwas ändert, ist
