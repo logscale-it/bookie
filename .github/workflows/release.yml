@@ -82,4 +82,5 @@ jobs:
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           name: Bookie ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          files: dist/*
+          fail_on_unmatched_files: true
+          files: dist/**/*
