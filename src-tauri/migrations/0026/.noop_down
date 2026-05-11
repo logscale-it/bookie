@@ -1,8 +1,0 @@
-# DAT-6.a: temporary marker — the rollback is owned by DAT-6.b (#196).
-#
-# Bookie's migration round-trip harness (`src-tauri/tests/migrations.rs`)
-# requires every `NNNN/` directory to have a sibling `NNNN_down/` directory.
-# To keep this PR atomic to the up-migration only, the down SQL is split
-# into a follow-up PR (#196). This `.noop_down` marker downgrades the
-# round-trip schema-equality assertion to a warning until #196 lands and
-# removes both this marker and the placeholder in `0026_down/`.
