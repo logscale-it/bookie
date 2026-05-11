@@ -1,17 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
+  "$comment": "SEC-4.c (issue #190): least-privilege Tauri capability set for the main window. Derived by removing the over-permissive aggregates flagged in `src-tauri/capabilities/over_permissive.json` (SEC-4.b, PR #208) and explicitly re-adding the narrower permissions those aggregates previously granted transitively (per `inventory.json.permissions_used`, SEC-4.a). Each retained permission below maps to the SPA call site(s) that exercise it; if a permission's call site is removed, the permission should be removed too. Per-permission call-site mapping (matches `src-tauri/capabilities/inventory.json`): core:default — gates all 17 custom `#[tauri::command]` handlers (see inventory.json `commands` for the full list, including backup_database, restore_database, export_gobd, write_binary_file, read_binary_file, get_app_data_dir, s3_* commands, store_s3_credentials, get_s3_credentials, append_frontend_log, read_log_tail, schema_version_check, boot_check); core:window:allow-close — used by `getCurrentWindow().close()` in src/lib/boot/recovery-actions.ts:21 (migration-out-of-date recovery dialog); dialog:allow-save — used by `save()` from @tauri-apps/plugin-dialog in src/routes/zeiterfassung/stundenzettel/+page.svelte, src/routes/unternehmen/+page.svelte, src/routes/eingehende-rechnungen/+page.svelte, src/common/InvoiceForm.svelte, src/lib/csv/csv-writer.ts, src/lib/boot/recovery-actions.ts (no open/message/confirm/ask calls anywhere in src/); opener:allow-open-url — used by `openUrl()` from @tauri-apps/plugin-opener in src/routes/unternehmen/+page.svelte:2 (opens the company's external website URL); sql:allow-execute — used by `Database.execute()` from @tauri-apps/plugin-sql across src/lib/db/{audit,backfill-file-data,companies,connection,customers,dsgvo_erasure,incoming-invoices,invoice-items,invoices,payments,projects,settings,time-entries}.ts; sql:allow-load — used by `Database.load('sqlite:bookie.db')` in src/lib/db/connection.ts:1 (single SQLite handle reused for the renderer lifetime); sql:allow-select — used by `Database.select()` from @tauri-apps/plugin-sql across src/lib/db/{audit,companies,customers,dsgvo_erasure,incoming-invoices,invoice-items,invoices,payments,projects,settings,time-entries}.ts.",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
+  "description": "Capability for the main window. Least-privilege set established by SEC-4.c (issue #190); see the `$comment` field above for the call-site annotation of each permission.",
+  "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default",
-    "dialog:default",
+    "core:window:allow-close",
     "dialog:allow-save",
-    "sql:default",
+    "opener:allow-open-url",
     "sql:allow-execute",
+    "sql:allow-load",
     "sql:allow-select"
   ]
 }
