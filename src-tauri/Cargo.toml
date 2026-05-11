@@ -48,7 +48,7 @@ url = "2"
 # `default-features = false` keeps the dependency lean (no bzip2/zstd
 # encryption backends — `deflate` via `flate2` is sufficient for CSV
 # payloads).
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 # Read-only access to the bundled SQLite DB. Two callers share this dep:
 #   * COMP-1.b GoBD-Export — opens a fresh read-only connection from the
 #     on-disk file because the tauri-plugin-sql infrastructure (sqlx) is
