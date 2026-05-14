@@ -588,13 +588,15 @@
 			<!-- Notes + Summary -->
 			<div class="flex gap-6">
 				<div class="flex-1">
-					<label class="label mb-1 block">{t('invoiceForm.customerNote')}</label>
-					<textarea
-						bind:value={notes}
-						rows="4"
-						disabled={!isEditable}
-						class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
-					></textarea>
+					<label class="label mb-1 block">
+						{t('invoiceForm.customerNote')}
+						<textarea
+							bind:value={notes}
+							rows="4"
+							disabled={!isEditable}
+							class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+						></textarea>
+					</label>
 				</div>
 				<div class="w-64 space-y-1 pt-5 text-sm">
 					<div class="flex justify-between">
