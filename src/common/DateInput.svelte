@@ -1,5 +1,6 @@
 <script lang="ts">
 	let {
+		id = crypto.randomUUID(),
 		value = $bindable(''),
 		label = '',
 		min = '',
@@ -7,6 +8,7 @@
 		disabled = false,
 		error = ''
 	}: {
+		id?: string;
 		value?: string;
 		label?: string;
 		min?: string;
@@ -17,8 +19,9 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	{#if label}<label class="label">{label}</label>{/if}
+	{#if label}<label for={id} class="label">{label}</label>{/if}
 	<input
+		{id}
 		type="date"
 		bind:value
 		{min}
