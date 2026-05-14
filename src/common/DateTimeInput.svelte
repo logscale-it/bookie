@@ -2,6 +2,7 @@
 	let {
 		value = $bindable(''),
 		label = '',
+		id = crypto.randomUUID(),
 		min = '',
 		max = '',
 		disabled = false,
@@ -9,6 +10,7 @@
 	}: {
 		value?: string;
 		label?: string;
+		id?: string;
 		min?: string;
 		max?: string;
 		disabled?: boolean;
@@ -17,9 +19,10 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	{#if label}<label class="label">{label}</label>{/if}
+	{#if label}<label for={id} class="label">{label}</label>{/if}
 	<input
 		type="datetime-local"
+		{id}
 		bind:value
 		{min}
 		{max}
