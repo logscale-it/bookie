@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-05-14
+
+- **CI switched to local pre-push gate.** GitHub Actions CI was disabled in
+  commit `d6904ba` to save runner cost. Contributors now run
+  `bun run test:all` (which invokes `scripts/test-all.sh`) before pushing —
+  see `CLAUDE.md` § Pre-push checks and `CONTRIBUTING.md` § Pull Requests
+  step 3.
+
 ## 2026-05-11
 
 - Restored GitHub Actions CI by renaming `.github/workflows/ci.yml.disabled`
