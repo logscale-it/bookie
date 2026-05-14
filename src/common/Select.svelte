@@ -14,11 +14,14 @@
 		disabled?: boolean;
 		error?: string;
 	} = $props();
+
+	const id = crypto.randomUUID();
 </script>
 
 <div class="flex flex-col gap-1">
-	{#if label}<label class="label">{label}</label>{/if}
+	{#if label}<label for={id} class="label">{label}</label>{/if}
 	<select
+		{id}
 		bind:value
 		{disabled}
 		aria-invalid={error ? 'true' : undefined}
