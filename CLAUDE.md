@@ -74,17 +74,9 @@ src-tauri/                  Rust backend (Tauri v2)
 - Always create a rollback migration in `NNNN_down/`
 - Migrations run automatically on app startup
 
-## CI Requirements
+## Pre-push checks
 
-All of these must pass before pushing (enforced in GitHub Actions):
-
-1. `bun run check`
-2. `bun test`
-3. `cargo fmt --check --manifest-path src-tauri/Cargo.toml`
-4. `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings`
-5. `cargo test --manifest-path src-tauri/Cargo.toml`
-6. `cargo audit --deny warnings` from `src-tauri/`
-7. `bun audit --audit-level=high`
+Run `bun run test:all` (or `bash scripts/test-all.sh` directly) before pushing — it executes the seven `bun`/`cargo` checks in order and fails fast on the first error. GitHub Actions CI was intentionally disabled in commit `d6904ba` to save runner cost, so this local gate is now the source of truth.
 
 ## Git Workflow
 
