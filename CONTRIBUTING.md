@@ -63,13 +63,9 @@ bun run tauri dev
 
 ## Pull Requests
 
-1. Create a branch from `main`
+1. Create a branch from `master`
 2. Make small, focused commits
-3. Before pushing, ensure:
-   - `bun run check` passes
-   - `bunx prettier --check "src/**/*.{svelte,ts,js,css,html}"` passes
-   - `cargo fmt --check --manifest-path src-tauri/Cargo.toml` passes
-   - `cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings` passes
+3. Run `bun run test:all` and ensure it exits 0.
 4. Include a summary of changes in the PR description
 5. One feature or bugfix per PR
 
