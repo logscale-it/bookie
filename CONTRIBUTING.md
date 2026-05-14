@@ -16,8 +16,8 @@ Thank you for your interest in Bookie! Here's everything you need to get started
 ## Project Setup
 
 ```bash
-git clone https://github.com/Ranelkin/Buchhaltung.git
-cd Buchhaltung
+git clone https://github.com/logscale-it/bookie.git
+cd bookie
 bun install
 bun run tauri dev
 ```
