@@ -12,6 +12,7 @@ vite.config.ts.timestamp-*
 Cargo.lock
 .vscode
 *.sh
+!scripts/*.sh
 .claude_cron_logs/
 .*
 # Re-include the `.noop_down` marker files used by the migration round-trip
