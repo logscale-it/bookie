@@ -4,13 +4,15 @@
 		label = '',
 		accept = '',
 		multiple = false,
-		disabled = false
+		disabled = false,
+		id = crypto.randomUUID()
 	}: {
 		files?: FileList | null;
 		label?: string;
 		accept?: string;
 		multiple?: boolean;
 		disabled?: boolean;
+		id?: string;
 	} = $props();
 
 	let dragging = $state(false);
@@ -58,7 +60,7 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	{#if label}<label class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</label>{/if}
+	{#if label}<label for={id} class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</label>{/if}
 	<button
 		type="button"
 		ondragover={handleDragOver}
@@ -67,7 +69,7 @@
 		onclick={handleClick}
 		class={buttonClass}
 	>
-		<input bind:this={fileInput} type="file" {accept} {multiple} {disabled} onchange={handleChange} hidden />
+		<input {id} bind:this={fileInput} type="file" {accept} {multiple} {disabled} onchange={handleChange} hidden />
 		{#if fileNames}
 			<span class="break-all text-xs">{fileNames}</span>
 		{:else}
