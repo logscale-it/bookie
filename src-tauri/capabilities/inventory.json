@@ -157,7 +157,7 @@
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
           "line": 322
         },
-        { "file": "src/common/InvoiceForm.svelte", "line": 363 },
+        { "file": "src/common/InvoiceForm.svelte", "line": 364 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 49 },
         { "file": "src/lib/db/backfill-file-data.ts", "line": 220 },
         { "file": "src/lib/boot/recovery-actions.ts", "line": 53 }
