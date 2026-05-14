@@ -325,7 +325,8 @@
 	let pdfError = $state('');
 	let pdfSuccess = $state('');
 	let pdfLoading = $state(false);
-	let s3Key = $state<string | null>(initialS3Key ?? null);
+	let s3Key = $state<string | null>(null);
+	$effect(() => { s3Key = initialS3Key ?? null; });
 	let linkCopying = $state(false);
 
 	function validatePdfData(data: InvoicePdfData): string[] {
