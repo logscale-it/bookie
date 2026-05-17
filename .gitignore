@@ -20,3 +20,10 @@ Cargo.lock
 # `.*` rule above would silently drop newly added markers from commits and
 # defeat the safety net that opts a migration out of the up/down assertion.
 !src-tauri/migrations/*/.noop_down
+# Re-include the `.github/` directory so newly added workflows, issue
+# templates, dependabot config, and CODEOWNERS files are tracked. Without
+# this exception the `.*` rule above silently drops new files under
+# `.github/` (existing tracked files are unaffected, which is why this
+# wasn't caught earlier).
+!.github/
+!.github/**

@@ -1,12 +1,20 @@
 # Changelog
 
+## 2026-05-17
+
+- **Restored `.github/dependabot.yml`** with monthly cadence and
+  `open-pull-requests-limit: 3` for `npm` and `cargo` ecosystems
+  (OPS-8). The file had been removed alongside CI in commit `d6904ba`;
+  Dependabot still files PRs without Actions, and a human reviews them.
+  Documented the new flow in CONTRIBUTING.md § Supply-chain advisories.
+
 ## 2026-05-15
 
 - **OPS-5.e verification (issue #220).** Ran the 5 sandbox-safe steps of
   `bun run test:all` (steps 1 `bun run check`, 2 `bun test`,
   3 `cargo fmt --check`, 6 `cargo audit`, 7 `bun audit`) on master HEAD
   (`8302806`). Steps 1, 2, 3, and 6 pass. **Step 7 (`bun audit
-  --audit-level=high`) fails** with one high-severity advisory
+--audit-level=high`) fails** with one high-severity advisory
   (`GHSA-77vg-94rm-hx3p`, "Svelte devalue: DoS via sparse array
   deserialization") affecting `devalue >=5.6.3 <=5.8.0` transitively via
   `@sveltejs/kit` and `svelte`. Steps 4 (`cargo clippy`) and 5

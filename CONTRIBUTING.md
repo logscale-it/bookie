@@ -24,10 +24,10 @@ bun run tauri dev
 
 ## Development
 
-| Command | Description |
-|---|---|
-| `bun run tauri dev` | Start the app with hot-reload |
-| `bun run check` | TypeScript / Svelte type checking |
+| Command               | Description                         |
+| --------------------- | ----------------------------------- |
+| `bun run tauri dev`   | Start the app with hot-reload       |
+| `bun run check`       | TypeScript / Svelte type checking   |
 | `bun run tauri build` | Production build of the desktop app |
 
 ## Code Style
@@ -74,3 +74,11 @@ bun run tauri dev
 - Create new migrations under `src-tauri/migrations/NNNN/`
 - Always create a corresponding rollback migration under `NNNN_down/`
 - Migrations run automatically on app startup
+
+## Supply-chain advisories
+
+Dependency CVE advisories surface as Dependabot pull requests, configured in
+`.github/dependabot.yml` (monthly cadence, up to 3 open PRs per ecosystem for
+`npm` and `cargo`). Review and merge them like any other PR; the local
+pre-push gate (`bun run test:all`) is the source of truth for correctness
+since GitHub Actions CI is disabled.
