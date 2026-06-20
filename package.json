@@ -15,11 +15,15 @@
     "postinstall": "test -f scripts/install-git-hooks.sh && bash scripts/install-git-hooks.sh || true"
   },
   "license": "MIT",
+  "overrides": {
+    "devalue": "^5.8.1"
+  },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-sql": "~2.4.0",
+    "devalue": "^5.8.1",
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "picomatch": "^4.0.4",
@@ -36,6 +40,6 @@
     "svelte": "^5.53.12",
     "svelte-check": "^4.4.5",
     "typescript": "~6.0.3",
-    "vite": "^8.0.11"
+    "vite": "^8.0.16"
   }
 }

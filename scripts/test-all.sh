@@ -12,7 +12,7 @@ set -euo pipefail
 # Resolve the repo root via git so this works both when run directly
 # (scripts/test-all.sh) and when invoked as a symlinked .git/hooks/pre-push
 # (where ${BASH_SOURCE[0]} would otherwise resolve to the .git dir).
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd; })"
 cd "$REPO_ROOT"
 
 run_check() {
