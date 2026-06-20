@@ -72,6 +72,59 @@ export async function getCostsByPeriod(
   return rows;
 }
 
+export interface OverdueInvoice {
+  id: number;
+  invoice_number: string;
+  customer_name: string | null;
+  due_date: string;
+  gross_cents: number;
+}
+
+/** Aggregate "needs attention" counters for the dashboard cockpit:
+ *  overdue sent invoices, unsent drafts, and open (unpaid) incoming bills.
+ *  Each bucket carries a count and a euro-cent total; overdue additionally
+ *  returns the individual rows (oldest first) for a one-click jump list. */
+export interface ActionItems {
+  overdue: { count: number; totalCents: number; items: OverdueInvoice[] };
+  drafts: { count: number; totalCents: number };
+  openIncoming: { count: number; totalCents: number };
+}
+
+export async function getActionItems(companyId: number): Promise<ActionItems> {
+  const db = await getDb();
+
+  const overdueItems = await db.select<OverdueInvoice[]>(
+    `SELECT i.id, i.invoice_number, c.name AS customer_name, i.due_date, i.gross_cents
+     FROM invoices i
+     LEFT JOIN customers c ON i.customer_id = c.id
+     WHERE i.company_id = $1
+       AND i.status = 'sent'
+       AND i.due_date IS NOT NULL
+       AND i.due_date < date('now', 'localtime')
+     ORDER BY i.due_date ASC`,
+    [companyId],
+  );
+  const overdueTotal = overdueItems.reduce((s, r) => s + r.gross_cents, 0);
+
+  const [draftRow] = await db.select<{ cnt: number; total: number }[]>(
+    `SELECT COUNT(*) AS cnt, COALESCE(SUM(gross_cents), 0) AS total
+     FROM invoices WHERE company_id = $1 AND status = 'draft'`,
+    [companyId],
+  );
+
+  const [openRow] = await db.select<{ cnt: number; total: number }[]>(
+    `SELECT COUNT(*) AS cnt, COALESCE(SUM(gross_cents), 0) AS total
+     FROM incoming_invoices WHERE company_id = $1 AND status = 'offen'`,
+    [companyId],
+  );
+
+  return {
+    overdue: { count: overdueItems.length, totalCents: overdueTotal, items: overdueItems },
+    drafts: { count: draftRow?.cnt ?? 0, totalCents: draftRow?.total ?? 0 },
+    openIncoming: { count: openRow?.cnt ?? 0, totalCents: openRow?.total ?? 0 },
+  };
+}
+
 export async function getDashboardData(
   companyId: number,
   year: number,

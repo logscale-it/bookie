@@ -57,8 +57,12 @@
 -- so a `.noop_down` marker is present in this directory and the round-trip
 -- harness (TEST-2.a) only logs a warning rather than failing.
 
-PRAGMA foreign_keys=OFF;
-BEGIN;
+-- tauri-plugin-sql runs each migration inside its own transaction (no_tx=false),
+-- so this migration must not open its own BEGIN/COMMIT (SQLite rejects a nested
+-- transaction). `PRAGMA foreign_keys=OFF` is a no-op inside a transaction;
+-- `defer_foreign_keys=ON` defers FK enforcement until the plugin commits, then
+-- auto-resets.
+PRAGMA defer_foreign_keys=ON;
 
 -- 1. Drop triggers that reference the soon-to-be-dropped columns. SQLite
 --    will refuse a DROP COLUMN otherwise.
@@ -517,6 +521,3 @@ BEGIN
     )
   );
 END;
-
-COMMIT;
-PRAGMA foreign_keys=ON;

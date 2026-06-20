@@ -8,7 +8,7 @@
         "@tauri-apps/api": "^2.11.0",
         "@tauri-apps/plugin-dialog": "^2.7.1",
         "@tauri-apps/plugin-opener": "^2.5.4",
-        "@tauri-apps/plugin-sql": "^2.4.0",
+        "@tauri-apps/plugin-sql": "~2.4.0",
         "jszip": "^3.10.1",
         "pdf-lib": "^1.17.1",
         "picomatch": "^4.0.4",

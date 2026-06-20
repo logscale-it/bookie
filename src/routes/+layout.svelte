@@ -12,6 +12,10 @@
 	} from '$lib/boot/schema-check';
 	import MigrationOutOfDateDialog from '../common/MigrationOutOfDateDialog.svelte';
 	import BootDiagnostics from '$lib/diagnostics/BootDiagnostics.svelte';
+	import CommandPalette from '../common/CommandPalette.svelte';
+	import Toaster from '../common/Toaster.svelte';
+	import { commandPalette } from '$lib/ui/command.svelte';
+	import { theme } from '$lib/ui/theme.svelte';
 	import {
 		runBootCheck,
 		s3ConfigFromSettings,
@@ -65,13 +69,26 @@
 			log.error('boot_check invocation failed', e);
 			bootError = e instanceof Error ? e.message : String(e);
 			bootStatus = {
-				app_data_dir: { status: 'err', error: { kind: 'Unknown', message: bootError } },
-				keyring: { status: 'skipped', reason: 'boot_check failed' },
-				s3: { status: 'skipped', reason: 'boot_check failed' },
-				schema: { status: 'skipped', reason: 'boot_check failed' }
+				app_data: { kind: 'Failed', error: { kind: 'Unknown', message: bootError } },
+				keyring: { kind: 'Skipped' },
+				s3: { kind: 'Skipped' },
+				schema: { kind: 'Skipped' }
 			};
 		}
 	}
+
+	const themeMeta = $derived(
+		theme.value === 'light'
+			? { label: t('common.themeLight'), icon: 'M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z' }
+			: theme.value === 'dark'
+				? { label: t('common.themeDark'), icon: 'M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z' }
+				: { label: t('common.themeSystem'), icon: 'M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25z' }
+	);
+
+	onMount(() => {
+		// Apply the saved/OS theme as early as possible.
+		theme.init();
+	});
 
 	onMount(async () => {
 		// Schema-version check first: a MigrationOutOfDate is a very specific
@@ -188,12 +205,23 @@
 	<BootDiagnostics status={bootStatus} onRetry={retry} />
 {:else}
 	<div class="flex h-screen overflow-hidden bg-zinc-100 text-sm text-zinc-900 antialiased dark:bg-zinc-900 dark:text-zinc-100">
+		<CommandPalette />
+		<Toaster />
 		<!-- Desktop sidebar -->
-		<aside class="hidden w-72 shrink-0 overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:block dark:border-zinc-700 dark:bg-zinc-800/60">
-			<div class="mb-6 flex items-center gap-2.5">
+		<aside class="hidden w-72 shrink-0 flex-col overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:flex dark:border-zinc-700 dark:bg-zinc-800/60">
+			<div class="mb-5 flex items-center gap-2.5">
 				<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg" />
 				<span class="text-base font-semibold tracking-tight">Bookie</span>
 			</div>
+			<button
+				type="button"
+				onclick={() => (commandPalette.open = true)}
+				class="mb-5 flex w-full items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm text-zinc-400 transition hover:border-zinc-300 hover:text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-zinc-600 dark:hover:text-zinc-300"
+			>
+				<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+				<span class="flex-1">{t('common.search')}…</span>
+				<kbd class="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] font-medium dark:border-zinc-600">⌘K</kbd>
+			</button>
 			<nav class="flex flex-col gap-1">
 				{#each navItems as item}
 					<a
@@ -204,6 +232,17 @@
 					</a>
 				{/each}
 			</nav>
+
+			<button
+				type="button"
+				onclick={() => theme.cycle()}
+				class="mt-auto flex items-center gap-2 rounded-md px-3 py-2 pt-2 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:bg-zinc-700"
+				aria-label={t('common.theme')}
+				title={t('common.theme')}
+			>
+				<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d={themeMeta.icon} /></svg>
+				<span>{themeMeta.label}</span>
+			</button>
 		</aside>
 
 		<main class="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6">

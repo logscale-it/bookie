@@ -5,9 +5,8 @@
 	// 'wie behebe ich das' links. App nav is not reachable until all
 	// blocking checks pass").
 	//
-	// The schema slot is `delegated` to `schema_version_check` (OBS-3.a) and
-	// the s3 slot is `skipped` when the user has not configured S3, so this
-	// view treats only `status === "err"` as a failure (see `isFailure` in
+	// The s3 slot is `Skipped` when the user has not configured S3, so this
+	// view treats only `kind === "Failed"` as a failure (see `isFailure` in
 	// ./boot.ts).
 	import {
 		ALL_SLOTS,
@@ -19,7 +18,7 @@
 	let { status, onRetry }: { status: BootStatus; onRetry?: () => void } = $props();
 
 	const SLOT_TITLES: Record<Slot, string> = {
-		app_data_dir: "Anwendungsdaten-Verzeichnis",
+		app_data: "Anwendungsdaten-Verzeichnis",
 		keyring: "Schlüsselbund (OS Keyring)",
 		s3: "S3-Speicher",
 		schema: "Datenbank-Schema",
@@ -46,7 +45,7 @@
 	};
 
 	const FIX_IT_BY_SLOT: Record<Slot, string> = {
-		app_data_dir:
+		app_data:
 			"Stellen Sie sicher, dass das Anwendungsdaten-Verzeichnis existiert und beschreibbar ist.",
 		keyring:
 			"Der OS-Schlüsselbund konnte nicht erreicht werden. Bitte aktivieren Sie einen Secret-Service-Dienst.",
@@ -57,31 +56,29 @@
 
 	function renderStatus(slot: Slot): string {
 		const r = status[slot];
-		switch (r.status) {
-			case "ok":
+		switch (r.kind) {
+			case "Ok":
 				return "OK";
-			case "skipped":
+			case "Skipped":
 				return "Übersprungen";
-			case "delegated":
-				return "Wird separat geprüft";
-			case "err":
+			case "Failed":
 				return `Fehler${r.error.kind ? ` (${r.error.kind})` : ""}`;
 		}
 	}
 
 	function fixIt(slot: Slot): string {
 		const r = status[slot];
-		if (r.status !== "err") return "";
+		if (r.kind !== "Failed") return "";
 		return FIX_IT_BY_KIND[r.error.kind] ?? FIX_IT_BY_SLOT[slot];
 	}
 
 	function pillClass(slot: Slot): string {
 		const r = status[slot];
-		if (r.status === "ok")
+		if (r.kind === "Ok")
 			return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
-		if (r.status === "err")
+		if (r.kind === "Failed")
 			return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200";
-		// skipped + delegated render as informational, not as a failure.
+		// Skipped renders as informational, not as a failure.
 		return "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300";
 	}
 </script>
@@ -115,7 +112,7 @@
 				<li
 					class="rounded-md border border-zinc-200 p-3 dark:border-zinc-700"
 					data-slot={slot}
-					data-status={result.status}
+					data-status={result.kind}
 				>
 					<div class="flex items-center justify-between gap-2">
 						<span class="text-sm font-medium">{SLOT_TITLES[slot]}</span>

@@ -60,8 +60,12 @@ BEGIN
 END;
 
 -- 2. Rebuild invoice_items with the original CHECK constraints.
-PRAGMA foreign_keys=OFF;
-BEGIN;
+-- tauri-plugin-sql runs each migration inside its own transaction (no_tx=false),
+-- so this migration must not open its own BEGIN/COMMIT (SQLite rejects a nested
+-- transaction). `PRAGMA foreign_keys=OFF` is a no-op inside a transaction;
+-- `defer_foreign_keys=ON` defers FK enforcement until the plugin commits, then
+-- auto-resets.
+PRAGMA defer_foreign_keys=ON;
 
 CREATE TABLE invoice_items_new (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,17 +111,18 @@ CREATE INDEX IF NOT EXISTS idx_invoice_items_time_entry_id ON invoice_items (tim
 
 PRAGMA foreign_key_check;
 
-COMMIT;
-PRAGMA foreign_keys=ON;
-
 -- 3. Drop the index, then drop the new columns from invoices using the
 --    same table-rebuild recipe as migration 0016. Column list mirrors
 --    0016 exactly (DROP COLUMN cannot be used in SQLite ALTER TABLE
 --    when the column is referenced by a trigger; rebuild is safest).
 DROP INDEX IF EXISTS idx_invoices_references_invoice_id;
 
-PRAGMA foreign_keys=OFF;
-BEGIN;
+-- tauri-plugin-sql runs each migration inside its own transaction (no_tx=false),
+-- so this migration must not open its own BEGIN/COMMIT (SQLite rejects a nested
+-- transaction). `PRAGMA foreign_keys=OFF` is a no-op inside a transaction;
+-- `defer_foreign_keys=ON` defers FK enforcement until the plugin commits, then
+-- auto-resets.
+PRAGMA defer_foreign_keys=ON;
 
 CREATE TABLE invoices_new (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,6 +205,3 @@ CREATE INDEX IF NOT EXISTS idx_invoices_company_id ON invoices (company_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_project_id ON invoices (project_id);
 
 PRAGMA foreign_key_check;
-
-COMMIT;
-PRAGMA foreign_keys=ON;

@@ -5,8 +5,12 @@
 -- Columns in invoices table (verified through migration 0001..0015, including
 -- language and legal_country_code from 0014).
 
-PRAGMA foreign_keys=OFF;
-BEGIN;
+-- tauri-plugin-sql runs each migration inside its own transaction (no_tx=false),
+-- so this migration must not open its own BEGIN/COMMIT (SQLite rejects a nested
+-- transaction). `PRAGMA foreign_keys=OFF` is a no-op inside a transaction;
+-- `defer_foreign_keys=ON` defers FK enforcement until the plugin commits, then
+-- auto-resets.
+PRAGMA defer_foreign_keys=ON;
 
 -- Refuse to revert if duplicates exist; an operator must resolve manually.
 SELECT RAISE(ABORT, 'Cannot restore global unique constraint: duplicate invoice_numbers across companies exist')
@@ -77,6 +81,3 @@ CREATE INDEX IF NOT EXISTS idx_invoices_project_id ON invoices (project_id);
 
 -- Verify foreign key integrity before committing
 PRAGMA foreign_key_check;
-
-COMMIT;
-PRAGMA foreign_keys=ON;

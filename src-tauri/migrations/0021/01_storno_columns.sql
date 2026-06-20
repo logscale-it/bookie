@@ -45,8 +45,12 @@ CREATE INDEX IF NOT EXISTS idx_invoices_references_invoice_id
 --    CREATE _new / INSERT SELECT / DROP / RENAME recipe. The audit triggers
 --    on invoice_items (migration 0019) reference the table by name, so they
 --    keep working after the RENAME without recreation.
-PRAGMA foreign_keys=OFF;
-BEGIN;
+-- tauri-plugin-sql runs each migration inside its own transaction (no_tx=false),
+-- so this migration must not open its own BEGIN/COMMIT (SQLite rejects a nested
+-- transaction). `PRAGMA foreign_keys=OFF` is a no-op inside a transaction;
+-- `defer_foreign_keys=ON` defers FK enforcement until the plugin commits, then
+-- auto-resets.
+PRAGMA defer_foreign_keys=ON;
 
 CREATE TABLE invoice_items_new (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,9 +94,6 @@ CREATE INDEX IF NOT EXISTS idx_invoice_items_project_id ON invoice_items (projec
 CREATE INDEX IF NOT EXISTS idx_invoice_items_time_entry_id ON invoice_items (time_entry_id);
 
 PRAGMA foreign_key_check;
-
-COMMIT;
-PRAGMA foreign_keys=ON;
 
 -- 3. Replace the immutability UPDATE trigger so the new columns are also
 --    protected on already-issued rows. The DELETE trigger from 0020 is

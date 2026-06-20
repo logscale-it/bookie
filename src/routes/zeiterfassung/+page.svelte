@@ -38,8 +38,6 @@
 	let startTime = $state('08:00');
 	let endTime = $state('09:00');
 
-	const timeOptions = buildTimeOptions();
-
 	const customerOptions = $derived.by(() => [
 		{ value: '', label: t('timeTracking.noCustomer') },
 		...customers.map((customer) => ({ value: String(customer.id), label: customer.name }))
@@ -245,15 +243,6 @@
 		return formatMinutesToTimeValue(diffMinutes);
 	}
 
-	function buildTimeOptions() {
-		const options: { value: string; label: string }[] = [];
-		for (let minutes = 0; minutes <= 24 * 60; minutes += 15) {
-			const value = formatMinutesToTimeValue(minutes);
-			options.push({ value, label: `${value} Uhr` });
-		}
-		return options;
-	}
-
 	function todayIsoDate(): string {
 		const now = new Date();
 		const year = now.getFullYear();
@@ -302,27 +291,37 @@
 					<h3 class="text-lg font-semibold">{dialogTitle}</h3>
 					<button type="button" onclick={closeDialog} class="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600">{t('common.close')}</button>
 				</div>
-				<div class="grid gap-3 md:grid-cols-2">
-					<TextInput bind:value={description} label={t('common.description')} placeholder="Workshop Vorbereitung" />
+				<div class="grid gap-3 sm:grid-cols-2">
+					<div class="sm:col-span-2">
+						<TextInput bind:value={description} label={t('common.description')} placeholder="Workshop Vorbereitung" />
+					</div>
 					<Select bind:value={customerId} label={t('timeTracking.customer')} options={customerOptions} placeholder={t('timeTracking.customerPlaceholder')} />
 					<Select bind:value={projectId} label={t('timeTracking.project')} options={projectOptions} placeholder={t('timeTracking.projectPlaceholder')} />
 					<div class="flex flex-col gap-1">
 						<label for="entry-date" class="label">{t('common.date')}</label>
-						<input id="entry-date" type="date" bind:value={entryDate} class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-600 dark:bg-zinc-700" />
+						<input id="entry-date" type="date" bind:value={entryDate} class="input-base input-valid" />
 					</div>
-					<Select bind:value={startTime} label={t('timeTracking.startTime')} options={timeOptions} />
-					<Select bind:value={endTime} label={t('timeTracking.endTime')} options={timeOptions} />
+					<div class="grid grid-cols-2 gap-3">
+						<div class="flex flex-col gap-1">
+							<label for="entry-start" class="label">{t('timeTracking.startTime')}</label>
+							<input id="entry-start" type="time" step="900" bind:value={startTime} class="input-base input-valid" />
+						</div>
+						<div class="flex flex-col gap-1">
+							<label for="entry-end" class="label">{t('timeTracking.endTime')}</label>
+							<input id="entry-end" type="time" step="900" bind:value={endTime} class="input-base {durationHours > 0 ? 'input-valid' : 'input-error'}" />
+						</div>
+					</div>
 				</div>
 				<div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
 					<span class="text-zinc-500 dark:text-zinc-400">{t('timeTracking.quickSelect')}:</span>
-					<button type="button" class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600" onclick={() => setQuickDuration(30)}>+30 min</button>
-					<button type="button" class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600" onclick={() => setQuickDuration(60)}>+1 h</button>
-					<button type="button" class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600" onclick={() => setQuickDuration(90)}>+1,5 h</button>
-					<button type="button" class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600" onclick={() => setQuickDuration(120)}>+2 h</button>
+					<button type="button" class="rounded-md border border-zinc-300 px-2.5 py-1 font-medium text-zinc-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-300" onclick={() => setQuickDuration(30)}>+30 min</button>
+					<button type="button" class="rounded-md border border-zinc-300 px-2.5 py-1 font-medium text-zinc-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-300" onclick={() => setQuickDuration(60)}>+1 h</button>
+					<button type="button" class="rounded-md border border-zinc-300 px-2.5 py-1 font-medium text-zinc-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-300" onclick={() => setQuickDuration(90)}>+1,5 h</button>
+					<button type="button" class="rounded-md border border-zinc-300 px-2.5 py-1 font-medium text-zinc-600 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-600 dark:text-zinc-300 dark:hover:border-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-300" onclick={() => setQuickDuration(120)}>+2 h</button>
 				</div>
-				<div class="mt-3 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700">
-					<span class="text-zinc-500 dark:text-zinc-400">{t('timeTracking.durationAuto')}:</span>
-					<span class="ml-2 font-medium">{durationHours.toFixed(2).replace('.', ',')} h</span>
+				<div class="mt-3 flex items-center justify-between rounded-md border border-blue-200 bg-blue-50/60 px-3 py-2 text-sm dark:border-blue-900/50 dark:bg-blue-900/10">
+					<span class="text-zinc-500 dark:text-zinc-400">{t('timeTracking.durationAuto')}</span>
+					<span class="text-lg font-semibold tabular-nums {durationHours > 0 ? 'text-blue-700 dark:text-blue-300' : 'text-zinc-400'}">{durationHours.toFixed(2).replace('.', ',')} h</span>
 				</div>
 				{#if formError}
 					<p class="mt-2 text-sm text-red-600 dark:text-red-400">{formError}</p>
@@ -337,7 +336,9 @@
 		</div>
 	{/if}
 
-	<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40">
+	<div class="table-card">
+		<div class="table-scroll">
+		<div class="min-w-[820px]">
 		<div class="grid border-b border-zinc-200 bg-zinc-100 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" style="grid-template-columns: 1.2fr 0.9fr 0.9fr 1.5fr 0.8fr 0.8fr">
 			<div class="px-4 py-3">{t('common.description')}</div>
 			<div class="px-4 py-3">{t('timeTracking.customer')}</div>
@@ -365,6 +366,8 @@
 				{/each}
 			</div>
 		{/if}
+		</div>
+		</div>
 	</div>
 
 	{#if !loading && totalCount > 0}

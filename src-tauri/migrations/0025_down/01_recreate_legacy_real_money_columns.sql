@@ -27,8 +27,12 @@
 -- harness logs a warning for the schema divergence rather than failing
 -- the test.
 
-PRAGMA foreign_keys=OFF;
-BEGIN;
+-- tauri-plugin-sql runs each migration inside its own transaction (no_tx=false),
+-- so this migration must not open its own BEGIN/COMMIT (SQLite rejects a nested
+-- transaction). `PRAGMA foreign_keys=OFF` is a no-op inside a transaction;
+-- `defer_foreign_keys=ON` defers FK enforcement until the plugin commits, then
+-- auto-resets.
+PRAGMA defer_foreign_keys=ON;
 
 -- 1. Drop the audit and immutability triggers recreated by 0025 (their
 --    bodies omit the legacy columns; we are about to recreate the versions
@@ -517,6 +521,3 @@ BEGIN
     )
   );
 END;
-
-COMMIT;
-PRAGMA foreign_keys=ON;

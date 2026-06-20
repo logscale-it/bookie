@@ -55,7 +55,7 @@
     {
       "command": "boot_check",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/diagnostics/boot.ts", "line": 82 }]
+      "call_sites": [{ "file": "src/lib/diagnostics/boot.ts", "line": 85 }]
     },
     {
       "command": "export_gobd",
@@ -144,7 +144,7 @@
           "file": "src/routes/zeiterfassung/stundenzettel/+page.svelte",
           "line": 195
         },
-        { "file": "src/routes/unternehmen/+page.svelte", "line": 243 },
+        { "file": "src/routes/unternehmen/+page.svelte", "line": 241 },
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
           "line": 168
@@ -190,7 +190,7 @@
         { "file": "src/lib/s3/auto-backup.ts", "line": 1 },
         { "file": "src/lib/db/backfill-file-data.ts", "line": 39 },
         { "file": "src/lib/db/settings.ts", "line": 1 },
-        { "file": "src/lib/diagnostics/boot.ts", "line": 19 },
+        { "file": "src/lib/diagnostics/boot.ts", "line": 20 },
         { "file": "src/lib/boot/schema-check.ts", "line": 21 },
         { "file": "src/lib/boot/recovery-actions.ts", "line": 19 }
       ]

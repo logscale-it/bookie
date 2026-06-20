@@ -13,8 +13,27 @@
 -- language (0014), legal_country_code (0014),
 -- net_cents (0015), tax_cents (0015), gross_cents (0015)
 
-PRAGMA foreign_keys=OFF;
-BEGIN;
+-- tauri-plugin-sql runs each migration inside its own transaction (no_tx=false),
+-- so this migration must not open its own BEGIN/COMMIT (SQLite rejects a nested
+-- transaction). `PRAGMA foreign_keys=OFF` is a no-op inside a transaction;
+-- `defer_foreign_keys=ON` defers FK enforcement until the plugin commits, then
+-- auto-resets.
+PRAGMA defer_foreign_keys=ON;
+
+-- Preserve child rows across the parent rebuild. `DROP TABLE invoices` performs an
+-- implicit DELETE of every invoices row, which — with FKs enabled, as they are
+-- inside the plugin's transaction — fires ON DELETE CASCADE on invoice_items and
+-- invoice_status_history and trips the ON DELETE RESTRICT on payments (failing the
+-- deferred check at COMMIT). foreign_keys cannot be turned off inside a transaction,
+-- so instead we snapshot the children, clear them before the drop (nothing left to
+-- cascade or restrict), then reinsert them after the rebuild. Ids are copied
+-- verbatim, so every FK resolves again and the deferred check passes at COMMIT.
+CREATE TEMP TABLE _invoices_rebuild_items    AS SELECT * FROM invoice_items;
+CREATE TEMP TABLE _invoices_rebuild_history  AS SELECT * FROM invoice_status_history;
+CREATE TEMP TABLE _invoices_rebuild_payments AS SELECT * FROM payments;
+DELETE FROM payments;
+DELETE FROM invoice_status_history;
+DELETE FROM invoice_items;
 
 CREATE TABLE invoices_new (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +90,15 @@ DROP TABLE invoices;
 
 ALTER TABLE invoices_new RENAME TO invoices;
 
+-- Restore the child rows captured above, now that invoices (with identical ids)
+-- exists again, then drop the snapshots.
+INSERT INTO invoice_items          SELECT * FROM _invoices_rebuild_items;
+INSERT INTO invoice_status_history SELECT * FROM _invoices_rebuild_history;
+INSERT INTO payments               SELECT * FROM _invoices_rebuild_payments;
+DROP TABLE _invoices_rebuild_items;
+DROP TABLE _invoices_rebuild_history;
+DROP TABLE _invoices_rebuild_payments;
+
 -- Recreate indexes that were on the original table
 CREATE INDEX IF NOT EXISTS idx_invoices_issue_date ON invoices (issue_date);
 CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices (customer_id);
@@ -81,6 +109,3 @@ CREATE INDEX IF NOT EXISTS idx_invoices_project_id ON invoices (project_id);
 
 -- Verify foreign key integrity before committing
 PRAGMA foreign_key_check;
-
-COMMIT;
-PRAGMA foreign_keys=ON;

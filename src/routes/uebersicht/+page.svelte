@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createCompany, listCompanies } from '$lib/db/companies';
-	import { getDashboardData, type GroupBy, type PeriodRow } from '$lib/db/dashboard';
+	import { getDashboardData, getActionItems, type GroupBy, type PeriodRow, type ActionItems } from '$lib/db/dashboard';
+	import { goto } from '$app/navigation';
+	import { toasts } from '$lib/ui/toasts.svelte';
 	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
 	import { getUstvaData, getEuerData } from '$lib/db/tax-reports';
 	import { generateUstvaCsv } from '$lib/csv/ustva-csv';
@@ -16,6 +18,42 @@
 	let backupFailed = $state(false);
 	let backupFailedAt = $state<string | null>(null);
 	let backupFailureReason = $state<string | null>(null);
+	let actions = $state<ActionItems | null>(null);
+
+	// Next statutory tax deadline. UStVA (VAT pre-return) is due on the 10th of
+	// the following month; the EÜR / income-tax return on 31 July. We surface
+	// whichever falls sooner as a gentle, recurring reminder.
+	function nextUstvaDeadline(now: Date): Date {
+		const d = new Date(now.getFullYear(), now.getMonth(), 10);
+		if (now.getDate() > 10) d.setMonth(d.getMonth() + 1);
+		return d;
+	}
+	function nextEuerDeadline(now: Date): Date {
+		const d = new Date(now.getFullYear(), 6, 31);
+		if (now.getTime() > d.getTime()) d.setFullYear(now.getFullYear() + 1);
+		return d;
+	}
+	const nextDeadline = $derived.by(() => {
+		const now = new Date();
+		now.setHours(0, 0, 0, 0);
+		const ustva = nextUstvaDeadline(now);
+		const euer = nextEuerDeadline(now);
+		const [date, labelKey] =
+			ustva.getTime() <= euer.getTime() ? [ustva, 'overview.ustvaDue'] : [euer, 'overview.euerDue'];
+		const days = Math.round((date.getTime() - now.getTime()) / 86_400_000);
+		return { date, labelKey, days };
+	});
+
+	const hasActions = $derived(
+		!!actions && (actions.overdue.count > 0 || actions.drafts.count > 0 || actions.openIncoming.count > 0)
+	);
+
+	function daysOverdue(dueDate: string): number {
+		const due = new Date(dueDate);
+		const now = new Date();
+		now.setHours(0, 0, 0, 0);
+		return Math.max(0, Math.round((now.getTime() - due.getTime()) / 86_400_000));
+	}
 
 	const periodOptions: { value: GroupBy; label: string }[] = [
 		{ value: 'year', label: t('overview.year') },
@@ -111,9 +149,13 @@
 	async function loadData() {
 		loading = true;
 		const companyId = await ensureCompanyId();
-		const data = await getDashboardData(companyId, year, groupBy);
+		const [data, items] = await Promise.all([
+			getDashboardData(companyId, year, groupBy),
+			getActionItems(companyId)
+		]);
 		revenue = data.revenue;
 		costs = data.costs;
+		actions = items;
 		await loadBackupStatus();
 		loading = false;
 	}
@@ -154,20 +196,18 @@
 
 	let exportingUstva = $state(false);
 	let exportingEuer = $state(false);
-	let exportMessage = $state('');
 
 	async function exportUstva() {
 		exportingUstva = true;
-		exportMessage = '';
 		try {
 			const companyId = await ensureCompanyId();
 			const org = await getOrganizationSettings();
 			const data = await getUstvaData(companyId, year, groupBy);
 			const csv = generateUstvaCsv(data, org.name, year, org.vatin);
 			const saved = await saveCsvFile(csv, `UStVA-${year}-${groupBy}.csv`);
-			if (saved) exportMessage = t('overview.exportSuccess');
+			if (saved) toasts.success(t('overview.exportSuccess'));
 		} catch (err) {
-			exportMessage = `${t('overview.exportError')}: ${err}`;
+			toasts.error(`${t('overview.exportError')}: ${err}`);
 		} finally {
 			exportingUstva = false;
 		}
@@ -175,16 +215,15 @@
 
 	async function exportEuer() {
 		exportingEuer = true;
-		exportMessage = '';
 		try {
 			const companyId = await ensureCompanyId();
 			const org = await getOrganizationSettings();
 			const data = await getEuerData(companyId, year, groupBy);
 			const csv = generateEuerCsv(data, org.name, year, org.vatin);
 			const saved = await saveCsvFile(csv, `EUER-${year}-${groupBy}.csv`);
-			if (saved) exportMessage = t('overview.exportSuccess');
+			if (saved) toasts.success(t('overview.exportSuccess'));
 		} catch (err) {
-			exportMessage = `${t('overview.exportError')}: ${err}`;
+			toasts.error(`${t('overview.exportError')}: ${err}`);
 		} finally {
 			exportingEuer = false;
 		}
@@ -226,6 +265,96 @@
 				</p>
 			{/if}
 		</div>
+	{/if}
+
+	<!-- Cockpit: actionable to-dos that need attention -->
+	{#if actions}
+		<section class="card space-y-4 @container" data-testid="dashboard-cockpit">
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<h2 class="text-lg font-semibold tracking-tight">{t('overview.cockpit')}</h2>
+				<span class="badge max-w-full {nextDeadline.days <= 7 ? 'badge-amber' : 'badge-zinc'}" title={t('overview.nextDeadline')}>
+					<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
+					{t(nextDeadline.labelKey)}: {nextDeadline.days <= 0 ? t('overview.dueToday') : tp('overview.dueInDays', { days: nextDeadline.days })}
+				</span>
+			</div>
+
+			{#if hasActions}
+				<div class="grid grid-cols-1 gap-3 @md:grid-cols-2 @2xl:grid-cols-3">
+					<button
+						type="button"
+						onclick={() => goto('/rechnungen')}
+						class="flex items-start gap-3 rounded-lg border p-3 text-left transition hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 {actions.overdue.count > 0 ? 'border-red-200 bg-red-50/60 hover:bg-red-50 dark:border-red-900/50 dark:bg-red-900/10' : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-700/30'}"
+					>
+						<span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full {actions.overdue.count > 0 ? 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-700 dark:text-zinc-400'}">
+							<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+						</span>
+						<div class="min-w-0">
+							<p class="text-2xl font-semibold tabular-nums {actions.overdue.count > 0 ? 'text-red-600 dark:text-red-400' : ''}">{actions.overdue.count}</p>
+							<p class="label">{t('overview.overdueInvoices')}</p>
+							{#if actions.overdue.count > 0}<p class="mt-0.5 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{formatCurrency(actions.overdue.totalCents / 100)}</p>{/if}
+						</div>
+					</button>
+
+					<button
+						type="button"
+						onclick={() => goto('/rechnungen')}
+						class="flex items-start gap-3 rounded-lg border p-3 text-left transition hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 {actions.drafts.count > 0 ? 'border-amber-200 bg-amber-50/50 hover:bg-amber-50 dark:border-amber-900/50 dark:bg-amber-900/10' : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-700/30'}"
+					>
+						<span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full {actions.drafts.count > 0 ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-700 dark:text-zinc-400'}">
+							<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+						</span>
+						<div class="min-w-0">
+							<p class="text-2xl font-semibold tabular-nums {actions.drafts.count > 0 ? 'text-amber-600 dark:text-amber-400' : ''}">{actions.drafts.count}</p>
+							<p class="label">{t('overview.draftInvoices')}</p>
+							{#if actions.drafts.count > 0}<p class="mt-0.5 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{formatCurrency(actions.drafts.totalCents / 100)}</p>{/if}
+						</div>
+					</button>
+
+					<button
+						type="button"
+						onclick={() => goto('/eingehende-rechnungen')}
+						class="flex items-start gap-3 rounded-lg border p-3 text-left transition hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 {actions.openIncoming.count > 0 ? 'border-blue-200 bg-blue-50/50 hover:bg-blue-50 dark:border-blue-900/50 dark:bg-blue-900/10' : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-700/30'}"
+					>
+						<span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full {actions.openIncoming.count > 0 ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-700 dark:text-zinc-400'}">
+							<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" /></svg>
+						</span>
+						<div class="min-w-0">
+							<p class="text-2xl font-semibold tabular-nums {actions.openIncoming.count > 0 ? 'text-blue-600 dark:text-blue-400' : ''}">{actions.openIncoming.count}</p>
+							<p class="label">{t('overview.openBills')}</p>
+							{#if actions.openIncoming.count > 0}<p class="mt-0.5 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{formatCurrency(actions.openIncoming.totalCents / 100)}</p>{/if}
+						</div>
+					</button>
+				</div>
+
+				{#if actions.overdue.count > 0}
+					<ul class="space-y-0.5 border-t border-zinc-100 pt-3 dark:border-zinc-700/60">
+						{#each actions.overdue.items.slice(0, 4) as inv (inv.id)}
+							<li>
+								<a
+									href="/rechnungen/{inv.id}"
+									class="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm transition hover:bg-zinc-100 dark:hover:bg-zinc-700/40"
+								>
+									<span class="flex min-w-0 items-center gap-2">
+										<span class="badge badge-red shrink-0">{tp('overview.daysOverdue', { days: daysOverdue(inv.due_date) })}</span>
+										<span class="shrink-0 font-medium">{inv.invoice_number}</span>
+										<span class="truncate text-zinc-500 dark:text-zinc-400">{inv.customer_name ?? '—'}</span>
+									</span>
+									<span class="shrink-0 tabular-nums text-zinc-600 dark:text-zinc-300">{formatCurrency(inv.gross_cents / 100)}</span>
+								</a>
+							</li>
+						{/each}
+						{#if actions.overdue.count > 4}
+							<li class="px-2 pt-1 text-xs text-zinc-400">+{actions.overdue.count - 4}</li>
+						{/if}
+					</ul>
+				{/if}
+			{:else}
+				<div class="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-900/10 dark:text-emerald-300">
+					<svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+					<span>{t('overview.allClear')}</span>
+				</div>
+			{/if}
+		</section>
 	{/if}
 
 	<!-- Period toggle -->
@@ -349,10 +478,6 @@
 					{exportingEuer ? t('overview.exporting') : t('overview.exportEuer')}
 				</button>
 			</div>
-
-			{#if exportMessage}
-				<p class="text-sm text-zinc-600 dark:text-zinc-400">{exportMessage}</p>
-			{/if}
 		</div>
 	{/if}
 </section>

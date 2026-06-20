@@ -47,27 +47,27 @@ import {
 
 function freshStatus(overrides: Partial<BootStatus> = {}): BootStatus {
   return {
-    app_data_dir: { status: "ok", info: "/tmp/bookie" },
-    keyring: { status: "ok" },
-    s3: { status: "skipped", reason: "s3 not configured" },
-    schema: { status: "delegated", to: "schema_version_check" },
+    app_data: { kind: "Ok" },
+    keyring: { kind: "Ok" },
+    s3: { kind: "Skipped" },
+    schema: { kind: "Ok" },
     ...overrides,
   };
 }
 
 describe("isFailure", () => {
-  test("ok / skipped / delegated are not failures", () => {
-    expect(isFailure({ status: "ok" })).toBe(false);
-    expect(isFailure({ status: "ok", info: "x" })).toBe(false);
-    expect(isFailure({ status: "skipped", reason: "n/a" })).toBe(false);
-    expect(isFailure({ status: "delegated", to: "other" })).toBe(false);
+  test("Ok / Skipped are not failures", () => {
+    expect(isFailure({ kind: "Ok" })).toBe(false);
+    expect(isFailure({ kind: "Skipped" })).toBe(false);
   });
 
-  test("err is a failure regardless of error kind", () => {
+  test("Failed is a failure regardless of error kind", () => {
     expect(
-      isFailure({ status: "err", error: { kind: "IoError", message: "x" } }),
+      isFailure({ kind: "Failed", error: { kind: "IoError", message: "x" } }),
     ).toBe(true);
-    expect(isFailure({ status: "err", error: { kind: "Unknown" } })).toBe(true);
+    expect(isFailure({ kind: "Failed", error: { kind: "Unknown" } })).toBe(
+      true,
+    );
   });
 });
 
@@ -78,22 +78,25 @@ describe("hasBlockingFailure", () => {
 
   test("S3 failure alone is NOT blocking (per OPS-1.b: warning only)", () => {
     const s = freshStatus({
-      s3: { status: "err", error: { kind: "S3Unreachable" } },
+      s3: { kind: "Failed", error: { kind: "S3Unreachable" } },
     });
     expect(hasBlockingFailure(s)).toBe(false);
   });
 
-  test("schema delegated is never blocking", () => {
+  test("schema failure is not gated here (handled by schema-version flow)", () => {
     const s = freshStatus({
-      schema: { status: "delegated", to: "schema_version_check" },
+      schema: {
+        kind: "Failed",
+        error: { kind: "MigrationOutOfDate" },
+      },
     });
     expect(hasBlockingFailure(s)).toBe(false);
   });
 
-  test("app_data_dir failure IS blocking", () => {
+  test("app_data failure IS blocking", () => {
     const s = freshStatus({
-      app_data_dir: {
-        status: "err",
+      app_data: {
+        kind: "Failed",
         error: { kind: "IoError", message: "read-only" },
       },
     });
@@ -102,18 +105,18 @@ describe("hasBlockingFailure", () => {
 
   test("keyring failure IS blocking", () => {
     const s = freshStatus({
-      keyring: { status: "err", error: { kind: "KeyringUnavailable" } },
+      keyring: { kind: "Failed", error: { kind: "KeyringUnavailable" } },
     });
     expect(hasBlockingFailure(s)).toBe(true);
   });
 
-  test("BLOCKING_SLOTS pins the contract: only app_data_dir + keyring", () => {
-    expect([...BLOCKING_SLOTS].sort()).toEqual(["app_data_dir", "keyring"]);
+  test("BLOCKING_SLOTS pins the contract: only app_data + keyring", () => {
+    expect([...BLOCKING_SLOTS].sort()).toEqual(["app_data", "keyring"]);
   });
 
   test("ALL_SLOTS covers the four BootStatus fields", () => {
     expect([...ALL_SLOTS].sort()).toEqual([
-      "app_data_dir",
+      "app_data",
       "keyring",
       "s3",
       "schema",
@@ -122,14 +125,14 @@ describe("hasBlockingFailure", () => {
 });
 
 describe("hasS3Warning", () => {
-  test("S3 ok / skipped is not a warning", () => {
+  test("S3 Ok / Skipped is not a warning", () => {
     expect(hasS3Warning(freshStatus())).toBe(false);
-    expect(hasS3Warning(freshStatus({ s3: { status: "ok" } }))).toBe(false);
+    expect(hasS3Warning(freshStatus({ s3: { kind: "Ok" } }))).toBe(false);
   });
 
-  test("S3 err is a warning", () => {
+  test("S3 Failed is a warning", () => {
     const s = freshStatus({
-      s3: { status: "err", error: { kind: "S3CredsInvalid" } },
+      s3: { kind: "Failed", error: { kind: "S3CredsInvalid" } },
     });
     expect(hasS3Warning(s)).toBe(true);
   });
@@ -229,7 +232,7 @@ describe("runBootCheck", () => {
 
   test("returns the backend's BootStatus shape unmodified", async () => {
     const expected = freshStatus({
-      keyring: { status: "err", error: { kind: "KeyringUnavailable" } },
+      keyring: { kind: "Failed", error: { kind: "KeyringUnavailable" } },
     });
     setNextResult(expected);
     setShouldThrow(null);

@@ -90,9 +90,9 @@
 		</a>
 	</header>
 
-	<div
-		class="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40"
-	>
+	<div class="table-card">
+		<div class="table-scroll">
+		<div class="min-w-[680px]">
 		<div
 			class="grid border-b border-zinc-200 bg-zinc-100 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
 			style="grid-template-columns: 1.1fr 1.4fr 1fr 1fr 1.2fr"
@@ -141,6 +141,8 @@
 				{/each}
 			</div>
 		{/if}
+		</div>
+		</div>
 	</div>
 
 	{#if !loading && totalCount > 0}
