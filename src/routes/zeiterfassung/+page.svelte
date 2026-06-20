@@ -4,9 +4,10 @@
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { listClients } from '$lib/db/customers';
 	import { listProjects } from '$lib/db/projects';
-	import { createTimeEntry, listTimeEntries, updateTimeEntry } from '$lib/db/time-entries';
+	import { createTimeEntry, deleteTimeEntry, listTimeEntries, updateTimeEntry } from '$lib/db/time-entries';
 	import type { Customer, Project, TimeEntry } from '$lib/db/types';
 	import { t, tp } from '$lib/i18n';
+	import { toasts } from '$lib/ui/toasts.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
@@ -24,6 +25,7 @@
 	let projects = $state<Project[]>([]);
 	let loading = $state(true);
 	let saving = $state(false);
+	let deletingId = $state<number | null>(null);
 	let formError = $state('');
 	let showEntryDialog = $state(false);
 	let editingTimeEntryId = $state<number | null>(null);
@@ -206,6 +208,28 @@
 		}
 	}
 
+	async function handleDelete(row: TimeEntryRow) {
+		if (deletingId !== null) return;
+		if (!confirm(t('timeTracking.deleteConfirm'))) return;
+
+		deletingId = row.id;
+		try {
+			await deleteTimeEntry(row.id);
+			if (editingTimeEntryId === row.id) closeDialog();
+			// If we just removed the last row on a non-first page, step back a page.
+			if (rows.length === 1 && pager.page > 1) {
+				gotoPage(pager.page - 1);
+			} else {
+				await loadData();
+			}
+			toasts.success(t('timeTracking.deleted'));
+		} catch {
+			toasts.error(t('timeTracking.errorDelete'));
+		} finally {
+			deletingId = null;
+		}
+	}
+
 	function parseTimeToMinutes(time: string): number | null {
 		const match = /^(\d{2}):(\d{2})$/.exec(time);
 		if (!match) return null;
@@ -339,7 +363,7 @@
 	<div class="table-card">
 		<div class="table-scroll">
 		<div class="min-w-[820px]">
-		<div class="grid border-b border-zinc-200 bg-zinc-100 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" style="grid-template-columns: 1.2fr 0.9fr 0.9fr 1.5fr 0.8fr 0.8fr">
+		<div class="grid border-b border-zinc-200 bg-zinc-100 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" style="grid-template-columns: 1.2fr 0.9fr 0.9fr 1.5fr 0.8fr 1.2fr">
 			<div class="px-4 py-3">{t('common.description')}</div>
 			<div class="px-4 py-3">{t('timeTracking.customer')}</div>
 			<div class="px-4 py-3">{t('timeTracking.project')}</div>
@@ -355,13 +379,16 @@
 		{:else}
 			<div class="max-h-[520px] overflow-y-auto">
 				{#each rows as row (row.id)}
-					<div class="grid items-center border-b border-zinc-100 text-sm text-zinc-700 last:border-0 dark:border-zinc-700/70 dark:text-zinc-200" style="grid-template-columns: 1.2fr 0.9fr 0.9fr 1.5fr 0.8fr 0.8fr; min-height: 44px">
+					<div class="grid items-center border-b border-zinc-100 text-sm text-zinc-700 last:border-0 dark:border-zinc-700/70 dark:text-zinc-200" style="grid-template-columns: 1.2fr 0.9fr 0.9fr 1.5fr 0.8fr 1.2fr; min-height: 44px">
 						<div class="truncate px-4 py-2">{row.description || '—'}</div>
 						<div class="truncate px-4 py-2">{row.customerName}</div>
 						<div class="truncate px-4 py-2">{row.projectName}</div>
 						<div class="truncate px-4 py-2">{row.timeFrameLabel}</div>
 						<div class="truncate px-4 py-2">{row.durationHoursLabel}</div>
-						<div class="px-4 py-2 text-right"><button type="button" onclick={() => openEditDialog(row)} class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-600">{t('common.edit')}</button></div>
+						<div class="flex items-center justify-end gap-2 px-4 py-2">
+							<button type="button" onclick={() => openEditDialog(row)} class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-600">{t('common.edit')}</button>
+							<button type="button" onclick={() => handleDelete(row)} disabled={deletingId === row.id} class="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-900/20">{deletingId === row.id ? t('common.deleting') : t('common.delete')}</button>
+						</div>
 					</div>
 				{/each}
 			</div>
