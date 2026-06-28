@@ -70,7 +70,7 @@
       "call_sites": [
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 160
+          "line": 186
         },
         { "file": "src/lib/db/backfill-file-data.ts", "line": 79 }
       ]
@@ -84,7 +84,7 @@
       "command": "read_binary_file",
       "permission": "core:default",
       "call_sites": [
-        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 321 }
+        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 349 }
       ]
     },
     {
@@ -147,15 +147,15 @@
         { "file": "src/routes/unternehmen/+page.svelte", "line": 241 },
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 168
+          "line": 194
         },
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 315
+          "line": 343
         },
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 322
+          "line": 350
         },
         { "file": "src/common/InvoiceForm.svelte", "line": 364 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 49 },
