@@ -8,11 +8,10 @@
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
-	import Select from '../../common/Select.svelte';
 	import DisplayField from '../../common/DisplayField.svelte';
 	import FileUpload from '../../common/FileUpload.svelte';
 	import { createCompany, listCompanies } from '$lib/db/companies';
-	import { listSuppliers } from '$lib/db/customers';
+	import { listSuppliers, createCustomer } from '$lib/db/customers';
 	import {
 		listIncomingInvoices,
 		createIncomingInvoice,
@@ -30,7 +29,7 @@
 	const log = createLogger('eingehende-rechnungen');
 
 	type InvoiceForm = {
-		supplierId: string;
+		supplierName: string;
 		invoiceNumber: string;
 		invoiceDate: string;
 		netAmount: string;
@@ -44,7 +43,7 @@
 	]);
 
 	const initialForm = (): InvoiceForm => ({
-		supplierId: '',
+		supplierName: '',
 		invoiceNumber: '',
 		invoiceDate: new Date().toISOString().slice(0, 10),
 		netAmount: '',
@@ -102,9 +101,36 @@
 		return result;
 	});
 
-	const supplierOptions = $derived(
-		suppliers.map((s) => ({ value: String(s.id), label: s.name }))
-	);
+	const supplierNames = $derived(suppliers.map((s) => s.name));
+
+	// Resolve a freehand issuer name to a supplier_id: reuse an existing
+	// supplier (case-insensitive match) or create a new one on the fly.
+	async function resolveSupplierId(
+		companyId: number,
+		rawName: string
+	): Promise<number | null> {
+		const name = rawName.trim();
+		if (!name) return null;
+		const existing = suppliers.find(
+			(s) => s.name.toLowerCase() === name.toLowerCase()
+		);
+		if (existing) return existing.id;
+		return createCustomer({
+			company_id: companyId,
+			customer_number: null,
+			name,
+			contact_name: null,
+			email: null,
+			phone: null,
+			street: null,
+			postal_code: null,
+			city: null,
+			country_code: 'DE',
+			vat_id: null,
+			website: null,
+			type: 'lieferant'
+		});
+	}
 
 	$effect(() => {
 		// re-fetch when URL pager changes
@@ -216,7 +242,7 @@
 		// `gross_cents` is derived inside `createIncomingInvoice`.
 		await createIncomingInvoice({
 			company_id: companyId,
-			supplier_id: form.supplierId ? parseInt(form.supplierId) : null,
+			supplier_id: await resolveSupplierId(companyId, form.supplierName),
 			invoice_number: form.invoiceNumber.trim() || null,
 			invoice_date: form.invoiceDate,
 			net_cents: Math.round(net * 100),
@@ -238,7 +264,7 @@
 
 	function toEditForm(inv: IncomingInvoiceWithSupplier): InvoiceForm {
 		return {
-			supplierId: inv.supplier_id ? String(inv.supplier_id) : '',
+			supplierName: inv.supplier_name ?? '',
 			invoiceNumber: inv.invoice_number ?? '',
 			invoiceDate: inv.invoice_date,
 			netAmount: String(inv.net_cents / 100),
@@ -263,10 +289,12 @@
 		if (isNaN(net)) return;
 		saving = true;
 
+		const companyId = await ensureCompanyId();
+
 		// DAT-1.d: writes go through `*_cents`; the UPDATE handler keeps
 		// `gross_cents = net_cents + tax_cents` consistent automatically.
 		await updateIncomingInvoice(editingId, {
-			supplier_id: editForm.supplierId ? parseInt(editForm.supplierId) : null,
+			supplier_id: await resolveSupplierId(companyId, editForm.supplierName),
 			invoice_number: editForm.invoiceNumber.trim() || null,
 			invoice_date: editForm.invoiceDate,
 			net_cents: Math.round(net * 100),
@@ -337,6 +365,12 @@
 </script>
 
 <section class="space-y-6">
+	<datalist id="supplier-names">
+		{#each supplierNames as name}
+			<option value={name}></option>
+		{/each}
+	</datalist>
+
 	<header>
 		<h1 class="page-header">{t('incomingInvoices.title')}</h1>
 		<p class="text-sm text-zinc-600 dark:text-zinc-300">
@@ -350,11 +384,11 @@
 		bind:open={showAddForm}
 	>
 		<div class="grid gap-3 md:grid-cols-2">
-			<Select
-				bind:value={form.supplierId}
+			<TextInput
+				bind:value={form.supplierName}
 				label={t('incomingInvoices.supplier')}
-				options={supplierOptions}
 				placeholder={t('incomingInvoices.supplierPlaceholder')}
+				list="supplier-names"
 			/>
 			<TextInput bind:value={form.invoiceNumber} label={t('incomingInvoices.invoiceNumber')} placeholder="RE-2026-001" />
 			<DateInput bind:value={form.invoiceDate} label={t('incomingInvoices.invoiceDate')} />
@@ -441,12 +475,7 @@
 							{#if editingId === inv.id}
 								<div class="px-3 py-2"><input bind:value={editForm.invoiceNumber} class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" /></div>
 								<div class="px-3 py-2">
-									<select bind:value={editForm.supplierId} class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900">
-										<option value="">—</option>
-										{#each supplierOptions as opt}
-											<option value={opt.value}>{opt.label}</option>
-										{/each}
-									</select>
+									<input bind:value={editForm.supplierName} list="supplier-names" class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" />
 								</div>
 								<div class="px-3 py-2"><input type="date" bind:value={editForm.invoiceDate} class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" /></div>
 								<div class="px-3 py-2"><input bind:value={editForm.netAmount} class="w-full rounded border border-zinc-300 px-2 py-1 text-right dark:border-zinc-600 dark:bg-zinc-900" /></div>

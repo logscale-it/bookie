@@ -5,7 +5,8 @@
 		placeholder = '',
 		type = 'text',
 		disabled = false,
-		error = ''
+		error = '',
+		list = undefined
 	}: {
 		value?: string;
 		label?: string;
@@ -13,6 +14,7 @@
 		type?: string;
 		disabled?: boolean;
 		error?: string;
+		list?: string;
 	} = $props();
 
 	const id = crypto.randomUUID();
@@ -26,6 +28,7 @@
 		bind:value
 		{placeholder}
 		{disabled}
+		{list}
 		aria-invalid={error ? 'true' : undefined}
 		class="input-base {error ? 'input-error' : 'input-valid'}"
 	/>
