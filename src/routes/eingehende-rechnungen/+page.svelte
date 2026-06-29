@@ -21,6 +21,8 @@
 		getIncomingInvoiceFile,
 		type IncomingInvoiceWithSupplier
 	} from '$lib/db/incoming-invoices';
+	import { snapshotIncoming, createRecurring } from '$lib/db/recurring';
+	import { advance } from '$lib/recurrence';
 	import { getS3Settings } from '$lib/db/settings';
 	import { uploadFile, downloadFile as s3DownloadFile, deleteFile as s3DeleteFile } from '$lib/s3/client';
 	import { createLogger } from '$lib/logger';
@@ -61,6 +63,7 @@
 	let showAddForm = $state(false);
 	let form = $state<InvoiceForm>(initialForm());
 	let uploadFiles = $state<FileList | null>(null);
+	let recurring = $state(false);
 	let editingId = $state<number | null>(null);
 	let editForm = $state<InvoiceForm>(initialForm());
 	let uploadError = $state('');
@@ -240,7 +243,7 @@
 
 		// DAT-1.d: convert float inputs to integer cents at the DB boundary.
 		// `gross_cents` is derived inside `createIncomingInvoice`.
-		await createIncomingInvoice({
+		const newId = await createIncomingInvoice({
 			company_id: companyId,
 			supplier_id: await resolveSupplierId(companyId, form.supplierName),
 			invoice_number: form.invoiceNumber.trim() || null,
@@ -255,8 +258,25 @@
 			notes: form.notes.trim() || null
 		});
 
+		// Recurring: schedule the next copy one month out on the same day.
+		// The boot generator (see +layout) materialises it.
+		if (recurring) {
+			const snap = await snapshotIncoming(newId);
+			await createRecurring({
+				company_id: companyId,
+				kind: 'incoming',
+				label: snap.label,
+				frequency: 'monthly',
+				interval_count: 1,
+				next_run_date: advance(form.invoiceDate, 'monthly', 1),
+				end_date: null,
+				payload: snap.payload
+			});
+		}
+
 		form = initialForm();
 		uploadFiles = null;
+		recurring = false;
 		showAddForm = false;
 		saving = false;
 		await loadData();
@@ -401,6 +421,10 @@
 			<div class="md:col-span-2">
 				<TextInput bind:value={form.notes} label={t('common.notes')} placeholder={t('incomingInvoices.optionalNotes')} />
 			</div>
+			<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 md:col-span-2 dark:text-zinc-200">
+				<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
+				{t('common.recurringMonthly')}
+			</label>
 		</div>
 		{#if uploadError}
 			<p class="text-sm text-red-600 dark:text-red-400">{uploadError}</p>

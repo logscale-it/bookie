@@ -4,6 +4,8 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { startAutoBackupScheduler } from '$lib/s3/auto-backup';
+	import { listCompanies } from '$lib/db/companies';
+	import { runDueRecurring } from '$lib/db/recurring';
 	import { t, setLocale, type Locale } from '$lib/i18n';
 	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
 	import {
@@ -119,6 +121,17 @@
 			if (orgSettings.default_locale) setLocale(orgSettings.default_locale as Locale);
 		} catch (e) {
 			log.warn('Failed to load organization settings on boot', e);
+		}
+		// Materialise any recurring invoices/costs that have come due since the
+		// app was last opened. Best-effort: a failure here must never block the
+		// shell. ponytail: runs on boot only (no in-app scheduler) — desktop app
+		// is opened often enough that catch-up on launch covers the use case.
+		try {
+			const companies = await listCompanies();
+			const today = new Date().toISOString().slice(0, 10);
+			for (const c of companies) await runDueRecurring(c.id, today);
+		} catch (e) {
+			log.warn('Failed to run recurring entries on boot', e);
 		}
 	});
 

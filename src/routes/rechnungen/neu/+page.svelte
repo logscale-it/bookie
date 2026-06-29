@@ -4,9 +4,12 @@
 	import { createInvoice, updateInvoice } from '$lib/db/invoices';
 	import { createInvoiceItem } from '$lib/db/invoice-items';
 	import { getInvoiceSettings, saveInvoiceSettings } from '$lib/db/settings';
+	import { snapshotInvoice, createRecurring } from '$lib/db/recurring';
+	import { advance } from '$lib/recurrence';
 	import { t } from '$lib/i18n';
 
 	let lastCreatedInvoiceId = $state<number | null>(null);
+	let recurring = $state(false);
 
 	async function handleSave(data: SaveData) {
 		// DAT-1.d: convert float totals to integer cents at the DB boundary.
@@ -69,6 +72,22 @@
 			invoice_number_incrementor: settings.invoice_number_incrementor + 1
 		});
 
+		// Recurring: snapshot this invoice and schedule the next copy one month
+		// out on the same day. The boot generator (see +layout) materialises it.
+		if (recurring) {
+			const snap = await snapshotInvoice(invoiceId);
+			await createRecurring({
+				company_id: data.company.id,
+				kind: 'invoice',
+				label: snap.label,
+				frequency: 'monthly',
+				interval_count: 1,
+				next_run_date: advance(data.issueDate, 'monthly', 1),
+				end_date: null,
+				payload: snap.payload
+			});
+		}
+
 		lastCreatedInvoiceId = invoiceId;
 		await goto('/rechnungen');
 	}
@@ -87,6 +106,11 @@
 			{t('common.back')}
 		</a>
 	</header>
+
+	<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 dark:text-zinc-200">
+		<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
+		{t('common.recurringMonthly')}
+	</label>
 
 	<InvoiceForm
 		mode="create"

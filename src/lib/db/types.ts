@@ -234,6 +234,22 @@ export interface IncomingInvoice {
   updated_at: string;
 }
 
+export interface RecurringEntry {
+  id: number;
+  company_id: number;
+  kind: "invoice" | "incoming";
+  label: string;
+  frequency: "weekly" | "monthly" | "quarterly" | "yearly";
+  interval_count: number;
+  next_run_date: string;
+  end_date: string | null;
+  active: number; // 0 | 1 — SQLite has no boolean
+  payload: string; // JSON snapshot of the create-args, see recurring.ts
+  last_run_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export type AutoBackupStatus = "success" | "failure";
 
 export interface S3Settings {
