@@ -45,6 +45,9 @@ const ORGANIZATION_DEFAULT: UpsertOrganizationSettings = {
   default_locale: "de",
   default_legal_country: "DE",
   einvoice_format: "plain",
+  datev_consultant_number: "",
+  datev_client_number: "",
+  datev_skr: "03",
 };
 
 const INVOICE_DEFAULT: UpsertInvoiceSettings = {
@@ -76,8 +79,8 @@ export async function saveOrganizationSettings(
 ): Promise<void> {
   const db = await getDb();
   await db.execute(
-    `INSERT INTO settings_organization (id, name, country, address, street, postal_code, city, email, phone_number, registering_id, bank_name, bank_iban, bank_account_holder, vatin, website, default_locale, default_legal_country, einvoice_format)
-		 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    `INSERT INTO settings_organization (id, name, country, address, street, postal_code, city, email, phone_number, registering_id, bank_name, bank_iban, bank_account_holder, vatin, website, default_locale, default_legal_country, einvoice_format, datev_consultant_number, datev_client_number, datev_skr)
+		 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		 ON CONFLICT(id) DO UPDATE SET
 		 name = excluded.name,
 		 country = excluded.country,
@@ -96,6 +99,9 @@ export async function saveOrganizationSettings(
 		 default_locale = excluded.default_locale,
 		 default_legal_country = excluded.default_legal_country,
 		 einvoice_format = excluded.einvoice_format,
+		 datev_consultant_number = excluded.datev_consultant_number,
+		 datev_client_number = excluded.datev_client_number,
+		 datev_skr = excluded.datev_skr,
 		 updated_at = CURRENT_TIMESTAMP`,
     [
       data.name,
@@ -115,6 +121,9 @@ export async function saveOrganizationSettings(
       data.default_locale,
       data.default_legal_country,
       data.einvoice_format,
+      data.datev_consultant_number,
+      data.datev_client_number,
+      data.datev_skr,
     ],
   );
 }
@@ -220,7 +229,8 @@ export async function getS3Settings(): Promise<UpsertS3Settings> {
     ? (() => {
         const { id: _, created_at: __, updated_at: ___, ...data } = rows[0];
         for (const key in S3_DEFAULT) {
-          if ((data as any)[key] == null) (data as any)[key] = (S3_DEFAULT as any)[key];
+          if ((data as any)[key] == null)
+            (data as any)[key] = (S3_DEFAULT as any)[key];
         }
         return data;
       })()

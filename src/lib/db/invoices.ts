@@ -39,6 +39,7 @@ type CreateInvoice = Omit<
   | "updated_at"
   | "references_invoice_id"
   | "cancellation_reason"
+  | "paid_date"
 >;
 type UpdateInvoice = Partial<CreateInvoice>;
 
@@ -233,8 +234,15 @@ export async function updateInvoiceStatus(
   toStatus: string,
 ): Promise<void> {
   await withTransaction(async (db) => {
+    // paid_date carries the Zufluss date (§ 11 EStG) for the EÜR: stamped on
+    // the transition into 'paid' (kept if already set), cleared on the way
+    // out so it is non-NULL exactly while the invoice is paid.
     await db.execute(
-      `UPDATE invoices SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+      `UPDATE invoices
+       SET status = $1,
+           paid_date = CASE WHEN $1 = 'paid' THEN COALESCE(paid_date, date('now')) END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
       [toStatus, id],
     );
     await db.execute(

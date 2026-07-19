@@ -15,6 +15,10 @@
 		{ value: 'zugferd', label: t('settings.einvoiceFormatZugferd') },
 		{ value: 'xrechnung', label: t('settings.einvoiceFormatXrechnung') }
 	];
+	const datevSkrOptions = [
+		{ value: '03', label: 'SKR03' },
+		{ value: '04', label: 'SKR04' }
+	];
 
 	let form = $state({
 		name: '',
@@ -33,7 +37,10 @@
 		website: '',
 		default_locale: 'de',
 		default_legal_country: 'DE',
-		einvoice_format: 'plain' as EInvoiceFormat
+		einvoice_format: 'plain' as EInvoiceFormat,
+		datev_consultant_number: '',
+		datev_client_number: '',
+		datev_skr: '03'
 	});
 	let loading = $state(true);
 	let saving = $state(false);
@@ -105,6 +112,9 @@
 					<p class="mt-1 text-xs text-amber-600 dark:text-amber-400">{einvoiceWarning}</p>
 				{/if}
 			</div>
+			<TextInput bind:value={form.datev_consultant_number} label={t('settings.datevConsultantNumber')} placeholder="1001" />
+			<TextInput bind:value={form.datev_client_number} label={t('settings.datevClientNumber')} placeholder="10001" />
+			<Select bind:value={form.datev_skr} label={t('settings.datevSkr')} options={datevSkrOptions} />
 		</div>
 		<div class="flex items-center gap-3">
 			<button

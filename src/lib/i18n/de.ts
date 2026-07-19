@@ -129,6 +129,16 @@ export default {
     exports: "Exporte",
     exportUstva: "UStVA als CSV exportieren",
     exportEuer: "EÜR als CSV exportieren",
+    exportDatev: "DATEV-Export (Buchungsstapel)",
+    euerPeriodFrom: "Von",
+    euerPeriodTo: "Bis",
+    exportEuerPeriod: "EÜR als PDF erstellen",
+    euerPeriodHint:
+      "Einnahmenüberschussrechnung nach § 4 Abs. 3 EStG (Zufluss-/Abflussprinzip): berücksichtigt nur im Zeitraum bezahlte Rechnungen.",
+    euerPeriodInvalid:
+      "Ungültiger Zeitraum: „Von“ muss vor „Bis“ liegen.",
+    datevMissingSettings:
+      "Bitte zuerst DATEV-Beraternummer und Mandantennummer unter Einstellungen → Organisation hinterlegen.",
     exporting: "Exportiert…",
     exportSuccess: "Export erfolgreich gespeichert.",
     exportError: "Export fehlgeschlagen",
@@ -382,6 +392,9 @@ export default {
     einvoiceFormatXrechnung: "XRechnung (reines XML)",
     einvoiceFormatDeWarning:
       "Hinweis: Seit dem 01.01.2025 müssen B2B-Rechnungen in Deutschland auf Anfrage als XRechnung oder ZUGFeRD bereitgestellt werden. Die XML-Erzeugung ist in Bookie noch nicht implementiert (COMP-3.b).",
+    datevConsultantNumber: "DATEV-Beraternummer",
+    datevClientNumber: "DATEV-Mandantennummer",
+    datevSkr: "DATEV-Kontenrahmen (SKR)",
     invoiceTitle: "Rechnung",
     currencyLabel: "Währung",
     decimalPlaces: "Dezimalstellen",

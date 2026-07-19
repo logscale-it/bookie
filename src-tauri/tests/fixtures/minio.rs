@@ -6,14 +6,13 @@
 //!
 //! # Why a real MinIO and not a pure-Rust mock
 //!
-//! The production code path uses the real `aws-sdk-s3` client, which performs
-//! V4 signing, host-style vs path-style routing, optional checksums and
-//! multipart uploads. A real MinIO container exercises the same wire format
-//! the production app talks to, so we catch issues that an in-process mock
-//! (which typically only matches a curated subset of operations) silently
-//! ignores. Tradeoff: tests need a Docker daemon, so this fixture lives
-//! behind the `e2e` cargo feature and the corresponding tests are skipped
-//! from the default `cargo test`.
+//! The production code path uses the real `bookie_lib::s3` client, which
+//! performs V4 signing and path-style routing. A real MinIO container
+//! exercises the same wire format the production app talks to, so we catch
+//! issues that an in-process mock (which typically only matches a curated
+//! subset of operations) silently ignores. Tradeoff: tests need a Docker
+//! daemon, so this fixture lives behind the `e2e` cargo feature and the
+//! corresponding tests are skipped from the default `cargo test`.
 //!
 //! # Usage
 //!
@@ -23,10 +22,10 @@
 //! #[tokio::test(flavor = "multi_thread")]
 //! async fn my_e2e_test() {
 //!     let minio = fixtures::minio::MinioFixture::start().await;
-//!     minio.ensure_bucket().await;
+//!     minio.ensure_bucket();
 //!
-//!     // Build an aws-sdk-s3 client the same way production does:
-//!     let client = minio.s3_client().await;
+//!     // Build the production S3 client wired to the fixture:
+//!     let client = minio.s3_client();
 //!     // ... exercise round-trip ...
 //! }
 //! ```
@@ -36,14 +35,14 @@
 //!
 //! TEST-3.b will use this fixture to drive the full lifecycle test.
 
+// Each integration-test target compiles this module separately; accessors
+// used by one target look dead to another. Suppress per-target dead-code
+// noise for the shared fixture.
+#![allow(dead_code)]
+
 use std::time::Duration;
 
-use aws_credential_types::Credentials;
-use aws_sdk_s3::{
-    config::Region,
-    types::{BucketLocationConstraint, CreateBucketConfiguration},
-    Client as S3Client,
-};
+use bookie_lib::s3::S3Client;
 use testcontainers::{runners::AsyncRunner, ContainerAsync, ImageExt};
 use testcontainers_modules::minio::MinIO;
 
@@ -54,8 +53,7 @@ pub const ACCESS_KEY: &str = "minioadmin";
 pub const SECRET_KEY: &str = "minioadmin";
 
 /// Region string used for the test fixture. MinIO ignores it for routing
-/// (it is single-tenant), but the `aws-sdk-s3` client and the
-/// `CreateBucketConfiguration` payload both require a value.
+/// (it is single-tenant), but the SigV4 signing scope requires a value.
 pub const REGION: &str = "us-east-1";
 
 /// Default bucket name created by [`MinioFixture::ensure_bucket`]. Tests that
@@ -138,43 +136,24 @@ impl MinioFixture {
         SECRET_KEY
     }
 
-    /// Build an `aws-sdk-s3` client wired to the fixture. Mirrors the
-    /// production-side `S3Config::build_client` (path-style addressing,
-    /// latest behaviour version, checksum policy = `WhenRequired`).
-    pub async fn s3_client(&self) -> S3Client {
-        let credentials = Credentials::new(ACCESS_KEY, SECRET_KEY, None, None, "bookie-fixture");
-
-        let conf = aws_sdk_s3::Config::builder()
-            .region(Region::new(REGION))
-            .credentials_provider(credentials)
-            .endpoint_url(&self.endpoint_url)
-            .force_path_style(true)
-            .behavior_version_latest()
-            .request_checksum_calculation(
-                aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
-            )
-            .response_checksum_validation(
-                aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
-            )
-            .build();
-
-        S3Client::from_conf(conf)
+    /// Build the production `bookie_lib::s3::S3Client` wired to the fixture
+    /// (custom endpoint → path-style addressing, exactly like
+    /// `S3Config::build_client`).
+    pub fn s3_client(&self) -> S3Client {
+        S3Client::new(
+            Some(self.endpoint_url.clone()),
+            REGION.to_string(),
+            self.bucket.clone(),
+            ACCESS_KEY,
+            SECRET_KEY,
+        )
     }
 
     /// Create the default bucket if it does not already exist. Idempotent —
     /// safe to call from multiple tests sharing the same fixture instance.
-    pub async fn ensure_bucket(&self) {
-        let client = self.s3_client().await;
-        let location = CreateBucketConfiguration::builder()
-            .location_constraint(BucketLocationConstraint::from(REGION))
-            .build();
-        // We deliberately swallow the "already exists" error; any other
-        // failure will surface in the next operation.
-        let _ = client
-            .create_bucket()
-            .bucket(&self.bucket)
-            .create_bucket_configuration(location)
-            .send()
-            .await;
+    /// We deliberately swallow the "already exists" error; any other
+    /// failure will surface in the next operation.
+    pub fn ensure_bucket(&self) {
+        let _ = self.s3_client().create_bucket();
     }
 }

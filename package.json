@@ -26,8 +26,6 @@
     "devalue": "^5.8.1",
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
-    "picomatch": "^4.0.4",
-    "svelte-pdf": "^2.0.2",
     "tailwindcss": "^4.2.1"
   },
   "devDependencies": {

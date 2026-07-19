@@ -4,10 +4,13 @@
 	import { goto } from '$app/navigation';
 	import { toasts } from '$lib/ui/toasts.svelte';
 	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
-	import { getUstvaData, getEuerData } from '$lib/db/tax-reports';
+	import { getUstvaData, getEuerData, getEuerReport } from '$lib/db/tax-reports';
+	import { getDatevBookingRows } from '$lib/db/datev';
 	import { generateUstvaCsv } from '$lib/csv/ustva-csv';
 	import { generateEuerCsv } from '$lib/csv/euer-csv';
-	import { saveCsvFile } from '$lib/csv/csv-writer';
+	import { generateDatevBuchungsstapel } from '$lib/csv/datev-csv';
+	import { createEuerPdf } from '$lib/pdf/euer-pdf';
+	import { saveCsvFile, saveDatevFile, savePdfFile } from '$lib/csv/csv-writer';
 	import { t, tp, translations } from '$lib/i18n';
 
 	let loading = $state(true);
@@ -196,6 +199,10 @@
 
 	let exportingUstva = $state(false);
 	let exportingEuer = $state(false);
+	let exportingDatev = $state(false);
+	let exportingEuerPeriod = $state(false);
+	let euerFrom = $state(`${new Date().getFullYear()}-01-01`);
+	let euerTo = $state(`${new Date().getFullYear()}-12-31`);
 
 	async function exportUstva() {
 		exportingUstva = true;
@@ -226,6 +233,59 @@
 			toasts.error(`${t('overview.exportError')}: ${err}`);
 		} finally {
 			exportingEuer = false;
+		}
+	}
+
+	async function exportEuerPeriod() {
+		if (!euerFrom || !euerTo || euerFrom > euerTo) {
+			toasts.error(t('overview.euerPeriodInvalid'));
+			return;
+		}
+		exportingEuerPeriod = true;
+		try {
+			const companyId = await ensureCompanyId();
+			const org = await getOrganizationSettings();
+			const report = await getEuerReport(companyId, euerFrom, euerTo);
+			const pdfBytes = await createEuerPdf(report, {
+				companyName: org.name,
+				taxNumber: org.vatin,
+				createdAt: new Date()
+			});
+			const saved = await savePdfFile(pdfBytes, `EUER_${euerFrom}_${euerTo}.pdf`);
+			if (saved) toasts.success(t('overview.exportSuccess'));
+		} catch (err) {
+			toasts.error(`${t('overview.exportError')}: ${err}`);
+		} finally {
+			exportingEuerPeriod = false;
+		}
+	}
+
+	async function exportDatev() {
+		exportingDatev = true;
+		try {
+			const companyId = await ensureCompanyId();
+			const org = await getOrganizationSettings();
+			if (
+				!/^\d{1,7}$/.test(org.datev_consultant_number) ||
+				!/^\d{1,5}$/.test(org.datev_client_number)
+			) {
+				toasts.error(t('overview.datevMissingSettings'));
+				return;
+			}
+			const bookings = await getDatevBookingRows(companyId, year);
+			const csv = generateDatevBuchungsstapel(bookings, {
+				consultantNumber: org.datev_consultant_number,
+				clientNumber: org.datev_client_number,
+				skr: org.datev_skr === '04' ? '04' : '03',
+				year,
+				generatedAt: new Date()
+			});
+			const saved = await saveDatevFile(csv, `EXTF_Buchungsstapel_${year}.csv`);
+			if (saved) toasts.success(t('overview.exportSuccess'));
+		} catch (err) {
+			toasts.error(`${t('overview.exportError')}: ${err}`);
+		} finally {
+			exportingDatev = false;
 		}
 	}
 </script>
@@ -477,6 +537,33 @@
 				>
 					{exportingEuer ? t('overview.exporting') : t('overview.exportEuer')}
 				</button>
+				<button
+					onclick={exportDatev}
+					disabled={exportingDatev}
+					class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+				>
+					{exportingDatev ? t('overview.exporting') : t('overview.exportDatev')}
+				</button>
+			</div>
+
+			<!-- EÜR für frei wählbaren Zeitraum (§ 4 Abs. 3 EStG, Zufluss-/Abflussprinzip) -->
+			<div class="flex flex-wrap items-end gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-700/50">
+				<div>
+					<label class="label" for="euer-period-from">{t('overview.euerPeriodFrom')}</label>
+					<input id="euer-period-from" type="date" bind:value={euerFrom} class="input-base mt-1" />
+				</div>
+				<div>
+					<label class="label" for="euer-period-to">{t('overview.euerPeriodTo')}</label>
+					<input id="euer-period-to" type="date" bind:value={euerTo} class="input-base mt-1" />
+				</div>
+				<button
+					onclick={exportEuerPeriod}
+					disabled={exportingEuerPeriod}
+					class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+				>
+					{exportingEuerPeriod ? t('overview.exporting') : t('overview.exportEuerPeriod')}
+				</button>
+				<p class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('overview.euerPeriodHint')}</p>
 			</div>
 		</div>
 	{/if}

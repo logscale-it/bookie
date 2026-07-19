@@ -6,12 +6,10 @@ use std::{
 };
 
 mod gobd;
+pub mod s3;
 
-use aws_credential_types::Credentials;
-use aws_sdk_s3::{
-    config::Region, presigning::PresigningConfig, primitives::ByteStream, Client as S3Client,
-};
 use log::{error, info, warn};
+use s3::S3Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
@@ -37,7 +35,7 @@ const KEYRING_USER: &str = "s3_credentials";
 /// migration directories disagree, and the integration test suite for
 /// `schema_version_check` will fail if this constant disagrees with
 /// `app_migrations()`.
-pub const EXPECTED_SCHEMA_VERSION: i64 = 27;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 29;
 
 /// Typed error enum for all Bookie backend operations.
 ///
@@ -1220,6 +1218,30 @@ fn app_migrations() -> Vec<Migration> {
             sql: include_str!("../migrations/0027_down/01_recurring_entries.sql"),
             kind: MigrationKind::Down,
         },
+        Migration {
+            version: 28,
+            description: "datev_settings_up",
+            sql: include_str!("../migrations/0028/01_datev_settings.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 28,
+            description: "datev_settings_down",
+            sql: include_str!("../migrations/0028_down/01_datev_settings.sql"),
+            kind: MigrationKind::Down,
+        },
+        Migration {
+            version: 29,
+            description: "paid_date_up",
+            sql: include_str!("../migrations/0029/01_paid_date.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 29,
+            description: "paid_date_down",
+            sql: include_str!("../migrations/0029_down/01_paid_date.sql"),
+            kind: MigrationKind::Down,
+        },
     ]
 }
 
@@ -1446,50 +1468,42 @@ impl S3Config {
     /// empty `endpoint_url` means "use the AWS default endpoint" and is
     /// allowed unchanged.
     fn build_client(&self) -> Result<S3Client, BookieError> {
-        let credentials = Credentials::new(
-            &self.access_key_id,
-            &self.secret_access_key,
-            None,
-            None,
-            "bookie",
-        );
-
-        let mut builder = aws_sdk_s3::Config::builder()
-            .region(Region::new(self.region.clone()))
-            .credentials_provider(credentials)
-            .behavior_version_latest()
-            .request_checksum_calculation(
-                aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired,
-            )
-            .response_checksum_validation(
-                aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired,
-            );
-
         let ep = self.endpoint_url.trim_end_matches('/');
-        if !ep.is_empty() {
+        let endpoint = if ep.is_empty() {
+            // Empty endpoint means "use the AWS default endpoint".
+            None
+        } else {
             validate_endpoint(ep).map_err(|msg| {
                 error!("S3 endpoint validation failed: {msg}");
                 BookieError::S3EndpointInvalid
             })?;
-            builder = builder.endpoint_url(ep).force_path_style(true);
-        }
+            Some(ep.to_string())
+        };
 
-        Ok(S3Client::from_conf(builder.build()))
+        Ok(S3Client::new(
+            endpoint,
+            self.region.clone(),
+            self.bucket_name.clone(),
+            &self.access_key_id,
+            &self.secret_access_key,
+        ))
     }
 }
 
 // --- Retry helper for transient S3 failures (REL-2.a) ---
 //
-// `with_retry` runs an async operation up to `policy.max_attempts` times,
+// `with_retry` runs an operation up to `policy.max_attempts` times,
 // retrying only when the returned error is classified as transient by the
 // `IsRetryable` trait. Between attempts it sleeps for an exponentially
 // increasing base delay (250ms, 500ms, 1000ms, ...) multiplied by a uniform
 // random factor in [0.5, 1.5] (full jitter).
 //
-// REL-2.b: this helper wraps every aws-sdk-s3 `.send()` call inside
+// REL-2.b: this helper wraps every S3 client call inside
 // `s3_test_connection`, `s3_upload_file`, `s3_download_file`, and
 // `upload_sha256_sidecar` so that transient failures (network blips, 5xx,
-// 429) self-heal instead of bubbling up as a single hard error.
+// 429) self-heal instead of bubbling up as a single hard error. The S3 ops
+// are blocking (`src/s3.rs`) and run inside `spawn_blocking`, so the sleep
+// here is a plain thread sleep.
 
 /// Configuration for `with_retry`.
 #[derive(Debug, Clone, Copy)]
@@ -1524,46 +1538,18 @@ pub(crate) trait IsRetryable {
     fn is_retryable(&self) -> bool;
 }
 
-impl<E> IsRetryable for aws_sdk_s3::error::SdkError<E> {
-    fn is_retryable(&self) -> bool {
-        use aws_sdk_s3::error::SdkError;
-        match self {
-            // Network-level dispatch errors: DNS resolution, connection
-            // reset, TLS hiccups. All considered transient.
-            SdkError::DispatchFailure(_) => true,
-            // Smithy timeout (request timed out before a response).
-            SdkError::TimeoutError(_) => true,
-            // Could not parse / read the response stream.
-            SdkError::ResponseError(_) => true,
-            // Construction failures are bugs in the request, not transient.
-            SdkError::ConstructionFailure(_) => false,
-            // Service responded with a status code. Retry 5xx and 429,
-            // fail fast on every other 4xx (NoSuchBucket, AccessDenied, ...).
-            SdkError::ServiceError(ctx) => {
-                let status = ctx.raw().status().as_u16();
-                status >= 500 || status == 429
-            }
-            // SdkError is `#[non_exhaustive]`; be conservative on unknown
-            // variants and do not retry.
-            _ => false,
-        }
-    }
-}
-
 /// Run `op` with bounded exponential backoff. The closure is invoked once per
-/// attempt so the caller can build a fresh request each time (AWS SDK request
-/// builders are single-use).
-pub(crate) async fn with_retry<F, Fut, T, E>(mut op: F, policy: RetryPolicy) -> Result<T, E>
+/// attempt so the caller can build a fresh request each time.
+pub(crate) fn with_retry<F, T, E>(mut op: F, policy: RetryPolicy) -> Result<T, E>
 where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T, E>>,
+    F: FnMut() -> Result<T, E>,
     E: IsRetryable,
 {
     let max_attempts = policy.max_attempts.max(1);
 
     let mut attempt: u32 = 1;
     loop {
-        match op().await {
+        match op() {
             Ok(v) => return Ok(v),
             Err(err) => {
                 if !err.is_retryable() || attempt >= max_attempts {
@@ -1573,7 +1559,7 @@ where
                 let exp = attempt - 1;
                 let base = policy.base_delay_ms.saturating_mul(1u64 << exp.min(20));
                 let jittered = jitter_full(base);
-                tokio::time::sleep(Duration::from_millis(jittered)).await;
+                std::thread::sleep(Duration::from_millis(jittered));
                 attempt += 1;
             }
         }
@@ -1663,20 +1649,17 @@ fn validate_endpoint(url: &str) -> Result<(), String> {
     }
 }
 
-fn format_s3_error<E: std::fmt::Debug>(err: &aws_sdk_s3::error::SdkError<E>) -> String {
-    match err {
-        aws_sdk_s3::error::SdkError::ServiceError(ctx) => {
-            let status = ctx.raw().status().as_u16();
-            format!("status={status}, detail={:?}", ctx.err())
-        }
-        aws_sdk_s3::error::SdkError::DispatchFailure(err) => {
-            format!("network/TLS error: {err:?}")
-        }
-        aws_sdk_s3::error::SdkError::TimeoutError(err) => {
-            format!("timeout: {err:?}")
-        }
-        other => format!("{other:?}"),
-    }
+/// Await a `spawn_blocking` task, mapping a join failure (panic inside the
+/// blocking task) onto `BookieError`. All S3 commands funnel their blocking
+/// client work through this.
+async fn run_s3_task<T: Send + 'static>(
+    task: impl FnOnce() -> Result<T, BookieError> + Send + 'static,
+) -> Result<T, BookieError> {
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|e| BookieError::Unknown {
+            message: format!("S3 task failed to complete: {e}"),
+        })?
 }
 
 #[tauri::command]
@@ -1684,9 +1667,9 @@ async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
     info!("S3 connection test: bucket={}", config.bucket_name);
     // SEC-2.b: explicitly validate the endpoint before any network I/O so the
     // user gets a typed `S3EndpointInvalid` rejection on the settings page
-    // instead of an opaque dispatch error from the SDK. `build_client` also
-    // re-validates as defence in depth, but doing it here keeps the contract
-    // documented in the issue (validate inside `s3_test_connection`).
+    // instead of an opaque transport error. `build_client` also re-validates
+    // as defence in depth, but doing it here keeps the contract documented in
+    // the issue (validate inside `s3_test_connection`).
     let ep = config.endpoint_url.trim_end_matches('/');
     if !ep.is_empty() {
         validate_endpoint(ep).map_err(|msg| {
@@ -1695,50 +1678,33 @@ async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
         })?;
     }
     let client = config.build_client()?;
-    let test_key = ".bookie-connection-test";
 
-    // REL-2.b: retry transient failures (network blips, 5xx, 429) via
-    // `with_retry`. The closure rebuilds the request on each attempt because
-    // AWS SDK request builders consume `self` on `.send()`.
-    with_retry(
-        || async {
-            client
-                .put_object()
-                .bucket(&config.bucket_name)
-                .key(test_key)
-                .body(ByteStream::from_static(b"ok"))
-                .content_length(2)
-                .content_type("text/plain")
-                .send()
-                .await
-        },
-        RetryPolicy::s3_default(),
-    )
+    run_s3_task(move || {
+        let test_key = ".bookie-connection-test";
+
+        // REL-2.b: retry transient failures (network blips, 5xx, 429) via
+        // `with_retry`.
+        with_retry(
+            || client.put_object(test_key, b"ok", "text/plain"),
+            RetryPolicy::s3_default(),
+        )
+        .map_err(|e| {
+            error!("S3 connection test failed: {e}");
+            // Catch-all for the connection test: any failure here means the
+            // user's S3 config could not round-trip a put_object, which is
+            // exactly what S3Unreachable signals at the API surface.
+            BookieError::S3Unreachable
+        })?;
+
+        let _ = with_retry(
+            || client.delete_object(test_key),
+            RetryPolicy::s3_default(),
+        );
+
+        info!("S3 connection test successful");
+        Ok(())
+    })
     .await
-    .map_err(|e| {
-        let msg = format_s3_error(&e);
-        error!("S3 connection test failed: {msg}");
-        // Catch-all for the connection test: any failure here means the
-        // user's S3 config could not round-trip a put_object, which is
-        // exactly what S3Unreachable signals at the API surface.
-        BookieError::S3Unreachable
-    })?;
-
-    let _ = with_retry(
-        || async {
-            client
-                .delete_object()
-                .bucket(&config.bucket_name)
-                .key(test_key)
-                .send()
-                .await
-        },
-        RetryPolicy::s3_default(),
-    )
-    .await;
-
-    info!("S3 connection test successful");
-    Ok(())
 }
 
 /// Returns true if `data` looks like a SQLite database file based on its magic header.
@@ -1912,36 +1878,20 @@ async fn quiesce_db_pool(app: &AppHandle, db_url: &str) -> bool {
 /// just-uploaded backup. Failures here are logged but do NOT propagate: a flaky
 /// sidecar must never roll back a successful main upload. The matching
 /// download-side verification lives in REL-1.b/REL-1.c.
-async fn upload_sha256_sidecar(client: &S3Client, bucket: &str, key: &str, digest_hex: &str) {
+fn upload_sha256_sidecar(client: &S3Client, key: &str, digest_hex: &str) {
     let sidecar_key = format!("{key}.sha256");
-    let body_bytes = digest_hex.as_bytes().to_vec();
-    let body_len = body_bytes.len() as i64;
 
-    // REL-2.b: retry transient failures. We rebuild the body each attempt
-    // because `ByteStream` and the request builder are single-use. The
-    // sidecar bytes are tiny (64 hex chars) so the per-retry clone is cheap.
+    // REL-2.b: retry transient failures.
     let result = with_retry(
-        || async {
-            client
-                .put_object()
-                .bucket(bucket)
-                .key(&sidecar_key)
-                .body(ByteStream::from(body_bytes.clone()))
-                .content_length(body_len)
-                .content_type("text/plain")
-                .send()
-                .await
-        },
+        || client.put_object(&sidecar_key, digest_hex.as_bytes(), "text/plain"),
         RetryPolicy::s3_default(),
-    )
-    .await;
+    );
 
     match result {
         Ok(_) => info!("S3 sidecar upload successful: key={sidecar_key}"),
         Err(e) => {
-            let msg = format_s3_error(&e);
             // Intentionally not propagating: see function docstring.
-            warn!("S3 sidecar upload failed (non-fatal): key={sidecar_key}, {msg}");
+            warn!("S3 sidecar upload failed (non-fatal): key={sidecar_key}, {e}");
         }
     }
 }
@@ -1964,52 +1914,39 @@ async fn s3_upload_file(
     info!("S3 upload: key={key}, size={}", data.len());
     let client = config.build_client()?;
 
-    // Detect SQLite backups by magic header so we can attach a SHA-256 sidecar.
-    // Other upload paths (invoice PDFs, connection-test blobs) are unaffected.
-    let is_backup = is_sqlite_backup(&data);
-    let digest_hex = if is_backup {
-        Some(sha256_hex(&data))
-    } else {
-        None
-    };
+    run_s3_task(move || {
+        // Detect SQLite backups by magic header so we can attach a SHA-256
+        // sidecar. Other upload paths (invoice PDFs, connection-test blobs)
+        // are unaffected.
+        let digest_hex = if is_sqlite_backup(&data) {
+            Some(sha256_hex(&data))
+        } else {
+            None
+        };
 
-    let data_len = data.len() as i64;
-    // REL-2.b: retry transient failures. The per-attempt closure rebuilds the
-    // request and `ByteStream` (both are single-use). Cloning `data` each
-    // retry is the safe choice -- on retry we cannot rewind a consumed
-    // ByteStream.
-    with_retry(
-        || async {
-            client
-                .put_object()
-                .bucket(&config.bucket_name)
-                .key(&key)
-                .body(ByteStream::from(data.clone()))
-                .content_length(data_len)
-                .content_type(&content_type)
-                .send()
-                .await
-        },
-        RetryPolicy::s3_default(),
-    )
+        // REL-2.b: retry transient failures.
+        with_retry(
+            || client.put_object(&key, &data, &content_type),
+            RetryPolicy::s3_default(),
+        )
+        .map_err(|e| {
+            error!("S3 upload failed: key={key}, {e}");
+            // Match the precedent set by `restore_db_backup`: surface generic
+            // S3 transport / server failures as `S3Unreachable`. A
+            // finer-grained mapping (creds vs. bucket vs. network) is left
+            // for a follow-up.
+            BookieError::S3Unreachable
+        })?;
+
+        info!("S3 upload successful: key={key}");
+
+        if let Some(digest) = digest_hex {
+            upload_sha256_sidecar(&client, &key, &digest);
+        }
+
+        Ok(key)
+    })
     .await
-    .map_err(|e| {
-        let msg = format_s3_error(&e);
-        error!("S3 upload failed: key={key}, {msg}");
-        // Match the precedent set by `restore_db_backup`: surface generic
-        // S3 transport / server failures as `S3Unreachable`. A finer-grained
-        // mapping (creds vs. bucket vs. network) would require parsing the
-        // SDK error variant tree and is left for a follow-up.
-        BookieError::S3Unreachable
-    })?;
-
-    info!("S3 upload successful: key={key}");
-
-    if let Some(digest) = digest_hex {
-        upload_sha256_sidecar(&client, &config.bucket_name, &key, &digest).await;
-    }
-
-    Ok(key)
 }
 
 #[tauri::command]
@@ -2017,41 +1954,24 @@ async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, Book
     info!("S3 download: key={key}");
     let client = config.build_client()?;
 
-    // REL-2.b: retry the SDK call (network / 5xx / 429) via `with_retry`. The
-    // body stream is collected after this returns; if collection itself fails
-    // mid-stream we surface that as IoError below (not retried — partial
-    // bodies are not safely resumable without ranged GETs).
-    let resp = with_retry(
-        || async {
-            client
-                .get_object()
-                .bucket(&config.bucket_name)
-                .key(&key)
-                .send()
-                .await
-        },
-        RetryPolicy::s3_default(),
-    )
+    run_s3_task(move || {
+        // REL-2.b: retry transient failures (network / 5xx / 429) via
+        // `with_retry`. A mid-stream read failure surfaces as a transport
+        // error and is retried whole — partial bodies are not resumable
+        // without ranged GETs.
+        let bytes = with_retry(|| client.get_object(&key), RetryPolicy::s3_default()).map_err(
+            |e| {
+                error!("S3 download failed: key={key}, {e}");
+                // S3Unreachable: catch-all at the download boundary
+                // (mirrors `restore_db_backup`'s mapping).
+                BookieError::S3Unreachable
+            },
+        )?;
+
+        info!("S3 download successful: key={key}, size={}", bytes.len());
+        Ok(bytes)
+    })
     .await
-    .map_err(|e| {
-        let msg = format_s3_error(&e);
-        error!("S3 download failed: key={key}, {msg}");
-        // S3Unreachable: catch-all for SDK errors at the download
-        // boundary (mirrors `restore_db_backup`'s mapping).
-        BookieError::S3Unreachable
-    })?;
-
-    let bytes = resp
-        .body
-        .collect()
-        .await
-        .map_err(|e| BookieError::IoError {
-            message: format!("S3 download read error: {e}"),
-        })?
-        .into_bytes();
-
-    info!("S3 download successful: key={key}, size={}", bytes.len());
-    Ok(bytes.to_vec())
 }
 
 /// Restore the live SQLite database from an S3 backup with SHA-256 sidecar
@@ -2109,32 +2029,23 @@ async fn restore_db_backup(
     let client = config.build_client()?;
 
     // 1. Download the backup into the .tmp file.
-    let backup_resp = client
-        .get_object()
-        .bucket(&config.bucket_name)
-        .key(&key)
-        .send()
-        .await
-        .map_err(|e| {
-            let msg = format_s3_error(&e);
-            error!("S3 download failed: key={key}, {msg}");
-            BookieError::S3Unreachable
-        })?;
-
-    let backup_bytes = backup_resp
-        .body
-        .collect()
-        .await
-        .map_err(|e| BookieError::IoError {
-            message: format!("S3 download read error: {e}"),
-        })?
-        .into_bytes();
+    let backup_bytes = {
+        let client = client.clone();
+        let key = key.clone();
+        run_s3_task(move || {
+            client.get_object(&key).map_err(|e| {
+                error!("S3 download failed: key={key}, {e}");
+                BookieError::S3Unreachable
+            })
+        })
+        .await?
+    };
 
     if backup_bytes.is_empty() {
         return Err(BookieError::BackupCorrupt);
     }
 
-    fs::write(&tmp_file, backup_bytes.as_ref()).map_err(|err| {
+    fs::write(&tmp_file, &backup_bytes).map_err(|err| {
         error!("Failed to write restore tmp: {err}");
         BookieError::IoError {
             message: format!("Failed to write restore tmp: {err}"),
@@ -2152,23 +2063,22 @@ async fn restore_db_backup(
 
     // 2. Fetch the sidecar.
     let sidecar_key = format!("{key}.sha256");
-    let sidecar_resp = client
-        .get_object()
-        .bucket(&config.bucket_name)
-        .key(&sidecar_key)
-        .send()
-        .await;
+    let sidecar_resp = {
+        let client = client.clone();
+        let sidecar_key = sidecar_key.clone();
+        tauri::async_runtime::spawn_blocking(move || client.get_object(&sidecar_key))
+            .await
+            .map_err(|e| {
+                cleanup_tmp(&tmp_file);
+                BookieError::Unknown {
+                    message: format!("S3 task failed to complete: {e}"),
+                }
+            })?
+    };
 
     let expected_digest: Option<String> = match sidecar_resp {
-        Ok(resp) => {
-            let body = resp.body.collect().await.map_err(|e| {
-                cleanup_tmp(&tmp_file);
-                BookieError::IoError {
-                    message: format!("S3 sidecar read error: {e}"),
-                }
-            })?;
-            let bytes = body.into_bytes();
-            let text = std::str::from_utf8(bytes.as_ref())
+        Ok(bytes) => {
+            let text = std::str::from_utf8(&bytes)
                 .map_err(|_| {
                     cleanup_tmp(&tmp_file);
                     BookieError::BackupSidecarMismatch
@@ -2191,13 +2101,8 @@ async fn restore_db_backup(
         Err(e) => {
             // Distinguish "key not found" (HTTP 404 / NoSuchKey) from other S3
             // errors so we can honour `allow_missing_sidecar` only for the
-            // former. We match on the 404 status alone for robustness across
-            // SDK error-variant shapes.
-            let is_missing = matches!(
-                &e,
-                aws_sdk_s3::error::SdkError::ServiceError(ctx)
-                    if ctx.raw().status().as_u16() == 404
-            );
+            // former. We match on the 404 status alone for robustness.
+            let is_missing = e.status_code() == Some(404);
             if is_missing {
                 if !allow_missing_sidecar {
                     cleanup_tmp(&tmp_file);
@@ -2208,8 +2113,7 @@ async fn restore_db_backup(
                 None
             } else {
                 cleanup_tmp(&tmp_file);
-                let msg = format_s3_error(&e);
-                error!("S3 sidecar fetch failed: key={sidecar_key}, {msg}");
+                error!("S3 sidecar fetch failed: key={sidecar_key}, {e}");
                 return Err(BookieError::S3Unreachable);
             }
         }
@@ -2233,7 +2137,7 @@ async fn restore_db_backup(
     }
 
     // 4. Sanity-check the SQLite magic header on the verified .tmp file.
-    if !is_sqlite_backup(backup_bytes.as_ref()) {
+    if !is_sqlite_backup(&backup_bytes) {
         cleanup_tmp(&tmp_file);
         error!("Restored bytes failed SQLite magic-header check: key={key}");
         return Err(BookieError::BackupCorrupt);
@@ -2312,25 +2216,21 @@ async fn s3_delete_file(config: S3Config, key: String) -> Result<(), BookieError
     info!("S3 delete: key={key}");
     let client = config.build_client()?;
 
-    client
-        .delete_object()
-        .bucket(&config.bucket_name)
-        .key(&key)
-        .send()
-        .await
-        .map_err(|e| {
-            let msg = format_s3_error(&e);
-            error!("S3 delete failed: key={key}, {msg}");
-            // S3Unreachable: catch-all for SDK errors at the delete boundary.
+    run_s3_task(move || {
+        client.delete_object(&key).map_err(|e| {
+            error!("S3 delete failed: key={key}, {e}");
+            // S3Unreachable: catch-all at the delete boundary.
             BookieError::S3Unreachable
         })?;
 
-    info!("S3 delete successful: key={key}");
-    Ok(())
+        info!("S3 delete successful: key={key}");
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-async fn s3_presign_download_url(
+fn s3_presign_download_url(
     config: S3Config,
     key: String,
     expires_in_seconds: u64,
@@ -2338,26 +2238,17 @@ async fn s3_presign_download_url(
     info!("Presigned URL: key={key}, expires_in={expires_in_seconds}s");
     let client = config.build_client()?;
 
-    // Bad expiry configuration is an internal programming error from the
-    // user's perspective (the frontend picks the expiry), not an S3 outage.
-    // Map it through the catch-all so the actual SDK message survives.
-    let presigning_config = PresigningConfig::expires_in(Duration::from_secs(expires_in_seconds))
-        .map_err(|e| BookieError::Unknown {
-        message: format!("Presigning config failed: {e}"),
-    })?;
-
-    let presigned = client
-        .get_object()
-        .bucket(&config.bucket_name)
-        .key(&key)
-        .presigned(presigning_config)
-        .await
+    // Presigning is pure computation (SigV4 query-string signature) — no
+    // network I/O, so this command is sync.
+    let url = client
+        .presign_get(&key, Duration::from_secs(expires_in_seconds))
         .map_err(|e| {
             error!("Presigned URL failed: key={key}, {e}");
-            BookieError::S3Unreachable
+            BookieError::Unknown {
+                message: format!("Presigning failed: {e}"),
+            }
         })?;
 
-    let url = presigned.uri().to_string();
     info!("Presigned URL created: key={key}");
     Ok(url)
 }
@@ -2739,7 +2630,6 @@ mod s3_round_trip {
     //! these tests are skipped (silently OK) so a bare `cargo test` does not
     //! hang on a missing Docker container.
     use super::*;
-    use aws_sdk_s3::types::{BucketLocationConstraint, CreateBucketConfiguration};
 
     const ENDPOINT: &str = "http://127.0.0.1:9100";
     const REGION: &str = "us-east-1";
@@ -2765,19 +2655,11 @@ mod s3_round_trip {
         }
     }
 
-    async fn ensure_bucket() {
+    fn ensure_bucket() {
         let client = cfg()
             .build_client()
             .expect("test cfg endpoint must validate");
-        let location = CreateBucketConfiguration::builder()
-            .location_constraint(BucketLocationConstraint::from(REGION))
-            .build();
-        let _ = client
-            .create_bucket()
-            .bucket(BUCKET)
-            .create_bucket_configuration(location)
-            .send()
-            .await;
+        let _ = client.create_bucket();
     }
 
     fn unique_key(prefix: &str) -> String {
@@ -2793,7 +2675,7 @@ mod s3_round_trip {
         if skip_if_disabled() {
             return;
         }
-        ensure_bucket().await;
+        ensure_bucket();
         s3_test_connection(cfg())
             .await
             .expect("connection test should succeed");
@@ -2804,7 +2686,7 @@ mod s3_round_trip {
         if skip_if_disabled() {
             return;
         }
-        ensure_bucket().await;
+        ensure_bucket();
         let key = unique_key("rtrip/file.bin");
         let data = b"non-sqlite payload".to_vec();
 
@@ -2835,7 +2717,7 @@ mod s3_round_trip {
         if skip_if_disabled() {
             return;
         }
-        ensure_bucket().await;
+        ensure_bucket();
         let key = unique_key("backups/bookie.db");
         // Build a fake SQLite payload: the magic header + arbitrary bytes.
         let mut data = SQLITE_MAGIC.to_vec();
@@ -2869,7 +2751,7 @@ mod s3_round_trip {
         if skip_if_disabled() {
             return;
         }
-        ensure_bucket().await;
+        ensure_bucket();
         let key = unique_key("invoices/not-a-db.pdf");
         let data = b"%PDF-1.7 fake pdf content".to_vec();
 
@@ -2898,7 +2780,7 @@ mod s3_round_trip {
         if skip_if_disabled() {
             return;
         }
-        ensure_bucket().await;
+        ensure_bucket();
         let key = unique_key("presign/test.txt");
         s3_upload_file(
             cfg(),
@@ -2910,11 +2792,18 @@ mod s3_round_trip {
         .await
         .unwrap();
 
-        let url = s3_presign_download_url(cfg(), key.clone(), 60)
-            .await
-            .expect("presign");
+        let url = s3_presign_download_url(cfg(), key.clone(), 60).expect("presign");
         assert!(url.starts_with("http"), "got: {url}");
         assert!(url.contains(BUCKET));
+
+        // The URL must actually authorize the download: fetch it with a
+        // plain unauthenticated GET and compare the payload byte-for-byte.
+        let mut resp = ureq::get(&url).call().expect("presigned GET must succeed");
+        let fetched = resp
+            .body_mut()
+            .read_to_vec()
+            .expect("read presigned GET body");
+        assert_eq!(fetched, b"hello");
 
         let _ = s3_delete_file(cfg(), key).await;
     }
@@ -2924,7 +2813,7 @@ mod s3_round_trip {
         if skip_if_disabled() {
             return;
         }
-        ensure_bucket().await;
+        ensure_bucket();
         let prefix = "rechnungen/2026";
         let file_name = unique_key("file.txt");
         let key = s3_upload_file(
@@ -3425,13 +3314,24 @@ mod panic_hook_tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // keyring v4 split the platform-specific backends into the `keyring` crate
-    // (configuration) + `keyring-core` (Entry/Error). Pick the OS-native store
-    // up front so subsequent `keyring_core::Entry::new(...)` calls have a
-    // backend to talk to.
-    // The bool selects between dbus secret service (false) and Linux keyutils
-    // (true) on Linux; ignored on macOS / Windows.
-    let _ = keyring::use_native_store(false);
+    // Install the OS-native keyring store up front so subsequent
+    // `keyring_core::Entry::new(...)` calls have a backend to talk to.
+    // This mirrors `keyring::use_native_store(false)` without the `keyring`
+    // facade crate (see Cargo.toml for why that crate is banned). Failures
+    // are tolerated here exactly like before: `probe_keyring` surfaces a
+    // missing backend as a boot-check warning instead of a startup crash.
+    #[cfg(target_os = "macos")]
+    if let Ok(store) = apple_native_keyring_store::keychain::Store::new() {
+        keyring_core::set_default_store(store);
+    }
+    #[cfg(target_os = "windows")]
+    if let Ok(store) = windows_native_keyring_store::Store::new() {
+        keyring_core::set_default_store(store);
+    }
+    #[cfg(target_os = "linux")]
+    if let Ok(store) = linux_keyutils_keyring_store::Store::new() {
+        keyring_core::set_default_store(store);
+    }
 
     tauri::Builder::default()
         // REL-4.b: single-instance lock. Bookie's SQLite DB runs in WAL mode;
@@ -3483,11 +3383,13 @@ pub fn run() {
                     info!("Bookie starting (log_dir={})", log_dir.display());
                 }
                 Err(err) => {
-                    // Logger setup failed — fall back to env_logger so the app
-                    // is still observable on stdout. We surface the failure on
-                    // stderr because no logger is installed yet at this point.
-                    eprintln!("tracing init failed, falling back to env_logger: {err}");
-                    let _ = env_logger::try_init();
+                    // Logger setup failed — fall back to a plain stdout fmt
+                    // subscriber so the app is still observable. We surface
+                    // the failure on stderr because no logger is installed
+                    // yet at this point.
+                    eprintln!("tracing init failed, falling back to stdout-only logging: {err}");
+                    let _ = tracing_subscriber::fmt().try_init();
+                    let _ = tracing_log::LogTracer::init();
                     info!("Bookie starting (file logging disabled)");
                 }
             }
@@ -3543,70 +3445,64 @@ mod retry_tests {
         }
     }
 
-    #[tokio::test]
-    async fn first_attempt_succeeds() {
+    #[test]
+    fn first_attempt_succeeds() {
         let calls = Cell::new(0u32);
         let res = with_retry(
             || {
                 calls.set(calls.get() + 1);
-                async { Ok::<&'static str, TestErr>("ok") }
+                Ok::<&'static str, TestErr>("ok")
             },
             fast_policy(3),
-        )
-        .await;
+        );
         assert_eq!(res, Ok("ok"));
         assert_eq!(calls.get(), 1);
     }
 
-    #[tokio::test]
-    async fn transient_then_success() {
+    #[test]
+    fn transient_then_success() {
         let calls = Cell::new(0u32);
         let res = with_retry(
             || {
                 let n = calls.get() + 1;
                 calls.set(n);
-                async move {
-                    if n == 1 {
-                        Err::<&'static str, TestErr>(TestErr::Transient)
-                    } else {
-                        Ok("ok")
-                    }
+                if n == 1 {
+                    Err::<&'static str, TestErr>(TestErr::Transient)
+                } else {
+                    Ok("ok")
                 }
             },
             fast_policy(3),
-        )
-        .await;
+        );
         assert_eq!(res, Ok("ok"));
         assert_eq!(calls.get(), 2);
     }
 
-    #[tokio::test]
-    async fn permanent_fails_fast() {
+    #[test]
+    fn permanent_fails_fast() {
         let calls = Cell::new(0u32);
         let res = with_retry(
             || {
                 calls.set(calls.get() + 1);
-                async { Err::<(), TestErr>(TestErr::Permanent) }
+                Err::<(), TestErr>(TestErr::Permanent)
             },
             fast_policy(3),
-        )
-        .await;
+        );
         assert_eq!(res, Err(TestErr::Permanent));
         // Permanent error must not retry: exactly one attempt.
         assert_eq!(calls.get(), 1);
     }
 
-    #[tokio::test]
-    async fn exhausts_attempts_on_persistent_transient() {
+    #[test]
+    fn exhausts_attempts_on_persistent_transient() {
         let calls = Cell::new(0u32);
         let res = with_retry(
             || {
                 calls.set(calls.get() + 1);
-                async { Err::<(), TestErr>(TestErr::Transient) }
+                Err::<(), TestErr>(TestErr::Transient)
             },
             fast_policy(3),
-        )
-        .await;
+        );
         assert_eq!(res, Err(TestErr::Transient));
         assert_eq!(calls.get(), 3);
     }
@@ -3641,8 +3537,8 @@ mod retry_tests {
     /// time must stay below 2 000 ms — proving that the 250 ms base delay with
     /// full jitter does not pile up into an unexpectedly long wait on the first
     /// retry.
-    #[tokio::test]
-    async fn retry_helper_succeeds_after_one_transient_503() {
+    #[test]
+    fn retry_helper_succeeds_after_one_transient_503() {
         let calls = Cell::new(0u32);
         let start = std::time::Instant::now();
 
@@ -3650,21 +3546,18 @@ mod retry_tests {
             || {
                 let n = calls.get() + 1;
                 calls.set(n);
-                async move {
-                    if n == 1 {
-                        // Simulate an S3-flavored 503 Service Unavailable.
-                        // TestErr::Transient satisfies IsRetryable (returns true),
-                        // matching the behaviour of SdkError::ServiceError with
-                        // status >= 500.
-                        Err::<(), TestErr>(TestErr::Transient)
-                    } else {
-                        Ok(())
-                    }
+                if n == 1 {
+                    // Simulate an S3-flavored 503 Service Unavailable.
+                    // TestErr::Transient satisfies IsRetryable (returns true),
+                    // matching the behaviour of `S3Error::Status` with
+                    // status >= 500.
+                    Err::<(), TestErr>(TestErr::Transient)
+                } else {
+                    Ok(())
                 }
             },
             RetryPolicy::s3_default(),
-        )
-        .await;
+        );
 
         let elapsed = start.elapsed();
 

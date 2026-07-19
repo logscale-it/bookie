@@ -85,6 +85,12 @@ export interface Invoice {
   s3_key: string | null;
   references_invoice_id: number | null;
   cancellation_reason: string | null;
+  /**
+   * Zufluss date (§ 11 EStG): the day the payment arrived. Non-NULL exactly
+   * while status = 'paid'; maintained by updateInvoiceStatus. Basis for the
+   * EÜR period report (tax-reports.ts).
+   */
+  paid_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -161,6 +167,9 @@ export interface OrganizationSettings {
   default_locale: string;
   default_legal_country: string;
   einvoice_format: EInvoiceFormat;
+  datev_consultant_number: string;
+  datev_client_number: string;
+  datev_skr: string;
   created_at: string;
   updated_at: string;
 }
@@ -230,6 +239,12 @@ export interface IncomingInvoice {
    */
   local_path: string | null;
   notes: string | null;
+  /**
+   * Abfluss date (§ 11 EStG): the day the bill was paid. Non-NULL exactly
+   * while status = 'bezahlt'; maintained by updateIncomingInvoiceStatus /
+   * createIncomingInvoice. Basis for the EÜR period report (tax-reports.ts).
+   */
+  paid_date: string | null;
   created_at: string;
   updated_at: string;
 }

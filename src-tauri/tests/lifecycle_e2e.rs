@@ -22,7 +22,7 @@
 //!      so the audit trigger sees a fully-populated row).
 //!   7. Close the rusqlite connection, snapshot the live DB bytes,
 //!      compute the pre-backup SHA-256.
-//!   8. Upload the bytes to MinIO via the real `aws-sdk-s3` client plus
+//!   8. Upload the bytes to MinIO via the real `bookie_lib::s3` client plus
 //!      a `<key>.sha256` sidecar — same shape REL-1.a/REL-1.c demand.
 //!   9. Wipe the DB file (and the WAL/SHM siblings, mirroring the
 //!      production restore which also clears them).
@@ -62,7 +62,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use aws_sdk_s3::primitives::ByteStream;
 use rusqlite::{params, Connection, OpenFlags};
 use sha2::{Digest, Sha256};
 
@@ -429,7 +428,7 @@ async fn lifecycle_e2e_full_round_trip() {
     eprintln!("workdir = {}", work.display());
 
     let minio = fixtures::minio::MinioFixture::start().await;
-    minio.ensure_bucket().await;
+    minio.ensure_bucket();
     // Log the dynamically-allocated endpoint plus credentials so a test
     // failure in CI prints enough context to repro a manual `aws s3` call
     // against the same container before it gets reaped on Drop. Also keeps
@@ -599,29 +598,12 @@ async fn lifecycle_e2e_full_round_trip() {
     // -----------------------------------------------------------------
     // Step 8: backup to MinIO (object + .sha256 sidecar).
     // -----------------------------------------------------------------
-    let s3 = minio.s3_client().await;
-    let body_len = pre_backup_bytes.len() as i64;
-    s3.put_object()
-        .bucket(minio.bucket())
-        .key(BACKUP_KEY)
-        .body(ByteStream::from(pre_backup_bytes.clone()))
-        .content_length(body_len)
-        .content_type("application/octet-stream")
-        .send()
-        .await
+    let s3 = minio.s3_client();
+    s3.put_object(BACKUP_KEY, &pre_backup_bytes, "application/octet-stream")
         .expect("put backup blob");
 
     let sidecar_key = format!("{BACKUP_KEY}.sha256");
-    let sidecar_bytes = pre_backup_sha.as_bytes().to_vec();
-    let sidecar_len = sidecar_bytes.len() as i64;
-    s3.put_object()
-        .bucket(minio.bucket())
-        .key(&sidecar_key)
-        .body(ByteStream::from(sidecar_bytes.clone()))
-        .content_length(sidecar_len)
-        .content_type("text/plain")
-        .send()
-        .await
+    s3.put_object(&sidecar_key, pre_backup_sha.as_bytes(), "text/plain")
         .expect("put sha256 sidecar");
 
     // -----------------------------------------------------------------
@@ -641,20 +623,7 @@ async fn lifecycle_e2e_full_round_trip() {
     //
     // The control flow mirrors `restore_db_backup` in `src/lib.rs`.
     // -----------------------------------------------------------------
-    let downloaded = s3
-        .get_object()
-        .bucket(minio.bucket())
-        .key(BACKUP_KEY)
-        .send()
-        .await
-        .expect("get backup blob");
-    let downloaded_bytes = downloaded
-        .body
-        .collect()
-        .await
-        .expect("collect downloaded body")
-        .into_bytes()
-        .to_vec();
+    let downloaded_bytes = s3.get_object(BACKUP_KEY).expect("get backup blob");
     assert!(
         !downloaded_bytes.is_empty(),
         "downloaded backup bytes must be non-empty"
@@ -666,20 +635,7 @@ async fn lifecycle_e2e_full_round_trip() {
     // Sidecar verification: download, parse, compare against SHA of the
     // bytes on disk (NOT the in-memory copy — protects against a torn
     // write between fs::write and atomic_swap).
-    let sidecar_resp = s3
-        .get_object()
-        .bucket(minio.bucket())
-        .key(&sidecar_key)
-        .send()
-        .await
-        .expect("get sidecar");
-    let sidecar_bytes_dl = sidecar_resp
-        .body
-        .collect()
-        .await
-        .expect("collect sidecar body")
-        .into_bytes()
-        .to_vec();
+    let sidecar_bytes_dl = s3.get_object(&sidecar_key).expect("get sidecar");
     let sidecar_str =
         String::from_utf8(sidecar_bytes_dl).expect("sidecar payload must be UTF-8 hex");
     let sidecar_digest = sidecar_str.trim();

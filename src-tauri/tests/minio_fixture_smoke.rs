@@ -18,8 +18,6 @@
 
 mod fixtures;
 
-use aws_sdk_s3::primitives::ByteStream;
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn minio_fixture_smoke() {
     let minio = fixtures::minio::MinioFixture::start().await;
@@ -41,38 +39,21 @@ async fn minio_fixture_smoke() {
     );
 
     // 2. Bucket creation is idempotent and succeeds.
-    minio.ensure_bucket().await;
-    minio.ensure_bucket().await;
+    minio.ensure_bucket();
+    minio.ensure_bucket();
 
     // 3. Object round-trip: PUT then GET returns the same bytes.
-    let client = minio.s3_client().await;
+    let client = minio.s3_client();
     let key = "smoke/round-trip.bin";
     let payload = b"bookie-minio-fixture-smoke".to_vec();
 
     client
-        .put_object()
-        .bucket(minio.bucket())
-        .key(key)
-        .body(ByteStream::from(payload.clone()))
-        .send()
-        .await
+        .put_object(key, &payload, "application/octet-stream")
         .expect("put_object should succeed against fixture");
 
-    let got = client
-        .get_object()
-        .bucket(minio.bucket())
-        .key(key)
-        .send()
-        .await
+    let got_bytes = client
+        .get_object(key)
         .expect("get_object should succeed against fixture");
-
-    let got_bytes = got
-        .body
-        .collect()
-        .await
-        .expect("collect get_object body")
-        .into_bytes()
-        .to_vec();
 
     assert_eq!(got_bytes, payload, "round-tripped payload must match");
 

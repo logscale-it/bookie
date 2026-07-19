@@ -12,7 +12,7 @@ import type { IncomingInvoice } from "./types";
 // lives in `backfill-file-data.ts`, which exists solely to evacuate it.
 type CreateIncomingInvoice = Omit<
   IncomingInvoice,
-  "id" | "created_at" | "updated_at" | "gross_cents"
+  "id" | "created_at" | "updated_at" | "gross_cents" | "paid_date"
 >;
 type UpdateIncomingInvoice = Partial<Omit<CreateIncomingInvoice, "company_id">>;
 
@@ -57,7 +57,7 @@ export async function listIncomingInvoices(
     `SELECT ii.id, ii.company_id, ii.supplier_id, ii.invoice_number, ii.invoice_date,
 		        ii.net_cents, ii.tax_cents, ii.gross_cents, ii.status,
 		        ii.file_name, ii.file_type, ii.s3_key, ii.local_path,
-		        ii.notes, ii.created_at, ii.updated_at,
+		        ii.notes, ii.paid_date, ii.created_at, ii.updated_at,
 		        c.name as supplier_name, COUNT(*) OVER() AS _total_count
 		 FROM incoming_invoices ii
 		 LEFT JOIN customers c ON ii.supplier_id = c.id
@@ -94,11 +94,14 @@ export async function createIncomingInvoice(
   // INSERT list. It defaults to NULL at the SQL layer; new rows route their
   // PDF to `s3_key` (S3 path) or `local_path` (disk path) instead.
   const grossCents = data.net_cents + data.tax_cents;
+  // Rows created directly as 'bezahlt' take the invoice date as their
+  // Abfluss date (§ 11 EStG) — the closest signal we have at create time.
+  const paidDate = data.status === "bezahlt" ? data.invoice_date : null;
   const result = await db.execute(
     `INSERT INTO incoming_invoices (company_id, supplier_id, invoice_number, invoice_date,
 		  net_cents, tax_cents, gross_cents,
-		  status, file_name, file_type, s3_key, local_path, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		  status, file_name, file_type, s3_key, local_path, notes, paid_date)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [
       data.company_id,
       data.supplier_id,
@@ -113,6 +116,7 @@ export async function createIncomingInvoice(
       data.s3_key,
       data.local_path,
       data.notes,
+      paidDate,
     ],
   );
   return result.lastInsertId!;
@@ -169,8 +173,15 @@ export async function updateIncomingInvoiceStatus(
   status: string,
 ): Promise<void> {
   const db = await getDb();
+  // paid_date carries the Abfluss date (§ 11 EStG) for the EÜR: stamped on
+  // the transition into 'bezahlt' (kept if already set), cleared on the way
+  // out so it is non-NULL exactly while the bill is paid.
   await db.execute(
-    "UPDATE incoming_invoices SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+    `UPDATE incoming_invoices
+     SET status = $1,
+         paid_date = CASE WHEN $1 = 'bezahlt' THEN COALESCE(paid_date, date('now')) END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2`,
     [status, id],
   );
 }

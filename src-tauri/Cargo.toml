@@ -30,16 +30,25 @@ tauri-plugin-dialog = "2"
 # focus the existing window and exit the second launcher instead of letting
 # both instances open the same `bookie.db`.
 tauri-plugin-single-instance = "2"
-aws-sdk-s3 = { version = "1", default-features = false, features = ["rustls", "rt-tokio"] }
+# Minimal S3 stack (see src/s3.rs): Amazon's official SigV4 signing crates
+# plus a small blocking HTTP client. Replaces `aws-sdk-s3`, whose smithy /
+# hyper / tower transport stack accounted for several MB of release binary.
 aws-credential-types = "1"
-tokio = { version = "1", default-features = false, features = ["time", "macros", "rt"] }
+aws-sigv4 = "1"
+aws-smithy-runtime-api = "1"
+http = "1"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 log = "0.4"
-env_logger = "0.11"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
 tracing-appender = "0.2"
 tracing-log = "0.2"
-keyring = "4"
+# Secret storage. `keyring-core` provides `Entry`; the platform store crates
+# below provide the OS backend. Deliberately NOT the `keyring` facade crate:
+# its v4 release is the project's sample-code/CLI package and unconditionally
+# links clap, rpassword and db-keystore -> turso (a full SQLite engine) into
+# the binary (~multi-MB). The store selection in `run()` mirrors what
+# `keyring::use_native_store(false)` did.
 keyring-core = "1"
 sha2 = "0.11"
 url = "2"
@@ -72,6 +81,15 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 testcontainers = { version = "0.27", optional = true }
 testcontainers-modules = { version = "0.15", features = ["minio"], optional = true }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+linux-keyutils-keyring-store = "1"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # `rusqlite` is also a regular runtime dependency (see [dependencies] above)
@@ -88,9 +106,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # `cargo test` works without a Docker daemon.
 e2e = ["dep:testcontainers", "dep:testcontainers-modules"]
 
+[profile.dev]
+incremental = true
+
 [profile.release]
 panic = "abort" # Strip expensive panic clean-up logic
 codegen-units = 1 # Compile crates one after another so the compiler can optimize better
 lto = true # Enables link time optimizations
-opt-level = "s" # Optimize for binary size
+opt-level = "z" # Optimize for binary size, giving up loop vectorization ("s" keeps it)
 strip = true # Remove debug symbols

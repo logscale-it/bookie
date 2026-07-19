@@ -27,6 +27,26 @@ export interface EuerRow {
   profit: number;
 }
 
+/** EÜR (§ 4 Abs. 3 EStG) for a caller-chosen period. Amounts in euros. */
+export interface EuerReport {
+  from: string;
+  to: string;
+  /** Umsatzsteuerpflichtige Betriebseinnahmen, netto (Anlage EÜR Zeile 14). */
+  incomeTaxableNet: number;
+  /** Vereinnahmte Umsatzsteuer (Anlage EÜR Zeile 16). */
+  incomeVat: number;
+  /** Umsatzsteuerfreie / nicht steuerbare Betriebseinnahmen. */
+  incomeTaxFreeNet: number;
+  incomeTotal: number;
+  /** Betriebsausgaben, netto. */
+  expenseNet: number;
+  /** Gezahlte Vorsteuerbeträge (Anlage EÜR Zeile 55). */
+  expenseVat: number;
+  expenseTotal: number;
+  /** Gewinn/Verlust: Summe Einnahmen − Summe Ausgaben (Bruttoprinzip). */
+  profit: number;
+}
+
 interface RevenueByRateRow {
   period: string;
   tax_rate: number;
@@ -216,4 +236,64 @@ export async function getEuerData(
 
   log.debug("EÜR data", { year, groupBy, rows: result.length });
   return result;
+}
+
+/**
+ * EÜR for [from, to] (ISO dates, inclusive) on the Zufluss-/Abflussprinzip
+ * (§ 11 EStG): only rows whose paid_date falls in the period count — unpaid
+ * invoices and open bills are excluded. Gross method per Anlage EÜR:
+ * vereinnahmte USt is a Betriebseinnahme, gezahlte Vorsteuer a
+ * Betriebsausgabe. USt payments to the Finanzamt are not tracked in Bookie
+ * and therefore not part of the report (the CSV carries a note).
+ *
+ * Storno invoices marked paid enter with their negated amounts, which is
+ * exactly the Zufluss treatment of a refund.
+ */
+export async function getEuerReport(
+  companyId: number,
+  from: string,
+  to: string,
+): Promise<EuerReport> {
+  const db = await getDb();
+
+  const incomeRows = await db.select<
+    { taxable_net: number; vat: number; tax_free_net: number }[]
+  >(
+    `SELECT COALESCE(SUM(CASE WHEN tax_cents != 0 THEN net_cents END), 0) / 100.0 AS taxable_net,
+            COALESCE(SUM(tax_cents), 0) / 100.0 AS vat,
+            COALESCE(SUM(CASE WHEN tax_cents = 0 THEN net_cents END), 0) / 100.0 AS tax_free_net
+     FROM invoices
+     WHERE company_id = $1 AND status = 'paid'
+       AND paid_date >= $2 AND paid_date <= $3`,
+    [companyId, from, to],
+  );
+
+  const expenseRows = await db.select<{ net: number; vat: number }[]>(
+    `SELECT COALESCE(SUM(net_cents), 0) / 100.0 AS net,
+            COALESCE(SUM(tax_cents), 0) / 100.0 AS vat
+     FROM incoming_invoices
+     WHERE company_id = $1 AND status = 'bezahlt'
+       AND paid_date >= $2 AND paid_date <= $3`,
+    [companyId, from, to],
+  );
+
+  const inc = incomeRows[0] ?? { taxable_net: 0, vat: 0, tax_free_net: 0 };
+  const exp = expenseRows[0] ?? { net: 0, vat: 0 };
+  const incomeTotal = inc.taxable_net + inc.vat + inc.tax_free_net;
+  const expenseTotal = exp.net + exp.vat;
+
+  const report: EuerReport = {
+    from,
+    to,
+    incomeTaxableNet: inc.taxable_net,
+    incomeVat: inc.vat,
+    incomeTaxFreeNet: inc.tax_free_net,
+    incomeTotal,
+    expenseNet: exp.net,
+    expenseVat: exp.vat,
+    expenseTotal,
+    profit: incomeTotal - expenseTotal,
+  };
+  log.debug("EÜR report", { from, to, profit: report.profit });
+  return report;
 }

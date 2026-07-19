@@ -129,6 +129,15 @@ export default {
     exports: "Exports",
     exportUstva: "Export VAT return as CSV",
     exportEuer: "Export EÜR as CSV",
+    exportDatev: "DATEV export (posting batch)",
+    euerPeriodFrom: "From",
+    euerPeriodTo: "To",
+    exportEuerPeriod: "Create EÜR as PDF",
+    euerPeriodHint:
+      "Net income statement per § 4 (3) EStG (cash basis): only invoices paid within the period are included.",
+    euerPeriodInvalid: "Invalid period: 'From' must not be after 'To'.",
+    datevMissingSettings:
+      "Please set the DATEV consultant number and client number under Settings → Organisation first.",
     exporting: "Exporting…",
     exportSuccess: "Export saved successfully.",
     exportError: "Export failed",
@@ -379,6 +388,9 @@ export default {
     einvoiceFormatXrechnung: "XRechnung (XML only)",
     einvoiceFormatDeWarning:
       "Note: since 2025-01-01, German B2B invoices must be available as XRechnung or ZUGFeRD on request. XML generation is not yet implemented in Bookie (COMP-3.b).",
+    datevConsultantNumber: "DATEV consultant number",
+    datevClientNumber: "DATEV client number",
+    datevSkr: "DATEV chart of accounts (SKR)",
     invoiceTitle: "Invoice",
     currencyLabel: "Currency",
     decimalPlaces: "Decimal places",
