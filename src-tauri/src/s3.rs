@@ -170,13 +170,8 @@ impl S3Client {
             .map_err(|e| S3Error::Construction(e.to_string()))?
             .into();
 
-        let signable = SignableRequest::new(
-            method,
-            url,
-            headers.iter().copied(),
-            signable_body,
-        )
-        .map_err(|e| S3Error::Construction(e.to_string()))?;
+        let signable = SignableRequest::new(method, url, headers.iter().copied(), signable_body)
+            .map_err(|e| S3Error::Construction(e.to_string()))?;
 
         let (instructions, _signature) = sign(signable, &params)
             .map_err(|e| S3Error::Construction(e.to_string()))?
@@ -237,12 +232,7 @@ impl S3Client {
         }
     }
 
-    pub fn put_object(
-        &self,
-        key: &str,
-        body: &[u8],
-        content_type: &str,
-    ) -> Result<(), S3Error> {
+    pub fn put_object(&self, key: &str, body: &[u8], content_type: &str) -> Result<(), S3Error> {
         self.send("PUT", key, body, Some(content_type)).map(|_| ())
     }
 

@@ -1696,10 +1696,7 @@ async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
             BookieError::S3Unreachable
         })?;
 
-        let _ = with_retry(
-            || client.delete_object(test_key),
-            RetryPolicy::s3_default(),
-        );
+        let _ = with_retry(|| client.delete_object(test_key), RetryPolicy::s3_default());
 
         info!("S3 connection test successful");
         Ok(())
@@ -1959,14 +1956,13 @@ async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, Book
         // `with_retry`. A mid-stream read failure surfaces as a transport
         // error and is retried whole — partial bodies are not resumable
         // without ranged GETs.
-        let bytes = with_retry(|| client.get_object(&key), RetryPolicy::s3_default()).map_err(
-            |e| {
+        let bytes =
+            with_retry(|| client.get_object(&key), RetryPolicy::s3_default()).map_err(|e| {
                 error!("S3 download failed: key={key}, {e}");
                 // S3Unreachable: catch-all at the download boundary
                 // (mirrors `restore_db_backup`'s mapping).
                 BookieError::S3Unreachable
-            },
-        )?;
+            })?;
 
         info!("S3 download successful: key={key}, size={}", bytes.len());
         Ok(bytes)
