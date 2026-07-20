@@ -193,8 +193,12 @@
 		const stamp = Date.now();
 		const safeName = file.name.replace(/[\\/]/g, '_');
 		const path = `${appDataDir}${sep}incoming_invoices/${stamp}-${safeName}`;
-		const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-		await invoke('write_binary_file', { path, data: bytes });
+		// Raw-body invoke: the bytes travel as the request body (no JSON
+		// number array), the path as a percent-encoded header.
+		const bytes = new Uint8Array(await file.arrayBuffer());
+		await invoke('write_binary_file', bytes, {
+			headers: { 'x-bookie-path': encodeURIComponent(path) }
+		});
 		return path;
 	}
 

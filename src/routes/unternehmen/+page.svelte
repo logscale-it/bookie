@@ -237,10 +237,13 @@
 				exportingCustomerId = null;
 				return;
 			}
-			const bytes = await exportCustomerData(customer.id);
-			await invoke('write_binary_file', {
-				path: filePath,
-				data: Array.from(bytes)
+			const { textEntries, binaryEntries } = await exportCustomerData(customer.id);
+			// Rust assembles the ZIP straight to the chosen path; only the small
+			// entry contents cross IPC (the PDF is a one-page summary).
+			await invoke('write_zip_file', {
+				targetPath: filePath,
+				textEntries,
+				binaryEntries: binaryEntries.map(([name, bytes]) => [name, Array.from(bytes)])
 			});
 			toasts.success(`DSGVO-Auskunft für „${customer.name}“ gespeichert.`);
 		} catch (e) {

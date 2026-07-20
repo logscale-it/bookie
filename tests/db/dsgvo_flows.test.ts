@@ -40,7 +40,6 @@ import {
 import { withTransaction } from "../../src/lib/db/connection";
 import type { Customer, Invoice } from "../../src/lib/db/types";
 
-import JSZip from "jszip";
 
 const ANONYMIZED_LABEL = "Anonymisiert";
 const RETENTION_REASON =
@@ -567,15 +566,12 @@ describe("COMP-2.c: DSGVO export + erasure flows", () => {
     // Post-erasure FK check.
     expect(fkViolations()).toHaveLength(0);
 
-    // The export bundle must still produce a valid ZIP and reference
-    // every invoice id (none were deleted).
-    const bytes = await exportCustomerData(customerId);
-    expect(bytes.length).toBeGreaterThan(0);
-    const zip = await JSZip.loadAsync(bytes);
+    // The export bundle must still reference every invoice id (none were
+    // deleted).
+    const { textEntries } = await exportCustomerData(customerId);
+    const entries = new Map(textEntries);
 
-    const invoicesJson = JSON.parse(
-      await zip.file("invoices.json")!.async("string"),
-    ) as Array<{
+    const invoicesJson = JSON.parse(entries.get("invoices.json")!) as Array<{
       id: number;
       customer_id: number;
       recipient_name: string | null;
@@ -587,7 +583,7 @@ describe("COMP-2.c: DSGVO export + erasure flows", () => {
     expect(invoicesJson.every((i) => i.customer_id === customerId)).toBe(true);
 
     const auditJson = JSON.parse(
-      await zip.file("audit_events.json")!.async("string"),
+      entries.get("audit_events.json")!,
     ) as Array<{ entity_type: string; entity_id: number; op: string }>;
     // Audit rows for ALL three invoices' INSERTs survive.
     const insertEntityIds = auditJson

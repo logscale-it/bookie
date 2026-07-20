@@ -7,7 +7,7 @@
 # Bookie - A small buisness accounting app
 
 Bookie is a minimalistic app that helps you store and create invoices. Fully local and compliant with the german Law.
-
+Optimized to the bureaucracy hell that germany is. And with ~6MB Bundle size and 
 ## To run and compile
 
 ### Install dependendcies

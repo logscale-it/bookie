@@ -5,12 +5,12 @@
 //! per-file SHA-256 digests, and a top-level `export_signature.txt` that is
 //! the SHA-256 of the manifest itself.
 //!
-//! The export is constructed in-memory and returned to the caller as bytes;
-//! the Tauri command at the call site is responsible for handing those bytes
-//! to the frontend (which writes them via the standard download flow used by
-//! `backup_database`). This keeps `gobd` itself free of Tauri / filesystem
-//! coupling so the entire pipeline is unit-testable against a temp SQLite
-//! DB without a running app.
+//! The ZIP is streamed into a caller-provided `Write + Seek` sink (a file in
+//! production, a `Cursor<Vec<u8>>` in tests), so the archive is never held
+//! in memory as a whole — only the per-table CSV currently being written.
+//! This keeps `gobd` itself free of Tauri / filesystem coupling so the
+//! entire pipeline is unit-testable against a temp SQLite DB without a
+//! running app.
 //!
 //! ## Archive layout
 //!
@@ -42,7 +42,7 @@
 //! universe of the requested period, including the parties involved and the
 //! complete change history.
 
-use std::io::{Cursor, Write};
+use std::io::{Seek, Write};
 
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -86,11 +86,11 @@ pub struct Manifest {
     pub files: Vec<ManifestEntry>,
 }
 
-/// Result of a successful export.
+/// Result of a successful export. The archive bytes live in whatever sink
+/// the caller handed to `build_export`.
 #[derive(Debug)]
 pub struct GobdExport {
     pub file_name: String,
-    pub bytes: Vec<u8>,
     /// Hex SHA-256 of `manifest.json` — also written to
     /// `export_signature.txt` inside the ZIP. Returned separately so the
     /// caller can log / surface it without re-parsing the archive.
@@ -337,7 +337,11 @@ pub fn open_readonly(db_path: &std::path::Path) -> Result<Connection, GobdError>
 /// End-to-end: read the DB, dump each table, build the manifest, sign it,
 /// and return the assembled ZIP bytes. Pure I/O wrapper around the helpers
 /// above so the orchestration is itself unit-testable.
-pub fn build_export(conn: &Connection, range: YearRange) -> Result<GobdExport, GobdError> {
+pub fn build_export<W: Write + Seek>(
+    conn: &Connection,
+    range: YearRange,
+    out: W,
+) -> Result<GobdExport, GobdError> {
     if range.from > range.to {
         return Err(GobdError::InvalidRange {
             from: range.from,
@@ -376,30 +380,27 @@ pub fn build_export(conn: &Connection, range: YearRange) -> Result<GobdExport, G
     let manifest_json = serde_json::to_vec_pretty(&manifest)?;
     let signature = sha256_hex(&manifest_json);
 
-    // 4. Stream everything into an in-memory ZIP.
-    let mut buf: Vec<u8> = Vec::new();
-    {
-        let mut zip = ZipWriter::new(Cursor::new(&mut buf));
-        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    // 4. Stream everything into the caller-provided sink.
+    let mut zip = ZipWriter::new(out);
+    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
-        for (path, bytes) in &files {
-            zip.start_file(path, opts)?;
-            zip.write_all(bytes)?;
-        }
-
-        zip.start_file("manifest.json", opts)?;
-        zip.write_all(&manifest_json)?;
-
-        zip.start_file("export_signature.txt", opts)?;
-        zip.write_all(signature.as_bytes())?;
-
-        zip.finish()?;
+    for (path, bytes) in &files {
+        zip.start_file(path, opts)?;
+        zip.write_all(bytes)?;
     }
+
+    zip.start_file("manifest.json", opts)?;
+    zip.write_all(&manifest_json)?;
+
+    zip.start_file("export_signature.txt", opts)?;
+    zip.write_all(signature.as_bytes())?;
+
+    let mut out = zip.finish()?;
+    out.flush()?;
 
     let file_name = format!("gobd-export-{}-{}.zip", range.from, range.to);
     Ok(GobdExport {
         file_name,
-        bytes: buf,
         signature,
     })
 }
@@ -565,6 +566,7 @@ inside');
                 from: 2025,
                 to: 2024,
             },
+            std::io::Cursor::new(Vec::new()),
         )
         .expect_err("inverted range must reject");
         assert!(matches!(
@@ -689,19 +691,21 @@ inside');
     #[test]
     fn build_export_produces_zip_with_expected_layout() {
         let conn = seed_db();
+        let mut buf: Vec<u8> = Vec::new();
         let export = build_export(
             &conn,
             YearRange {
                 from: 2024,
                 to: 2025,
             },
+            std::io::Cursor::new(&mut buf),
         )
         .expect("export");
         assert_eq!(export.file_name, "gobd-export-2024-2025.zip");
         assert_eq!(export.signature.len(), 64);
 
         // Re-open the ZIP and check the entries.
-        let cursor = std::io::Cursor::new(&export.bytes);
+        let cursor = std::io::Cursor::new(&buf);
         let mut zip = zip::ZipArchive::new(cursor).expect("open zip");
         let mut names: Vec<String> = (0..zip.len())
             .map(|i| zip.by_index(i).unwrap().name().to_string())
@@ -724,16 +728,18 @@ inside');
     #[test]
     fn build_export_manifest_sha_matches_file_bytes() {
         let conn = seed_db();
-        let export = build_export(
+        let mut buf: Vec<u8> = Vec::new();
+        let _export = build_export(
             &conn,
             YearRange {
                 from: 2024,
                 to: 2025,
             },
+            std::io::Cursor::new(&mut buf),
         )
         .expect("export");
 
-        let cursor = std::io::Cursor::new(&export.bytes);
+        let cursor = std::io::Cursor::new(&buf);
         let mut zip = zip::ZipArchive::new(cursor).expect("open zip");
 
         // Read manifest.
@@ -769,16 +775,18 @@ inside');
     #[test]
     fn build_export_signature_matches_manifest_sha() {
         let conn = seed_db();
+        let mut archive_buf: Vec<u8> = Vec::new();
         let export = build_export(
             &conn,
             YearRange {
                 from: 2024,
                 to: 2025,
             },
+            std::io::Cursor::new(&mut archive_buf),
         )
         .expect("export");
 
-        let cursor = std::io::Cursor::new(&export.bytes);
+        let cursor = std::io::Cursor::new(&archive_buf);
         let mut zip = zip::ZipArchive::new(cursor).expect("open zip");
 
         let mut manifest_bytes = Vec::new();
@@ -809,16 +817,18 @@ inside');
         // Implement the verification step from the issue: a simple,
         // RFC-4180-compliant parser must reconstruct the original cells.
         let conn = seed_db();
-        let export = build_export(
+        let mut archive_buf: Vec<u8> = Vec::new();
+        let _export = build_export(
             &conn,
             YearRange {
                 from: 2024,
                 to: 2025,
             },
+            std::io::Cursor::new(&mut archive_buf),
         )
         .expect("export");
 
-        let cursor = std::io::Cursor::new(&export.bytes);
+        let cursor = std::io::Cursor::new(&archive_buf);
         let mut zip = zip::ZipArchive::new(cursor).expect("open zip");
 
         for name in [
@@ -852,16 +862,18 @@ inside');
         // Spot-check that the cells with commas/quotes/newlines come back
         // bit-for-bit through the parser.
         let conn = seed_db();
-        let export = build_export(
+        let mut archive_buf: Vec<u8> = Vec::new();
+        let _export = build_export(
             &conn,
             YearRange {
                 from: 2024,
                 to: 2025,
             },
+            std::io::Cursor::new(&mut archive_buf),
         )
         .expect("export");
 
-        let cursor = std::io::Cursor::new(&export.bytes);
+        let cursor = std::io::Cursor::new(&archive_buf);
         let mut zip = zip::ZipArchive::new(cursor).expect("open zip");
         let mut buf = Vec::new();
         zip.by_name("customers.csv")
@@ -888,16 +900,18 @@ inside');
     #[test]
     fn schema_version_includes_user_version_and_columns() {
         let conn = seed_db();
-        let export = build_export(
+        let mut archive_buf: Vec<u8> = Vec::new();
+        let _export = build_export(
             &conn,
             YearRange {
                 from: 2024,
                 to: 2025,
             },
+            std::io::Cursor::new(&mut archive_buf),
         )
         .expect("export");
 
-        let cursor = std::io::Cursor::new(&export.bytes);
+        let cursor = std::io::Cursor::new(&archive_buf);
         let mut zip = zip::ZipArchive::new(cursor).expect("open zip");
         let mut buf = Vec::new();
         zip.by_name("schema_version.txt")

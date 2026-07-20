@@ -5,9 +5,6 @@ const keyring: {
   creds: { accessKeyId: string; secretAccessKey: string } | null;
 } = { creds: null };
 
-// Track the last `backup_database` invocation outcome the test wants.
-const backend: { backupShouldFail: Error | null } = { backupShouldFail: null };
-
 mock.module("@tauri-apps/api/core", () => ({
   invoke: async (cmd: string, args?: unknown) => {
     if (cmd === "store_s3_credentials") {
@@ -26,24 +23,22 @@ mock.module("@tauri-apps/api/core", () => ({
       keyring.creds = null;
       return;
     }
-    if (cmd === "backup_database") {
-      if (backend.backupShouldFail) throw backend.backupShouldFail;
-      return { file_name: "bookie.db", bytes: [1, 2, 3, 4] };
-    }
     throw new Error(`unmocked invoke: ${cmd}`);
   },
 }));
 
-// Stub the S3 client so the test never touches the network. Each test arms
-// uploadShouldFail to flip the outcome.
+// Stub the S3 client so the test never touches the network. performBackup
+// goes through a single `backupDbToS3` call (the backend streams the DB from
+// disk); each test arms uploadShouldFail to flip the outcome.
 const s3client: { uploadShouldFail: Error | null; uploads: number } = {
   uploadShouldFail: null,
   uploads: 0,
 };
 mock.module("../../src/lib/s3/client", () => ({
-  uploadFile: async () => {
+  backupDbToS3: async () => {
     s3client.uploads += 1;
     if (s3client.uploadShouldFail) throw s3client.uploadShouldFail;
+    return "rechnungen/backups/bookie-test.db";
   },
 }));
 
@@ -67,7 +62,6 @@ const BASE_S3 = {
 
 beforeEach(async () => {
   keyring.creds = { accessKeyId: "AKIA", secretAccessKey: "SECRET" };
-  backend.backupShouldFail = null;
   s3client.uploadShouldFail = null;
   s3client.uploads = 0;
   await settings.saveS3Settings({ ...BASE_S3 });
@@ -100,8 +94,10 @@ describe("performBackup status persistence — REL-3.b", () => {
     expect(after.last_auto_backup_at).not.toBeNull();
   });
 
-  test("backup_database failure is recorded with local_backup_error reason", async () => {
-    backend.backupShouldFail = new Error("sqlite disk I/O");
+  test("local backup failure is recorded with local_backup_error reason", async () => {
+    // The single s3_backup_db command surfaces local DB read problems too;
+    // the "sqlite" marker in the message drives the classification.
+    s3client.uploadShouldFail = new Error("sqlite disk I/O");
     let threw: unknown = null;
     try {
       await performBackup();
@@ -112,8 +108,7 @@ describe("performBackup status persistence — REL-3.b", () => {
     const after = await settings.getS3Settings();
     expect(after.last_auto_backup_status).toBe("failure");
     expect(after.last_auto_backup_error).toBe("local_backup_error");
-    // No upload should have happened — the local backup itself failed.
-    expect(s3client.uploads).toBe(0);
+    expect(s3client.uploads).toBe(1);
   });
 
   test("recovery: failure followed by success clears the error", async () => {

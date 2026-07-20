@@ -1,10 +1,9 @@
-import { invoke } from "@tauri-apps/api/core";
 import {
   getS3Settings,
   saveS3Settings,
   type UpsertS3Settings,
 } from "$lib/db/settings";
-import { uploadFile } from "$lib/s3/client";
+import { backupDbToS3 } from "$lib/s3/client";
 import { createLogger } from "$lib/logger";
 
 const log = createLogger("auto-backup");
@@ -98,22 +97,19 @@ export async function performBackup(s3?: UpsertS3Settings): Promise<void> {
   log.info("Starting backup");
   const settings = s3 ?? (await getS3Settings());
   try {
-    const { bytes } = await invoke<{ file_name: string; bytes: number[] }>(
-      "backup_database",
-    );
-
     const timestamp = new Date()
       .toISOString()
       .replace(/[:.]/g, "-")
       .slice(0, 19);
     const backupFileName = `bookie-${timestamp}.db`;
 
-    await uploadFile(
+    // Single backend command: the DB streams from disk to S3 in Rust.
+    // The old flow (backup_database → uploadFile) hauled the whole DB
+    // across the IPC boundary twice as JSON number arrays.
+    await backupDbToS3(
       settings,
       `${settings.path_prefix}/backups`,
       backupFileName,
-      new Uint8Array(bytes),
-      "application/octet-stream",
     );
 
     await saveS3Settings({

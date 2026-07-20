@@ -40,7 +40,10 @@ http = "1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 log = "0.4"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
+# `env-filter` deliberately absent: RUST_LOG parsing goes through
+# `filter::Targets` (same directive syntax, no regex-automata/matchers in
+# the binary).
+tracing-subscriber = { version = "0.3", features = ["json", "fmt"] }
 tracing-appender = "0.2"
 tracing-log = "0.2"
 # Secret storage. `keyring-core` provides `Entry`; the platform store crates
@@ -52,6 +55,10 @@ tracing-log = "0.2"
 keyring-core = "1"
 sha2 = "0.11"
 url = "2"
+# Decodes the percent-encoded target path header of the raw-body
+# `write_binary_file` IPC (file bytes travel as the raw invoke body instead
+# of a JSON number array). Already in the tree via `url`.
+percent-encoding = "2"
 # COMP-1.b: GoBD-Export ZIP generator. `zip` is used to build the export
 # archive (per-table CSV + manifest + signature) in `export_gobd`.
 # `default-features = false` keeps the dependency lean (no bzip2/zstd
@@ -71,6 +78,11 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 # sqlx-sqlite via tauri-plugin-sql, so this does not introduce a second
 # native sqlite library.
 rusqlite = { version = "0.32", features = ["bundled"] }
+# Direct dep so `run()` can build a small fixed runtime (2 workers, blocking
+# cap 8) handed to `tauri::async_runtime::set` — tauri's default runtime sizes
+# workers to CPU count and caps the blocking pool at 512 threads. Already
+# compiled in via tauri, so this adds no binary weight.
+tokio = { version = "1", features = ["rt-multi-thread"] }
 # E2E-only: ephemeral MinIO container fixture for end-to-end S3 round-trip
 # tests (TEST-3.a). Declared here (not in [dev-dependencies]) because Cargo
 # does not allow dev-dependencies to be `optional`. Pulled in only when the

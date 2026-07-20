@@ -16,7 +16,12 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_sql::{DbInstances, Migration, MigrationKind};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{Builder as RollingBuilder, Rotation};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{
+    filter::{LevelFilter, Targets},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    Layer,
+};
 
 const DB_URL: &str = "sqlite:bookie.db";
 const DB_FILE_NAME: &str = "bookie.db";
@@ -873,12 +878,6 @@ mod boot_check_tests {
     }
 }
 
-#[derive(Serialize)]
-struct BackupPayload {
-    file_name: String,
-    bytes: Vec<u8>,
-}
-
 fn app_migrations() -> Vec<Migration> {
     vec![
         Migration {
@@ -1270,22 +1269,23 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, BookieError> {
     Ok(app_data_db)
 }
 
+/// Copy the live DB to a user-chosen path. Streaming `fs::copy` on the Rust
+/// side — the previous shape returned the whole file as IPC bytes, which
+/// buffered the DB twice (Vec + serialized IPC payload) just to write it back
+/// to disk in the frontend.
 #[tauri::command]
-fn backup_database(app: AppHandle) -> Result<BackupPayload, BookieError> {
-    info!("Creating database backup");
+fn backup_database(app: AppHandle, target_path: String) -> Result<u64, BookieError> {
+    info!("Creating database backup at {target_path}");
     let db_file = db_path(&app)?;
-    let bytes = fs::read(&db_file).map_err(|err| {
-        error!("Failed to read backup: {err}");
+    let bytes = fs::copy(&db_file, &target_path).map_err(|err| {
+        error!("Failed to write backup: {err}");
         BookieError::IoError {
-            message: format!("Failed to read backup: {err}"),
+            message: format!("Failed to write backup: {err}"),
         }
     })?;
 
-    info!("Backup created: {} bytes", bytes.len());
-    Ok(BackupPayload {
-        file_name: DB_FILE_NAME.to_string(),
-        bytes,
-    })
+    info!("Backup created: {bytes} bytes");
+    Ok(bytes)
 }
 
 /// SQLite magic header bytes: "SQLite format 3\0"
@@ -1304,13 +1304,29 @@ fn validate_restore_bytes(bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Restore the live DB from a user-chosen file on disk. Path-based: the file
+/// never crosses the IPC boundary (the previous shape received the whole DB
+/// as a JSON number array). Validation reads only the 16-byte header; the
+/// copy goes through the same tmp-file + atomic-rename + parent-fsync flow as
+/// the S3 restore.
 #[tauri::command]
-fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), BookieError> {
-    info!("Database restore started ({} bytes)", bytes.len());
-    // `validate_restore_bytes` is a pure helper that still returns String for
-    // its own unit tests; map its rejection messages into BackupCorrupt at the
-    // command boundary.
-    validate_restore_bytes(&bytes).map_err(|msg| {
+fn restore_database(app: AppHandle, source_path: String) -> Result<(), BookieError> {
+    use std::io::Read;
+
+    info!("Database restore started from {source_path}");
+    // Header-only validation via the same helper the byte-based flow used —
+    // `validate_restore_bytes` only ever inspects the first 16 bytes, so
+    // feeding it the header is equivalent to feeding it the whole file.
+    let mut header = Vec::with_capacity(16);
+    fs::File::open(&source_path)
+        .and_then(|f| f.take(16).read_to_end(&mut header).map(|_| ()))
+        .map_err(|err| {
+            error!("Failed to read restore source: {err}");
+            BookieError::IoError {
+                message: format!("Failed to read restore source: {err}"),
+            }
+        })?;
+    validate_restore_bytes(&header).map_err(|msg| {
         error!("Restore validation failed: {msg}");
         BookieError::BackupCorrupt
     })?;
@@ -1323,23 +1339,33 @@ fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), BookieError> {
         let _ = fs::copy(&db_file, &backup_file);
     }
 
-    let wal_file = db_file.with_extension("db-wal");
-    let shm_file = db_file.with_extension("db-shm");
-
+    let (wal_file, shm_file) = wal_shm_sibling_paths(&db_file);
     if wal_file.exists() {
         let _ = fs::remove_file(&wal_file);
     }
-
     if shm_file.exists() {
         let _ = fs::remove_file(&shm_file);
     }
 
-    fs::write(db_file, bytes).map_err(|err| {
+    // Copy into a tmp sibling, then atomically rename into place — a crash
+    // mid-copy can no longer leave a half-written live DB.
+    let tmp_file = restore_tmp_path(&db_file);
+    fs::copy(&source_path, &tmp_file).map_err(|err| {
+        error!("Failed to stage restore copy: {err}");
+        BookieError::IoError {
+            message: format!("Failed to stage restore copy: {err}"),
+        }
+    })?;
+    atomic_swap_into_place(&tmp_file, &db_file).map_err(|err| {
+        let _ = remove_if_exists(&tmp_file);
         error!("Failed to restore backup: {err}");
         BookieError::IoError {
             message: format!("Failed to restore backup: {err}"),
         }
     })?;
+    if let Err(e) = fsync_parent_dir(&db_file) {
+        warn!("fsync of parent dir failed after restore swap (rename succeeded): {e}");
+    }
 
     info!("Database restored successfully");
     Ok(())
@@ -1354,16 +1380,21 @@ fn restore_database(app: AppHandle, bytes: Vec<u8>) -> Result<(), BookieError> {
 ///
 /// 1. Resolves the live DB path.
 /// 2. Opens it READ-ONLY (no writer-pool contention).
-/// 3. Delegates to `gobd::build_export`.
-/// 4. Returns `BackupPayload`-shaped bytes so the existing frontend
-///    download flow (`downloadFile`) works unchanged.
+/// 3. Delegates to `gobd::build_export`, streaming the ZIP straight into
+///    the user-chosen `target_path` — the archive is never buffered whole
+///    (the frontend picks the path via the save dialog beforehand).
 ///
 /// On failure every error variant is mapped onto `BookieError::IoError` —
 /// the underlying `GobdError` stringification is descriptive enough for the
 /// settings page; no new typed variants are introduced for this issue.
 #[tauri::command]
-fn export_gobd(app: AppHandle, from_year: i32, to_year: i32) -> Result<BackupPayload, BookieError> {
-    info!("GoBD export started: {from_year}..={to_year}");
+fn export_gobd(
+    app: AppHandle,
+    from_year: i32,
+    to_year: i32,
+    target_path: String,
+) -> Result<(), BookieError> {
+    info!("GoBD export started: {from_year}..={to_year} -> {target_path}");
 
     let db_file = db_path(&app)?;
     let conn = gobd::open_readonly(&db_file).map_err(|e| {
@@ -1373,12 +1404,20 @@ fn export_gobd(app: AppHandle, from_year: i32, to_year: i32) -> Result<BackupPay
         }
     })?;
 
+    let out = fs::File::create(&target_path).map_err(|e| {
+        error!("Failed to create GoBD export file: {e}");
+        BookieError::IoError {
+            message: format!("create export file: {e}"),
+        }
+    })?;
+
     let export = gobd::build_export(
         &conn,
         gobd::YearRange {
             from: from_year,
             to: to_year,
         },
+        std::io::BufWriter::new(out),
     )
     .map_err(|e| {
         error!("GoBD export failed: {e}");
@@ -1388,24 +1427,85 @@ fn export_gobd(app: AppHandle, from_year: i32, to_year: i32) -> Result<BackupPay
     })?;
 
     info!(
-        "GoBD export complete: {} ({} bytes, signature={})",
-        export.file_name,
-        export.bytes.len(),
-        export.signature
+        "GoBD export complete: {} (signature={})",
+        export.file_name, export.signature
     );
 
-    Ok(BackupPayload {
-        file_name: export.file_name,
-        bytes: export.bytes,
+    Ok(())
+}
+
+/// Raw-body IPC: the file bytes arrive as the invoke body (no JSON number
+/// array — the previous shape boxed every byte into a JS number on the way
+/// in, ~8× the file size transiently). The target path travels
+/// percent-encoded in the `x-bookie-path` header because header values must
+/// be ASCII while app-data paths may not be.
+#[tauri::command]
+fn write_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), BookieError> {
+    let path = request
+        .headers()
+        .get("x-bookie-path")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| {
+            percent_encoding::percent_decode_str(v)
+                .decode_utf8_lossy()
+                .into_owned()
+        })
+        .ok_or_else(|| BookieError::IoError {
+            message: "write_binary_file: missing x-bookie-path header".to_string(),
+        })?;
+
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err(BookieError::IoError {
+            message: "write_binary_file: expected raw body".to_string(),
+        });
+    };
+
+    info!("Writing file: {path}");
+    fs::write(&path, data).map_err(|e| BookieError::IoError {
+        message: format!("Failed to write file: {e}"),
     })
 }
 
+/// Write a ZIP archive of small entries to `target_path`. Frontend export
+/// flows (DSGVO Art. 15) assemble their content in the webview; zipping and
+/// disk I/O happen here so the archive bytes never cross the IPC boundary
+/// and the frontend needs no ZIP library of its own.
 #[tauri::command]
-fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), BookieError> {
-    info!("Writing file: {path}");
-    fs::write(&path, &data).map_err(|e| BookieError::IoError {
-        message: format!("Failed to write file: {e}"),
-    })
+fn write_zip_file(
+    target_path: String,
+    text_entries: Vec<(String, String)>,
+    binary_entries: Vec<(String, Vec<u8>)>,
+) -> Result<(), BookieError> {
+    use std::io::Write as _;
+    use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+
+    info!("Writing ZIP: {target_path}");
+    let io_err = |e: String| BookieError::IoError { message: e };
+
+    let file = fs::File::create(&target_path)
+        .map_err(|e| io_err(format!("Failed to create ZIP file: {e}")))?;
+    let mut zip = ZipWriter::new(std::io::BufWriter::new(file));
+    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    for (name, content) in &text_entries {
+        zip.start_file(name, opts)
+            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+        zip.write_all(content.as_bytes())
+            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+    }
+    for (name, content) in &binary_entries {
+        zip.start_file(name, opts)
+            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+        zip.write_all(content)
+            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+    }
+
+    let mut out = zip
+        .finish()
+        .map_err(|e| io_err(format!("Failed to finish ZIP: {e}")))?;
+    out.flush()
+        .map_err(|e| io_err(format!("Failed to flush ZIP: {e}")))?;
+    Ok(())
 }
 
 /// Read a file from disk and return its bytes.
@@ -1946,6 +2046,47 @@ async fn s3_upload_file(
     .await
 }
 
+/// Upload the live DB straight from disk to S3. The DB never crosses the IPC
+/// boundary and is never buffered whole — `put_object_from_file` streams it
+/// with a 64 KB window and returns the SHA-256 for the sidecar. Replaces the
+/// frontend's `backup_database` → `s3_upload_file` pair for auto-backups.
+#[tauri::command]
+async fn s3_backup_db(
+    app: AppHandle,
+    config: S3Config,
+    path_prefix: String,
+    file_name: String,
+) -> Result<String, BookieError> {
+    let prefix = path_prefix.trim_end_matches('/');
+    let key = if prefix.is_empty() {
+        file_name
+    } else {
+        format!("{prefix}/{file_name}")
+    };
+
+    let db_file = db_path(&app)?;
+    info!("S3 DB backup: key={key}");
+    let client = config.build_client()?;
+
+    run_s3_task(move || {
+        let digest = with_retry(
+            || client.put_object_from_file(&key, &db_file, "application/octet-stream"),
+            RetryPolicy::s3_default(),
+        )
+        .map_err(|e| {
+            error!("S3 DB backup failed: key={key}, {e}");
+            BookieError::S3Unreachable
+        })?;
+
+        info!("S3 DB backup successful: key={key}");
+        // The upload is the DB by construction — no magic-header sniffing
+        // needed to decide whether a sidecar belongs next to it.
+        upload_sha256_sidecar(&client, &key, &digest);
+        Ok(key)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, BookieError> {
     info!("S3 download: key={key}");
@@ -2024,30 +2165,6 @@ async fn restore_db_backup(
 
     let client = config.build_client()?;
 
-    // 1. Download the backup into the .tmp file.
-    let backup_bytes = {
-        let client = client.clone();
-        let key = key.clone();
-        run_s3_task(move || {
-            client.get_object(&key).map_err(|e| {
-                error!("S3 download failed: key={key}, {e}");
-                BookieError::S3Unreachable
-            })
-        })
-        .await?
-    };
-
-    if backup_bytes.is_empty() {
-        return Err(BookieError::BackupCorrupt);
-    }
-
-    fs::write(&tmp_file, &backup_bytes).map_err(|err| {
-        error!("Failed to write restore tmp: {err}");
-        BookieError::IoError {
-            message: format!("Failed to write restore tmp: {err}"),
-        }
-    })?;
-
     // Helper: clean up the .tmp file on any abort path.
     let cleanup_tmp = |path: &PathBuf| {
         if path.exists() {
@@ -2056,6 +2173,35 @@ async fn restore_db_backup(
             }
         }
     };
+
+    // 1. Stream the backup straight into the .tmp file, hashing while
+    // writing — the digest comes back for free, so step 3 no longer has to
+    // re-read the file, and the whole flow holds one 64 KB buffer instead of
+    // up to 2× the DB size.
+    let download = {
+        let client = client.clone();
+        let key = key.clone();
+        let tmp = tmp_file.clone();
+        run_s3_task(move || {
+            client.get_object_to_file(&key, &tmp).map_err(|e| {
+                error!("S3 download failed: key={key}, {e}");
+                BookieError::S3Unreachable
+            })
+        })
+        .await
+    };
+    let (downloaded_bytes, actual_digest) = match download {
+        Ok(v) => v,
+        Err(e) => {
+            cleanup_tmp(&tmp_file);
+            return Err(e);
+        }
+    };
+
+    if downloaded_bytes == 0 {
+        cleanup_tmp(&tmp_file);
+        return Err(BookieError::BackupCorrupt);
+    }
 
     // 2. Fetch the sidecar.
     let sidecar_key = format!("{key}.sha256");
@@ -2115,25 +2261,29 @@ async fn restore_db_backup(
         }
     };
 
-    // 3. Verify the .tmp file's SHA-256 matches the sidecar.
+    // 3. Verify the streamed digest matches the sidecar.
     if let Some(expected) = expected_digest.as_deref() {
-        let tmp_bytes = fs::read(&tmp_file).map_err(|err| {
+        if actual_digest != expected {
             cleanup_tmp(&tmp_file);
-            BookieError::IoError {
-                message: format!("Failed to re-read restore tmp: {err}"),
-            }
-        })?;
-        let actual = sha256_hex(&tmp_bytes);
-        if actual != expected {
-            cleanup_tmp(&tmp_file);
-            error!("Sidecar SHA-256 mismatch: expected={expected}, actual={actual}, key={key}");
+            error!(
+                "Sidecar SHA-256 mismatch: expected={expected}, actual={actual_digest}, key={key}"
+            );
             return Err(BookieError::BackupSidecarMismatch);
         }
         info!("Sidecar SHA-256 verified for key={key}");
     }
 
-    // 4. Sanity-check the SQLite magic header on the verified .tmp file.
-    if !is_sqlite_backup(&backup_bytes) {
+    // 4. Sanity-check the SQLite magic header on the verified .tmp file —
+    // 16 bytes read, not the whole file.
+    let header_ok = {
+        use std::io::Read;
+        let mut header = [0u8; SQLITE_MAGIC.len()];
+        fs::File::open(&tmp_file)
+            .and_then(|mut f| f.read_exact(&mut header))
+            .is_ok()
+            && &header == SQLITE_MAGIC
+    };
+    if !header_ok {
         cleanup_tmp(&tmp_file);
         error!("Restored bytes failed SQLite magic-header check: key={key}");
         return Err(BookieError::BackupCorrupt);
@@ -3028,10 +3178,28 @@ fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::e
         .max_log_files(14)
         .build(log_dir)?;
 
-    let (nb_writer, guard) = tracing_appender::non_blocking(file_appender);
+    // The default `buffered_lines_limit` of 128_000 preallocates a ~4 MB
+    // crossbeam ring buffer up front — the single largest allocation in the
+    // process. 1024 queued lines is ample for an app log; the writer stays
+    // lossy, so bursts beyond that drop lines instead of blocking.
+    let (nb_writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .buffered_lines_limit(1024)
+        .finish(file_appender);
 
+    // `Targets` parses the same "target=level,..." directive syntax as
+    // EnvFilter for the subset we use, without dragging the regex machinery
+    // (`regex-automata`/`matchers`) of the `env-filter` feature into the
+    // binary. Span-field filtering (`[span{field=..}]`) is not supported —
+    // nothing here used it.
     let env_filter = || {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,bookie=debug"))
+        std::env::var("RUST_LOG")
+            .ok()
+            .and_then(|directives| directives.parse::<Targets>().ok())
+            .unwrap_or_else(|| {
+                Targets::new()
+                    .with_default(LevelFilter::INFO)
+                    .with_target("bookie", LevelFilter::DEBUG)
+            })
     };
 
     let stdout_layer = tracing_subscriber::fmt::layer()
@@ -3310,6 +3478,22 @@ mod panic_hook_tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Replace Tauri's default tokio runtime (worker threads = CPU count,
+    // blocking pool cap 512) with a small fixed one: this app's async work is
+    // IPC dispatch plus at most two concurrent S3 `spawn_blocking` tasks.
+    // Must run before anything touches `tauri::async_runtime` — `set()`
+    // panics once the default runtime has been initialized.
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(8)
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime");
+    tauri::async_runtime::set(rt.handle().clone());
+    // `set()` stores only the Handle; the runtime itself must live for the
+    // whole process or every async task dies at drop.
+    std::mem::forget(rt);
+
     // Install the OS-native keyring store up front so subsequent
     // `keyring_core::Entry::new(...)` calls have a backend to talk to.
     // This mirrors `keyring::use_native_store(false)` without the `keyring`
@@ -3396,10 +3580,12 @@ pub fn run() {
             restore_database,
             export_gobd,
             write_binary_file,
+            write_zip_file,
             read_binary_file,
             get_app_data_dir,
             s3_test_connection,
             s3_upload_file,
+            s3_backup_db,
             s3_download_file,
             restore_db_backup,
             s3_delete_file,

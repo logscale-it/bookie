@@ -16,10 +16,12 @@
       "restore_database",
       "export_gobd",
       "write_binary_file",
+      "write_zip_file",
       "read_binary_file",
       "get_app_data_dir",
       "s3_test_connection",
       "s3_upload_file",
+      "s3_backup_db",
       "s3_download_file",
       "restore_db_backup",
       "s3_delete_file",
@@ -47,9 +49,8 @@
       "command": "backup_database",
       "permission": "core:default",
       "call_sites": [
-        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 58 },
-        { "file": "src/lib/s3/auto-backup.ts", "line": 102 },
-        { "file": "src/lib/boot/recovery-actions.ts", "line": 46 }
+        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 51 },
+        { "file": "src/lib/boot/recovery-actions.ts", "line": 51 }
       ]
     },
     {
@@ -61,7 +62,7 @@
       "command": "export_gobd",
       "permission": "core:default",
       "call_sites": [
-        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 96 }
+        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 93 }
       ]
     },
     {
@@ -84,7 +85,7 @@
       "command": "read_binary_file",
       "permission": "core:default",
       "call_sites": [
-        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 369 }
+        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 373 }
       ]
     },
     {
@@ -98,28 +99,33 @@
       "command": "restore_database",
       "permission": "core:default",
       "call_sites": [
-        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 74 }
+        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 66 }
       ]
+    },
+    {
+      "command": "s3_backup_db",
+      "permission": "core:default",
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 55 }]
     },
     {
       "command": "s3_delete_file",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 61 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 79 }]
     },
     {
       "command": "s3_download_file",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 49 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 67 }]
     },
     {
       "command": "s3_presign_download_url",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 86 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 104 }]
     },
     {
       "command": "s3_test_connection",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 96 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 114 }]
     },
     {
       "command": "s3_upload_file",
@@ -144,25 +150,30 @@
           "file": "src/routes/zeiterfassung/stundenzettel/+page.svelte",
           "line": 195
         },
-        { "file": "src/routes/unternehmen/+page.svelte", "line": 241 },
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 197
+          "line": 199
         },
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 363
+          "line": 367
         },
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 370
+          "line": 374
         },
         { "file": "src/common/InvoiceForm.svelte", "line": 364 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 50 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 68 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 87 },
-        { "file": "src/lib/db/backfill-file-data.ts", "line": 220 },
-        { "file": "src/lib/boot/recovery-actions.ts", "line": 53 }
+        { "file": "src/lib/db/backfill-file-data.ts", "line": 220 }
+      ]
+    },
+    {
+      "command": "write_zip_file",
+      "permission": "core:default",
+      "call_sites": [
+        { "file": "src/routes/unternehmen/+page.svelte", "line": 243 }
       ]
     }
   ],
@@ -189,7 +200,6 @@
           "note": "Lazy `import('@tauri-apps/api/core')` so the logger no-ops outside the Tauri webview."
         },
         { "file": "src/lib/s3/client.ts", "line": 1 },
-        { "file": "src/lib/s3/auto-backup.ts", "line": 1 },
         { "file": "src/lib/db/backfill-file-data.ts", "line": 39 },
         { "file": "src/lib/db/settings.ts", "line": 1 },
         { "file": "src/lib/diagnostics/boot.ts", "line": 20 },
@@ -208,7 +218,7 @@
       "plugin": "@tauri-apps/plugin-dialog",
       "symbol": "save",
       "permission": "dialog:allow-save",
-      "note": "Native save-file dialog. Only `save()` is used; no `open()`, `message()`, `confirm()`, `ask()` calls anywhere in `src/`.",
+      "note": "Native save-file dialog. No `message()`, `confirm()`, `ask()` calls anywhere in `src/`.",
       "call_sites": [
         {
           "file": "src/routes/zeiterfassung/stundenzettel/+page.svelte",
@@ -216,9 +226,19 @@
         },
         { "file": "src/routes/unternehmen/+page.svelte", "line": 3 },
         { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 6 },
+        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 4 },
         { "file": "src/common/InvoiceForm.svelte", "line": 19 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 8 },
         { "file": "src/lib/boot/recovery-actions.ts", "line": 20 }
+      ]
+    },
+    {
+      "plugin": "@tauri-apps/plugin-dialog",
+      "symbol": "open",
+      "permission": "dialog:allow-open",
+      "note": "Native open-file dialog for the path-based DB restore (the file never crosses IPC; the backend copies it from the chosen path).",
+      "call_sites": [
+        { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 4 }
       ]
     },
     {
@@ -279,6 +299,7 @@
     "core:default",
     "core:window:allow-close",
     "dialog:allow-save",
+    "dialog:allow-open",
     "opener:allow-open-url",
     "sql:allow-load",
     "sql:allow-execute",

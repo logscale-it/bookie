@@ -6,10 +6,10 @@
  *     `/einstellungen/backup`. The restore page already wires the
  *     `restore_database` Tauri command, so the dialog only needs to send
  *     the user there; it does not duplicate the restore logic.
- *   - `saveAppDataAndClose()`: invoke the existing `backup_database`
- *     Tauri command (returns the raw SQLite file bytes), prompt the user
- *     for a save location via `@tauri-apps/plugin-dialog`'s `save()`, write
- *     the bytes via `write_binary_file`, then close the window.
+ *   - `saveAppDataAndClose()`: prompt the user for a save location via
+ *     `@tauri-apps/plugin-dialog`'s `save()`, then invoke the path-based
+ *     `backup_database` command (the backend copies the DB straight to the
+ *     chosen path — no bytes cross the IPC boundary), then close the window.
  *
  * The save action is the verification step the issue calls out: "clicking
  * 'App-Daten sichern und schließen' produces a copy of the DB file in the
@@ -20,8 +20,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-/** Mirror of the backend `BackupPayload` returned by `backup_database`. */
-type BackupPayload = { file_name: string; bytes: number[] };
+/** Default file name seeded into the save dialog (the live DB's name). */
+const DB_FILE_NAME = "bookie.db";
 
 /**
  * Test seam: dependency-injection record for the side effects this module
@@ -32,25 +32,23 @@ type BackupPayload = { file_name: string; bytes: number[] };
  * stand in cleanly without monkey-patching the Tauri singletons.
  */
 export type RecoveryDeps = {
-  /** Calls `invoke('backup_database')` → returns the SQLite bytes. */
-  backupDatabase: () => Promise<BackupPayload>;
   /** Opens a native save dialog; returns the chosen path or null on cancel. */
   pickSavePath: (defaultFileName: string) => Promise<string | null>;
-  /** Calls `invoke('write_binary_file', { path, data })`. */
-  writeFile: (path: string, data: number[]) => Promise<void>;
+  /** Calls `invoke('backup_database', { targetPath })` → bytes written. */
+  backupDatabaseTo: (targetPath: string) => Promise<number>;
   /** Closes the current Tauri window (terminates the app). */
   closeWindow: () => Promise<void>;
 };
 
 export const defaultRecoveryDeps: RecoveryDeps = {
-  backupDatabase: () => invoke<BackupPayload>("backup_database"),
   pickSavePath: (defaultFileName) =>
     save({
       title: "App-Daten sichern",
       defaultPath: defaultFileName,
       filters: [{ name: "SQLite", extensions: ["db", "sqlite", "sqlite3"] }],
     }),
-  writeFile: (path, data) => invoke("write_binary_file", { path, data }),
+  backupDatabaseTo: (targetPath) =>
+    invoke<number>("backup_database", { targetPath }),
   closeWindow: () => getCurrentWindow().close(),
 };
 
@@ -68,30 +66,23 @@ export type SaveOutcome =
   | { kind: "failed"; message: string };
 
 /**
- * Pull the live DB into memory, ask the user where to put a copy, write
- * it, then close the app. Pure aside from the injected deps — passing a
+ * Ask the user where to put a copy of the live DB, have the backend copy it
+ * there, then close the app. Pure aside from the injected deps — passing a
  * stub `RecoveryDeps` makes every branch deterministic in tests.
  */
 export async function saveAppDataAndClose(
   deps: RecoveryDeps = defaultRecoveryDeps,
 ): Promise<SaveOutcome> {
-  let payload: BackupPayload;
-  try {
-    payload = await deps.backupDatabase();
-  } catch (err) {
-    return { kind: "failed", message: describeError(err) };
-  }
-
   let path: string | null;
   try {
-    path = await deps.pickSavePath(payload.file_name);
+    path = await deps.pickSavePath(DB_FILE_NAME);
   } catch (err) {
     return { kind: "failed", message: describeError(err) };
   }
   if (!path) return { kind: "cancelled" };
 
   try {
-    await deps.writeFile(path, payload.bytes);
+    await deps.backupDatabaseTo(path);
   } catch (err) {
     return { kind: "failed", message: describeError(err) };
   }

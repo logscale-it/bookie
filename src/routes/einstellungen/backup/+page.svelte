@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
 	import { onMount } from 'svelte';
-	import FileUpload from '../../../common/FileUpload.svelte';
+	import { open, save } from '@tauri-apps/plugin-dialog';
 	import { getS3Settings, saveS3Settings, type UpsertS3Settings } from '$lib/db/settings';
 	import { performBackup } from '$lib/s3/auto-backup';
 	import { t } from '$lib/i18n';
 
-	type BackupPayload = { file_name: string; bytes: number[] };
+	const SQLITE_FILTERS = [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }];
 
-	let files = $state<FileList | null>(null);
 	let loading = $state(false);
 	let feedback = $state('');
 
@@ -41,37 +40,30 @@
 			: null
 	);
 
-	function downloadFile(fileName: string, bytes: number[]) {
-		const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
-		const link = document.createElement('a');
-		link.href = URL.createObjectURL(blob);
-		link.download = fileName;
-		document.body.appendChild(link);
-		link.click();
-		link.remove();
-		URL.revokeObjectURL(link.href);
-	}
-
+	// Path-based flows: the DB is copied by the backend, so its bytes never
+	// cross the IPC boundary or get buffered in the webview.
 	async function handleBackupDownload() {
-		loading = true;
 		feedback = '';
-		const payload = await invoke<BackupPayload>('backup_database');
-		downloadFile(payload.file_name, payload.bytes);
-		feedback = t('settings.backupDownloaded');
+		const targetPath = await save({ defaultPath: 'bookie.db', filters: SQLITE_FILTERS });
+		if (!targetPath) return;
+		loading = true;
+		try {
+			await invoke('backup_database', { targetPath });
+			feedback = t('settings.backupDownloaded');
+		} catch (e) {
+			feedback = `${t('common.error')}: ${e}`;
+		}
 		loading = false;
 	}
 
 	async function handleRestore() {
-		if (!files?.[0]) {
-			feedback = t('settings.selectFile');
-			return;
-		}
+		feedback = '';
+		const sourcePath = await open({ multiple: false, filters: SQLITE_FILTERS });
+		if (!sourcePath) return;
 		if (!confirm(t('settings.restoreConfirm'))) return;
 		loading = true;
-		feedback = '';
 		try {
-			const bytes = new Uint8Array(await files[0].arrayBuffer());
-			await invoke('restore_database', { bytes: Array.from(bytes) });
+			await invoke('restore_database', { sourcePath });
 			feedback = t('settings.restoreSuccess');
 		} catch (e) {
 			feedback = `${t('common.error')}: ${e}`;
@@ -91,13 +83,18 @@
 			gobdFeedback = t('settings.gobdInvalidRange');
 			return;
 		}
+		const targetPath = await save({
+			defaultPath: `gobd-export-${gobdFromYear}-${gobdToYear}.zip`,
+			filters: [{ name: 'ZIP', extensions: ['zip'] }]
+		});
+		if (!targetPath) return;
 		gobdLoading = true;
 		try {
-			const payload = await invoke<BackupPayload>('export_gobd', {
+			await invoke('export_gobd', {
 				fromYear: gobdFromYear,
-				toYear: gobdToYear
+				toYear: gobdToYear,
+				targetPath
 			});
-			downloadFile(payload.file_name, payload.bytes);
 			gobdFeedback = t('settings.gobdExported');
 		} catch (e) {
 			gobdFeedback = `${t('common.error')}: ${e}`;
@@ -136,7 +133,6 @@
 				{t('settings.downloadDb')}
 			</button>
 		</div>
-		<FileUpload bind:files label={t('settings.uploadBackup')} accept=".db,.sqlite,.sqlite3" />
 		<button type="button" onclick={handleRestore} disabled={loading} class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
 			{t('settings.restore')}
 		</button>

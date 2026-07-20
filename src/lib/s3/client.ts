@@ -41,6 +41,24 @@ export async function uploadFile(
   });
 }
 
+/**
+ * Back up the live SQLite DB to S3 entirely on the Rust side: the backend
+ * streams the file from disk (64 KB window) and writes the SHA-256 sidecar.
+ * No DB bytes ever cross the IPC boundary. Returns the object key.
+ */
+export async function backupDbToS3(
+  settings: UpsertS3Settings,
+  pathPrefix: string,
+  fileName: string,
+): Promise<string> {
+  log.info("S3 op", { op: "backup_db", s3_key: `${pathPrefix}/${fileName}` });
+  return invoke<string>("s3_backup_db", {
+    config: buildConfig(settings),
+    pathPrefix,
+    fileName,
+  });
+}
+
 export async function downloadFile(
   settings: UpsertS3Settings,
   key: string,

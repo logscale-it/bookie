@@ -3,8 +3,6 @@ import { test, expect, describe } from "bun:test";
 import "../../db/setup";
 import { testDb } from "../../db/setup";
 
-import JSZip from "jszip";
-
 import * as companies from "../../../src/lib/db/companies";
 import * as customers from "../../../src/lib/db/customers";
 import * as invoices from "../../../src/lib/db/invoices";
@@ -149,7 +147,7 @@ describe("dsgvo_export", () => {
     expect(ops).toContain("invoices:delete");
   });
 
-  test("exportCustomerData produces a ZIP containing the four JSON files plus a PDF", async () => {
+  test("exportCustomerData produces the four JSON entries plus a PDF", async () => {
     const companyId = await seedCompany();
     const customerId = await seedCustomer(companyId);
     const invoiceId = await seedInvoice(companyId, customerId);
@@ -163,12 +161,11 @@ describe("dsgvo_export", () => {
     });
     await invoices.updateInvoice(invoiceId, { notes: "Updated" });
 
-    const bytes = await exportCustomerData(customerId);
-    expect(bytes).toBeInstanceOf(Uint8Array);
-    expect(bytes.length).toBeGreaterThan(0);
-
-    const zip = await JSZip.loadAsync(bytes);
-    const fileNames = Object.keys(zip.files).sort();
+    const { textEntries, binaryEntries } = await exportCustomerData(customerId);
+    const fileNames = [
+      ...textEntries.map(([name]) => name),
+      ...binaryEntries.map(([name]) => name),
+    ].sort();
     expect(fileNames).toEqual(
       [
         "DSGVO-Auskunft.pdf",
@@ -179,10 +176,9 @@ describe("dsgvo_export", () => {
         "payments.json",
       ].sort(),
     );
+    const entries = new Map(textEntries);
 
-    const customerJson = JSON.parse(
-      await zip.file("customer.json")!.async("string"),
-    );
+    const customerJson = JSON.parse(entries.get("customer.json")!);
     expect(customerJson.id).toBe(customerId);
     expect(customerJson.name).toBe("Subject Person");
     // Every column should be present (not just the canonical fields)
@@ -206,32 +202,28 @@ describe("dsgvo_export", () => {
       expect(customerJson).toHaveProperty(col);
     }
 
-    const invoicesJson = JSON.parse(
-      await zip.file("invoices.json")!.async("string"),
-    );
+    const invoicesJson = JSON.parse(entries.get("invoices.json")!);
     expect(invoicesJson).toHaveLength(1);
     expect(invoicesJson[0].id).toBe(invoiceId);
 
-    const paymentsJson = JSON.parse(
-      await zip.file("payments.json")!.async("string"),
-    );
+    const paymentsJson = JSON.parse(entries.get("payments.json")!);
     expect(paymentsJson).toHaveLength(1);
     expect(paymentsJson[0].invoice_id).toBe(invoiceId);
 
-    const auditJson = JSON.parse(
-      await zip.file("audit_events.json")!.async("string"),
-    );
+    const auditJson = JSON.parse(entries.get("audit_events.json")!);
     expect(Array.isArray(auditJson)).toBe(true);
     // At least the three rows from insert/insert/update.
     expect(auditJson.length).toBeGreaterThanOrEqual(3);
 
     // PDF must start with the magic bytes %PDF and be non-trivial in size.
-    const pdfBytes = await zip.file("DSGVO-Auskunft.pdf")!.async("uint8array");
+    const pdfBytes = binaryEntries.find(
+      ([name]) => name === "DSGVO-Auskunft.pdf",
+    )![1];
     expect(pdfBytes.length).toBeGreaterThan(500);
     const magic = String.fromCharCode(...pdfBytes.subarray(0, 4));
     expect(magic).toBe("%PDF");
 
-    const meta = JSON.parse(await zip.file("metadata.json")!.async("string"));
+    const meta = JSON.parse(entries.get("metadata.json")!);
     expect(meta.bundle_kind).toBe("dsgvo_subject_access_export");
     expect(meta.customer_id).toBe(customerId);
     expect(meta.counts.invoices).toBe(1);

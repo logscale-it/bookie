@@ -14,11 +14,12 @@
  *
  * The function is pure TypeScript and operates on the existing
  * `tauri-plugin-sql` connection (or a test-injected stub via
- * `__setDbForTesting`). The caller is responsible for picking a save path
- * and writing the bytes (e.g. via `dialog.save()` + `write_binary_file`).
+ * `__setDbForTesting`). It returns the archive *entries*; the caller picks
+ * a save path and hands them to the `write_zip_file` Tauri command, which
+ * assembles the ZIP on disk in Rust — no ZIP library in the bundle and no
+ * archive bytes crossing IPC back to the webview.
  */
 
-import JSZip from "jszip";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { getDb } from "./connection";
 import type { Customer, Invoice, Payment } from "./types";
@@ -309,51 +310,56 @@ function wrapText(
   return lines;
 }
 
+/** Archive entries for the `write_zip_file` Tauri command. */
+export interface CustomerExportEntries {
+  /** `[name, utf-8 content]` pairs. */
+  textEntries: Array<[string, string]>;
+  /** `[name, bytes]` pairs (the one-page summary PDF). */
+  binaryEntries: Array<[string, Uint8Array]>;
+}
+
 /**
- * Builds the DSGVO export ZIP for a single customer.
- *
- * The result is a `Uint8Array` so it can be passed directly to the
- * existing `write_binary_file` Tauri command (see `csv-writer.ts` for
- * the same pattern).
+ * Builds the DSGVO export entries for a single customer. The caller zips
+ * them to disk via `invoke('write_zip_file', ...)`.
  */
 export async function exportCustomerData(
   customerId: number,
-): Promise<Uint8Array> {
+): Promise<CustomerExportEntries> {
   const bundle = await collectCustomerData(customerId);
   const exportedAt = new Date();
 
-  const zip = new JSZip();
-  zip.file("customer.json", JSON.stringify(bundle.customer, null, 2));
-  zip.file("invoices.json", JSON.stringify(bundle.invoices, null, 2));
-  zip.file("payments.json", JSON.stringify(bundle.payments, null, 2));
-  zip.file("audit_events.json", JSON.stringify(bundle.auditEvents, null, 2));
+  const textEntries: Array<[string, string]> = [
+    ["customer.json", JSON.stringify(bundle.customer, null, 2)],
+    ["invoices.json", JSON.stringify(bundle.invoices, null, 2)],
+    ["payments.json", JSON.stringify(bundle.payments, null, 2)],
+    ["audit_events.json", JSON.stringify(bundle.auditEvents, null, 2)],
+    // metadata.json gives auditors a single place to confirm what the
+    // bundle is, when it was produced, and which counts to expect.
+    [
+      "metadata.json",
+      JSON.stringify(
+        {
+          bundle_kind: "dsgvo_subject_access_export",
+          customer_id: bundle.customer.id,
+          customer_name: bundle.customer.name,
+          exported_at: exportedAt.toISOString(),
+          counts: {
+            invoices: bundle.invoices.length,
+            payments: bundle.payments.length,
+            audit_events: bundle.auditEvents.length,
+          },
+        },
+        null,
+        2,
+      ),
+    ],
+  ];
 
   const pdfBytes = await buildSummaryPdf(bundle, exportedAt);
-  zip.file("DSGVO-Auskunft.pdf", pdfBytes);
-
-  // metadata.json gives auditors a single place to confirm what the bundle
-  // is, when it was produced, and which counts to expect.
-  zip.file(
-    "metadata.json",
-    JSON.stringify(
-      {
-        bundle_kind: "dsgvo_subject_access_export",
-        customer_id: bundle.customer.id,
-        customer_name: bundle.customer.name,
-        exported_at: exportedAt.toISOString(),
-        counts: {
-          invoices: bundle.invoices.length,
-          payments: bundle.payments.length,
-          audit_events: bundle.auditEvents.length,
-        },
-      },
-      null,
-      2,
-    ),
-  );
-
-  const blob = await zip.generateAsync({ type: "uint8array" });
-  return blob;
+  return {
+    textEntries,
+    binaryEntries: [["DSGVO-Auskunft.pdf", pdfBytes]],
+  };
 }
 
 /** Default file name suggestion for a save dialog. */
