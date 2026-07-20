@@ -169,7 +169,7 @@ describe("DAT-2.b: cancelInvoice (storno)", () => {
 
     const storno = (await invoices.getInvoiceById(stornoId)) as Invoice;
     expect(storno.invoice_number).toBe("INV-100-storno-1");
-    expect(storno.status).toBe("issued");
+    expect(storno.status).toBe("sent");
     expect(storno.net_cents).toBe(-10000);
     expect(storno.tax_cents).toBe(-1900);
     expect(storno.gross_cents).toBe(-11900);
@@ -198,14 +198,14 @@ describe("DAT-2.b: cancelInvoice (storno)", () => {
     const itemsAfter = (await invoiceItems.listByInvoice(invId)).rows;
     expect(itemsAfter).toEqual(itemsBefore);
 
-    // A status-history row exists for the storno (from-NULL -> 'issued').
+    // A status-history row exists for the storno (from-NULL -> 'sent').
     const hist = await testDb.select<
       { from_status: string | null; to_status: string }[]
     >(
       "SELECT from_status, to_status FROM invoice_status_history WHERE invoice_id = $1",
       [stornoId],
     );
-    expect(hist).toEqual([{ from_status: null, to_status: "issued" }]);
+    expect(hist).toEqual([{ from_status: null, to_status: "sent" }]);
   });
 
   test("cancelInvoice on a draft throws InvoiceImmutable (drafts must be deleted, not stornoed)", async () => {

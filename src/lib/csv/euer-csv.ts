@@ -12,6 +12,10 @@ export function generateEuerCsv(
     ["Unternehmen", companyName],
     ["Steuernummer", taxNumber],
     ["Jahr", String(year)],
+    [
+      "Hinweis",
+      "Zufluss-/Abflussprinzip (§ 11 EStG): berücksichtigt sind ausschließlich bezahlte Rechnungen, zugeordnet nach Zahlungsdatum.",
+    ],
   ];
 
   const headers = [

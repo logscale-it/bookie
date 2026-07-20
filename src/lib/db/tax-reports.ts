@@ -43,7 +43,9 @@ export interface EuerReport {
   /** Gezahlte Vorsteuerbeträge (Anlage EÜR Zeile 55). */
   expenseVat: number;
   expenseTotal: number;
-  /** Gewinn/Verlust: Summe Einnahmen − Summe Ausgaben (Bruttoprinzip). */
+  /** An das Finanzamt abzuführende USt: vereinnahmte USt − gezahlte Vorsteuer. */
+  vatPayable: number;
+  /** Gewinn/Verlust: Einnahmen − Ausgaben − USt-Zahllast (= netto − netto). */
   profit: number;
 }
 
@@ -168,33 +170,41 @@ export async function getUstvaData(
   return result;
 }
 
+/**
+ * Per-period EÜR rows for one year, on the same Zufluss-/Abflussprinzip
+ * (§ 11 EStG) as getEuerReport: only paid rows count, allocated to the
+ * period of their paid_date. The CSV's full-year profit total therefore
+ * matches the PDF report for the same year (both are net − net; the
+ * Zahllast is treated as paid in the period it arises, see getEuerReport).
+ */
 export async function getEuerData(
   companyId: number,
   year: number,
   groupBy: GroupBy,
 ): Promise<EuerRow[]> {
   const db = await getDb();
-  const incomeExpr = periodExpr(groupBy, "issue_date");
-  const expenseExpr = periodExpr(groupBy, "invoice_date");
+  const expr = periodExpr(groupBy, "paid_date");
 
   const incomeRows = await db.select<PeriodTotalRow[]>(
-    `SELECT ${incomeExpr} as period,
+    `SELECT ${expr} as period,
             COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
             COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM invoices
      WHERE company_id = $1
-       AND strftime('%Y', issue_date) = $2
-       AND status IN ('sent', 'paid')
+       AND status = 'paid'
+       AND strftime('%Y', paid_date) = $2
      GROUP BY period ORDER BY period`,
     [companyId, String(year)],
   );
 
   const expenseRows = await db.select<PeriodTotalRow[]>(
-    `SELECT ${expenseExpr} as period,
+    `SELECT ${expr} as period,
             COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
             COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM incoming_invoices
-     WHERE company_id = $1 AND strftime('%Y', invoice_date) = $2
+     WHERE company_id = $1
+       AND status = 'bezahlt'
+       AND strftime('%Y', paid_date) = $2
      GROUP BY period ORDER BY period`,
     [companyId, String(year)],
   );
@@ -243,8 +253,10 @@ export async function getEuerData(
  * (§ 11 EStG): only rows whose paid_date falls in the period count — unpaid
  * invoices and open bills are excluded. Gross method per Anlage EÜR:
  * vereinnahmte USt is a Betriebseinnahme, gezahlte Vorsteuer a
- * Betriebsausgabe. USt payments to the Finanzamt are not tracked in Bookie
- * and therefore not part of the report (the CSV carries a note).
+ * Betriebsausgabe. Bookie does not track actual USt payments to the
+ * Finanzamt, so the report deducts the period's Zahllast (vereinnahmte USt −
+ * Vorsteuer) as if paid in the same period; the profit therefore equals
+ * net income − net expenses.
  *
  * Storno invoices marked paid enter with their negated amounts, which is
  * exactly the Zufluss treatment of a refund.
@@ -281,6 +293,7 @@ export async function getEuerReport(
   const exp = expenseRows[0] ?? { net: 0, vat: 0 };
   const incomeTotal = inc.taxable_net + inc.vat + inc.tax_free_net;
   const expenseTotal = exp.net + exp.vat;
+  const vatPayable = inc.vat - exp.vat;
 
   const report: EuerReport = {
     from,
@@ -292,7 +305,8 @@ export async function getEuerReport(
     expenseNet: exp.net,
     expenseVat: exp.vat,
     expenseTotal,
-    profit: incomeTotal - expenseTotal,
+    vatPayable,
+    profit: incomeTotal - expenseTotal - vatPayable,
   };
   log.debug("EÜR report", { from, to, profit: report.profit });
   return report;

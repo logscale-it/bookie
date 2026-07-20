@@ -17,6 +17,7 @@
 		createIncomingInvoice,
 		updateIncomingInvoice,
 		updateIncomingInvoiceStatus,
+		updateIncomingInvoicePaidDate,
 		deleteIncomingInvoice,
 		getIncomingInvoiceFile,
 		type IncomingInvoiceWithSupplier
@@ -336,6 +337,13 @@
 		await loadData();
 	}
 
+	async function changePaidDate(id: number, e: Event) {
+		const v = (e.currentTarget as HTMLInputElement).value;
+		if (!v) return;
+		await updateIncomingInvoicePaidDate(id, v);
+		await loadData();
+	}
+
 	async function removeInvoice(id: number) {
 		if (!confirm(t('incomingInvoices.deleteConfirm'))) return;
 		const inv = invoices.find(i => i.id === id);
@@ -533,6 +541,16 @@
 											<option value={opt.value}>{opt.label}</option>
 										{/each}
 									</select>
+									{#if inv.status === 'bezahlt'}
+										<input
+											type="date"
+											aria-label={t('incomingInvoices.paidDate')}
+											title={t('incomingInvoices.paidDate')}
+											value={inv.paid_date ?? ''}
+											onchange={(e) => changePaidDate(inv.id, e)}
+											class="mt-1 block rounded border border-zinc-200 bg-white px-1 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+										/>
+									{/if}
 								</div>
 								<div class="px-3 py-2">
 									{#if inv.file_name}

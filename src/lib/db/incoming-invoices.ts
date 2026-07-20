@@ -179,11 +179,37 @@ export async function updateIncomingInvoiceStatus(
   await db.execute(
     `UPDATE incoming_invoices
      SET status = $1,
-         paid_date = CASE WHEN $1 = 'bezahlt' THEN COALESCE(paid_date, date('now')) END,
+         paid_date = CASE WHEN $1 = 'bezahlt' THEN COALESCE(paid_date, date('now', 'localtime')) END,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = $2`,
     [status, id],
   );
+}
+
+/**
+ * Correct the Abfluss date (§ 11 EStG) of a paid bill — the automatic
+ * stamp records when the user clicked, not when the payment left the
+ * account. Only legal while the bill is 'bezahlt'.
+ */
+export async function updateIncomingInvoicePaidDate(
+  id: number,
+  paidDate: string,
+): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    throw new Error(`Ungültiges Zahlungsdatum: ${paidDate}`);
+  }
+  const db = await getDb();
+  const res = await db.execute(
+    `UPDATE incoming_invoices
+     SET paid_date = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2 AND status = 'bezahlt'`,
+    [paidDate, id],
+  );
+  if (res.rowsAffected === 0) {
+    throw new Error(
+      "Zahlungsdatum kann nur bei bezahlten Rechnungen geändert werden",
+    );
+  }
 }
 
 export async function deleteIncomingInvoice(id: number): Promise<void> {

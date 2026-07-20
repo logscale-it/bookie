@@ -226,7 +226,14 @@ export async function createEuerPdf(
   row("Betriebsausgaben (netto)", report.expenseNet);
   row("Gezahlte Vorsteuerbeträge", report.expenseVat);
   sumRow("Summe Betriebsausgaben", report.expenseTotal);
-  y += 8;
+  y += 6;
+
+  sectionHeader("3. UMSATZSTEUER-ZAHLLAST");
+  row(
+    "An das Finanzamt abzuführende Umsatzsteuer (USt abzgl. Vorsteuer)",
+    report.vatPayable,
+  );
+  y += 2;
 
   // -- Result box --
   const resultH = 13;
@@ -255,8 +262,9 @@ export async function createEuerPdf(
   const notes = [
     "Ermittlung nach dem Zufluss-/Abflussprinzip (§ 11 EStG): berücksichtigt sind ausschließlich im",
     "Zeitraum vereinnahmte Betriebseinnahmen und geleistete Betriebsausgaben (bezahlte Rechnungen).",
-    "An das Finanzamt gezahlte Umsatzsteuer ist nicht erfasst und ist ggf. manuell als Betriebsausgabe",
-    "zu ergänzen.",
+    "Die Umsatzsteuer-Zahllast (vereinnahmte USt abzüglich Vorsteuer) ist als an das Finanzamt",
+    "abzuführender Betrag vom Ergebnis abgezogen; der Gewinn entspricht Netto-Einnahmen abzüglich",
+    "Netto-Ausgaben.",
   ];
   for (const line of notes) {
     drawText(line, ML, y, font, 6.75, C.light);

@@ -135,8 +135,7 @@ export default {
     exportEuerPeriod: "EÜR als PDF erstellen",
     euerPeriodHint:
       "Einnahmenüberschussrechnung nach § 4 Abs. 3 EStG (Zufluss-/Abflussprinzip): berücksichtigt nur im Zeitraum bezahlte Rechnungen.",
-    euerPeriodInvalid:
-      "Ungültiger Zeitraum: „Von“ muss vor „Bis“ liegen.",
+    euerPeriodInvalid: "Ungültiger Zeitraum: „Von“ muss vor „Bis“ liegen.",
     datevMissingSettings:
       "Bitte zuerst DATEV-Beraternummer und Mandantennummer unter Einstellungen → Organisation hinterlegen.",
     exporting: "Exportiert…",
@@ -180,6 +179,7 @@ export default {
     statusSent: "Gesendet",
     statusPaid: "Bezahlt",
     statusVoid: "Ungültig",
+    paidDate: "Bezahlt am",
     newTitle: "Neue Rechnung",
     newSubtitle: "Rechnung erstellen und als PDF exportieren.",
     editTitle: "Rechnung {number}",
@@ -256,6 +256,7 @@ export default {
     overview: "Rechnungsübersicht",
     statusOpen: "Offen",
     statusPaid: "Bezahlt",
+    paidDate: "Bezahlt am",
     net: "Netto",
     vat: "MwSt",
     gross: "Brutto",

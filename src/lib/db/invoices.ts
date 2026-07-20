@@ -240,7 +240,7 @@ export async function updateInvoiceStatus(
     await db.execute(
       `UPDATE invoices
        SET status = $1,
-           paid_date = CASE WHEN $1 = 'paid' THEN COALESCE(paid_date, date('now')) END,
+           paid_date = CASE WHEN $1 = 'paid' THEN COALESCE(paid_date, date('now', 'localtime')) END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = $2`,
       [toStatus, id],
@@ -250,6 +250,33 @@ export async function updateInvoiceStatus(
       [id, fromStatus, toStatus],
     );
   });
+}
+
+/**
+ * Correct the Zufluss date (§ 11 EStG) of a paid invoice — the automatic
+ * stamp records when the user clicked, not when the money arrived. Only
+ * legal while the invoice is 'paid'; the immutability trigger does not
+ * guard paid_date, so this is allowed on issued rows.
+ */
+export async function updateInvoicePaidDate(
+  id: number,
+  paidDate: string,
+): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+    throw new Error(`Ungültiges Zahlungsdatum: ${paidDate}`);
+  }
+  const db = await getDb();
+  const res = await db.execute(
+    `UPDATE invoices
+     SET paid_date = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2 AND status = 'paid'`,
+    [paidDate, id],
+  );
+  if (res.rowsAffected === 0) {
+    throw new Error(
+      "Zahlungsdatum kann nur bei bezahlten Rechnungen geändert werden",
+    );
+  }
 }
 
 /**
@@ -266,8 +293,11 @@ export async function updateInvoiceStatus(
  *   already exists (defensive: the typical flow stops after one storno).
  * - `net_cents`, `tax_cents`, `gross_cents`, and `due_surcharge` are all
  *   negated.
- * - `status` is `'issued'`. A row in `invoice_status_history` records the
- *   transition from NULL -> 'issued' so the storno appears in audit views.
+ * - `status` is `'sent'` — part of the normal status vocabulary
+ *   (draft/sent/paid/void), so the storno's negated amounts enter every
+ *   revenue/EÜR/UStVA/DATEV query that filters on ('sent','paid') and
+ *   offset the original. A row in `invoice_status_history` records the
+ *   transition from NULL -> 'sent'.
  * - Line items from the original are mirrored with `quantity` and
  *   `line_total_net_cents` negated; `unit_price_net_cents` is kept positive
  *   so the invariant line_total = quantity * unit_price holds.
@@ -328,7 +358,7 @@ export async function cancelInvoice(
          delivery_date, due_surcharge, language, legal_country_code,
          notes, references_invoice_id, cancellation_reason
        ) VALUES (
-         $1, $2, $3, $4, 'issued',
+         $1, $2, $3, $4, 'sent',
          $5, $6, $7, $8,
          $9,
          $10, $11, $12,
@@ -416,7 +446,7 @@ export async function cancelInvoice(
     // when a storno was created.
     await db.execute(
       `INSERT INTO invoice_status_history (invoice_id, from_status, to_status)
-       VALUES ($1, NULL, 'issued')`,
+       VALUES ($1, NULL, 'sent')`,
       [stornoId],
     );
 

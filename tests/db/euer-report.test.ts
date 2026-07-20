@@ -5,7 +5,7 @@ import * as companies from "../../src/lib/db/companies";
 import * as customers from "../../src/lib/db/customers";
 import * as invoices from "../../src/lib/db/invoices";
 import * as ii from "../../src/lib/db/incoming-invoices";
-import { getEuerReport } from "../../src/lib/db/tax-reports";
+import { getEuerData, getEuerReport } from "../../src/lib/db/tax-reports";
 
 let counter = 0;
 async function seedCompany() {
@@ -95,7 +95,57 @@ describe("getEuerReport", () => {
     expect(r.expenseNet).toBeCloseTo(40, 2);
     expect(r.expenseVat).toBeCloseTo(7.6, 2);
     expect(r.expenseTotal).toBeCloseTo(47.6, 2);
-    expect(r.profit).toBeCloseTo(121.4, 2);
+    // VAT surplus goes to the Finanzamt, so profit is net − net:
+    // (100 + 50) − 40 = 110, not the gross 121.40.
+    expect(r.vatPayable).toBeCloseTo(11.4, 2);
+    expect(r.profit).toBeCloseTo(110, 2);
+  });
+
+  test("storno offsets the cancelled invoice in both report bases", async () => {
+    const { companyId, customerId } = await seedCompany();
+
+    const id = await seedInvoice(companyId, customerId, "R-20", "2026-02-01", 10000, 1900);
+    await markPaidOn(id, "2026-02-10");
+
+    const stornoId = await invoices.cancelInvoice(id, "Falscher Betrag");
+
+    // Both reports run on the Zufluss basis: while the refund is
+    // outstanding, only the paid original counts — the unpaid storno is
+    // excluded from period rows and range report alike.
+    let rows = await getEuerData(companyId, 2026, "year");
+    expect(rows.reduce((s, r) => s + r.incomeNet, 0)).toBeCloseTo(100, 2);
+    let r = await getEuerReport(companyId, "2026-01-01", "2026-12-31");
+    expect(r.profit).toBeCloseTo(100, 2);
+
+    // Storno marked paid → the year nets to zero in both reports.
+    await markPaidOn(stornoId, "2026-03-01");
+    rows = await getEuerData(companyId, 2026, "year");
+    expect(rows.reduce((s, r) => s + r.incomeNet, 0)).toBeCloseTo(0, 2);
+    expect(rows.reduce((s, r) => s + r.profit, 0)).toBeCloseTo(0, 2);
+    r = await getEuerReport(companyId, "2026-01-01", "2026-12-31");
+    expect(r.incomeTaxableNet).toBeCloseTo(0, 2);
+    expect(r.incomeVat).toBeCloseTo(0, 2);
+    expect(r.profit).toBeCloseTo(0, 2);
+  });
+
+  test("CSV period rows and range report agree on the year's profit", async () => {
+    const { companyId, customerId } = await seedCompany();
+
+    const a = await seedInvoice(companyId, customerId, "R-30", "2026-01-15", 20000, 3800);
+    await markPaidOn(a, "2026-02-01");
+    const b = await seedInvoice(companyId, customerId, "R-31", "2026-06-01", 5000, 0);
+    await markPaidOn(b, "2026-07-15");
+    // Unpaid invoice and open bill count in neither report.
+    await seedInvoice(companyId, customerId, "R-32", "2026-08-01", 99900, 18981);
+    await seedIncoming(companyId, "2026-09-01", "offen", 70000, 13300);
+    await seedIncoming(companyId, "2026-03-05", "bezahlt", 4000, 760);
+
+    const rows = await getEuerData(companyId, 2026, "month");
+    const csvProfit = rows.reduce((s, r) => s + r.profit, 0);
+    const report = await getEuerReport(companyId, "2026-01-01", "2026-12-31");
+    // (200 + 50) − 40 = 210, on both paths.
+    expect(csvProfit).toBeCloseTo(210, 2);
+    expect(report.profit).toBeCloseTo(csvProfit, 2);
   });
 
   test("empty period returns zeros", async () => {
@@ -128,6 +178,34 @@ describe("paid_date lifecycle", () => {
     const id = await seedIncoming(companyId, "2026-02-02", "bezahlt", 1000, 190);
     const row = await ii.getIncomingInvoiceById(id);
     expect(row?.paid_date).toBe("2026-02-02");
+  });
+
+  test("updateInvoicePaidDate corrects the Zufluss date, only while paid", async () => {
+    const { companyId, customerId } = await seedCompany();
+    const id = await seedInvoice(companyId, customerId, "R-11", "2026-06-01", 1000, 190);
+    await invoices.updateInvoiceStatus(id, "sent", "paid");
+
+    await invoices.updateInvoicePaidDate(id, "2026-06-15");
+    let row = await testDb.select<{ paid_date: string | null }[]>(
+      "SELECT paid_date FROM invoices WHERE id = $1", [id]);
+    expect(row[0].paid_date).toBe("2026-06-15");
+
+    expect(invoices.updateInvoicePaidDate(id, "15.06.2026")).rejects.toThrow();
+
+    await invoices.updateInvoiceStatus(id, "paid", "sent");
+    expect(invoices.updateInvoicePaidDate(id, "2026-06-20")).rejects.toThrow();
+  });
+
+  test("updateIncomingInvoicePaidDate corrects the Abfluss date, only while bezahlt", async () => {
+    const { companyId } = await seedCompany();
+    const id = await seedIncoming(companyId, "2026-02-02", "bezahlt", 1000, 190);
+
+    await ii.updateIncomingInvoicePaidDate(id, "2026-02-20");
+    let row = await ii.getIncomingInvoiceById(id);
+    expect(row?.paid_date).toBe("2026-02-20");
+
+    await ii.updateIncomingInvoiceStatus(id, "offen");
+    expect(ii.updateIncomingInvoicePaidDate(id, "2026-02-21")).rejects.toThrow();
   });
 
   test("incoming status transitions stamp and clear paid_date", async () => {

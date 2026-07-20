@@ -1,0 +1,12 @@
+-- Stornos were created with status 'issued', a value outside the normal
+-- status vocabulary (draft/sent/paid/void). Every revenue/EÜR/UStVA/DATEV
+-- query filters on status IN ('sent','paid'), so 'issued' stornos were
+-- invisible: the cancelled original kept counting as revenue while the
+-- negating storno counted nowhere, overstating profit. cancelInvoice now
+-- inserts stornos as 'sent'; this backfills existing rows the same way.
+--
+-- Only stornos ever carried 'issued', so the WHERE is exact. The
+-- immutability trigger allows status-only updates on issued rows (that is
+-- the normal updateInvoiceStatus path), and the audit trigger records the
+-- change per row, documenting the repair.
+UPDATE invoices SET status = 'sent' WHERE status = 'issued';

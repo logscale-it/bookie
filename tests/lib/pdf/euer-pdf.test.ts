@@ -13,7 +13,8 @@ const report: EuerReport = {
   expenseNet: 40,
   expenseVat: 7.6,
   expenseTotal: 47.6,
-  profit: 121.4,
+  vatPayable: 11.4,
+  profit: 110,
 };
 
 const opts = {

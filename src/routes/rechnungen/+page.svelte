@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { listAllInvoices, updateInvoiceStatus, type InvoiceWithCustomer } from '$lib/db/invoices';
+	import { listAllInvoices, updateInvoiceStatus, updateInvoicePaidDate, type InvoiceWithCustomer } from '$lib/db/invoices';
 	import { t, tp } from '$lib/i18n';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -45,7 +45,16 @@
 		const newStatus = (e.currentTarget as HTMLSelectElement).value;
 		if (newStatus === invoice.status) return;
 		await updateInvoiceStatus(invoice.id, invoice.status, newStatus);
-		invoice.status = newStatus;
+		// Reload so the row reflects DB-side effects (paid_date stamp/clear).
+		await loadInvoices(pager.page, pager.size);
+	}
+
+	async function changePaidDate(e: Event, invoice: InvoiceWithCustomer) {
+		e.stopPropagation();
+		const v = (e.currentTarget as HTMLInputElement).value;
+		if (!v) return;
+		await updateInvoicePaidDate(invoice.id, v);
+		invoice.paid_date = v;
 	}
 
 	function formatDate(dateStr: string): string {
@@ -136,6 +145,17 @@
 									<option value={s.value}>{s.label}</option>
 								{/each}
 							</select>
+							{#if invoice.status === 'paid'}
+								<input
+									type="date"
+									aria-label={t('invoices.paidDate')}
+									title={t('invoices.paidDate')}
+									value={invoice.paid_date ?? ''}
+									onclick={(e) => e.stopPropagation()}
+									onchange={(e) => changePaidDate(e, invoice)}
+									class="mt-1 block rounded-md border border-zinc-200 bg-white px-1.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+								/>
+							{/if}
 						</div>
 					</a>
 				{/each}

@@ -40,7 +40,7 @@ const KEYRING_USER: &str = "s3_credentials";
 /// migration directories disagree, and the integration test suite for
 /// `schema_version_check` will fail if this constant disagrees with
 /// `app_migrations()`.
-pub const EXPECTED_SCHEMA_VERSION: i64 = 29;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 30;
 
 /// Typed error enum for all Bookie backend operations.
 ///
@@ -1239,6 +1239,18 @@ fn app_migrations() -> Vec<Migration> {
             version: 29,
             description: "paid_date_down",
             sql: include_str!("../migrations/0029_down/01_paid_date.sql"),
+            kind: MigrationKind::Down,
+        },
+        Migration {
+            version: 30,
+            description: "storno_status_sent_up",
+            sql: include_str!("../migrations/0030/01_storno_status_sent.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 30,
+            description: "storno_status_sent_down",
+            sql: include_str!("../migrations/0030_down/01_storno_status_sent.sql"),
             kind: MigrationKind::Down,
         },
     ]

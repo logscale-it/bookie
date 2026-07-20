@@ -292,7 +292,7 @@ describe("DAT-2.c case 4: cancelInvoice produces a storno mirror", () => {
 
     const storno = (await invoices.getInvoiceById(stornoId)) as Invoice;
     expect(storno.invoice_number).toBe("C4-storno-1");
-    expect(storno.status).toBe("issued");
+    expect(storno.status).toBe("sent");
     expect(storno.references_invoice_id).toBe(invId);
     expect(storno.cancellation_reason).toBe("Falscher Betrag");
     expect(storno.company_id).toBe(companyId);
@@ -313,7 +313,7 @@ describe("DAT-2.c case 4: cancelInvoice produces a storno mirror", () => {
     expect(sItem.unit_price_net_cents).toBe(5000);
     expect(sItem.line_total_net_cents).toBe(-10000);
 
-    // Status history records the storno's birth as NULL -> issued so audit
+    // Status history records the storno's birth as NULL -> sent so audit
     // tooling that walks invoice_status_history sees it.
     const hist = await testDb.select<
       { from_status: string | null; to_status: string }[]
@@ -321,7 +321,7 @@ describe("DAT-2.c case 4: cancelInvoice produces a storno mirror", () => {
       "SELECT from_status, to_status FROM invoice_status_history WHERE invoice_id = $1",
       [stornoId],
     );
-    expect(hist).toEqual([{ from_status: null, to_status: "issued" }]);
+    expect(hist).toEqual([{ from_status: null, to_status: "sent" }]);
   });
 });
 
