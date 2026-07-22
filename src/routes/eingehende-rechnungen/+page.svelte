@@ -5,6 +5,8 @@
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
 	import { save } from '@tauri-apps/plugin-dialog';
 	import { invoke } from '@tauri-apps/api/core';
+	import { writeBinaryFile } from '$lib/fs';
+	import { messageForUnknown } from '$lib/shared/errors';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
@@ -194,12 +196,7 @@
 		const stamp = Date.now();
 		const safeName = file.name.replace(/[\\/]/g, '_');
 		const path = `${appDataDir}${sep}incoming_invoices/${stamp}-${safeName}`;
-		// Raw-body invoke: the bytes travel as the request body (no JSON
-		// number array), the path as a percent-encoded header.
-		const bytes = new Uint8Array(await file.arrayBuffer());
-		await invoke('write_binary_file', bytes, {
-			headers: { 'x-bookie-path': encodeURIComponent(path) }
-		});
+		await writeBinaryFile(path, new Uint8Array(await file.arrayBuffer()));
 		return path;
 	}
 
@@ -372,16 +369,16 @@
 			try {
 				const s3Config = await getS3Settings();
 				const data = await s3DownloadFile(s3Config, fileInfo.s3_key);
-				await invoke('write_binary_file', { path, data: Array.from(data) });
+				await writeBinaryFile(path, data);
 			} catch (err) {
-				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${err instanceof Error ? err.message : err}`;
+				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${messageForUnknown(err)}`;
 			}
 		} else if (fileInfo.local_path) {
 			try {
 				const data = await invoke<number[]>('read_binary_file', { path: fileInfo.local_path });
-				await invoke('write_binary_file', { path, data });
+				await writeBinaryFile(path, new Uint8Array(data));
 			} catch (err) {
-				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${err instanceof Error ? err.message : err}`;
+				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${messageForUnknown(err)}`;
 			}
 		}
 	}

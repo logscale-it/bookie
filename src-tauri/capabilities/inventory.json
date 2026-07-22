@@ -71,9 +71,9 @@
       "call_sites": [
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 190
+          "line": 192
         },
-        { "file": "src/lib/db/backfill-file-data.ts", "line": 79 }
+        { "file": "src/lib/db/backfill-file-data.ts", "line": 80 }
       ]
     },
     {
@@ -85,7 +85,7 @@
       "command": "read_binary_file",
       "permission": "core:default",
       "call_sites": [
-        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 381 }
+        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 378 }
       ]
     },
     {
@@ -147,26 +147,10 @@
       "permission": "core:default",
       "call_sites": [
         {
-          "file": "src/routes/zeiterfassung/stundenzettel/+page.svelte",
-          "line": 195
-        },
-        {
-          "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 200
-        },
-        {
-          "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 375
-        },
-        {
-          "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 382
-        },
-        { "file": "src/common/InvoiceForm.svelte", "line": 364 },
-        { "file": "src/lib/csv/csv-writer.ts", "line": 50 },
-        { "file": "src/lib/csv/csv-writer.ts", "line": 68 },
-        { "file": "src/lib/csv/csv-writer.ts", "line": 87 },
-        { "file": "src/lib/db/backfill-file-data.ts", "line": 220 }
+          "file": "src/lib/fs.ts",
+          "line": 14,
+          "note": "Single raw-body IPC wrapper (`writeBinaryFile`); all save/export/backfill flows route through it."
+        }
       ]
     },
     {
@@ -184,16 +168,11 @@
       "permission": "core:default",
       "note": "Bridge for all custom commands above; see `commands` for command-name -> call-site traceability.",
       "call_sites": [
-        {
-          "file": "src/routes/zeiterfassung/stundenzettel/+page.svelte",
-          "line": 10
-        },
         { "file": "src/routes/unternehmen/+page.svelte", "line": 4 },
         { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 2 },
         { "file": "src/routes/einstellungen/diagnose/+page.svelte", "line": 2 },
         { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 7 },
-        { "file": "src/common/InvoiceForm.svelte", "line": 18 },
-        { "file": "src/lib/csv/csv-writer.ts", "line": 9 },
+        { "file": "src/lib/fs.ts", "line": 1 },
         {
           "file": "src/lib/logger.ts",
           "line": 22,
@@ -222,12 +201,12 @@
       "call_sites": [
         {
           "file": "src/routes/zeiterfassung/stundenzettel/+page.svelte",
-          "line": 11
+          "line": 12
         },
         { "file": "src/routes/unternehmen/+page.svelte", "line": 3 },
         { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 6 },
         { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 4 },
-        { "file": "src/common/InvoiceForm.svelte", "line": 19 },
+        { "file": "src/common/InvoiceForm.svelte", "line": 20 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 8 },
         { "file": "src/lib/boot/recovery-actions.ts", "line": 20 }
       ]

@@ -11,6 +11,7 @@
 	import { generateDatevBuchungsstapel } from '$lib/csv/datev-csv';
 	import { createEuerPdf } from '$lib/pdf/euer-pdf';
 	import { saveCsvFile, saveDatevFile, savePdfFile } from '$lib/csv/csv-writer';
+	import { messageForUnknown } from '$lib/shared/errors';
 	import { t, tp, translations } from '$lib/i18n';
 
 	let loading = $state(true);
@@ -214,7 +215,7 @@
 			const saved = await saveCsvFile(csv, `UStVA-${year}-${groupBy}.csv`);
 			if (saved) toasts.success(t('overview.exportSuccess'));
 		} catch (err) {
-			toasts.error(`${t('overview.exportError')}: ${err}`);
+			toasts.error(`${t('overview.exportError')}: ${messageForUnknown(err)}`);
 		} finally {
 			exportingUstva = false;
 		}
@@ -230,7 +231,7 @@
 			const saved = await saveCsvFile(csv, `EUER-${year}-${groupBy}.csv`);
 			if (saved) toasts.success(t('overview.exportSuccess'));
 		} catch (err) {
-			toasts.error(`${t('overview.exportError')}: ${err}`);
+			toasts.error(`${t('overview.exportError')}: ${messageForUnknown(err)}`);
 		} finally {
 			exportingEuer = false;
 		}
@@ -254,7 +255,7 @@
 			const saved = await savePdfFile(pdfBytes, `EUER_${euerFrom}_${euerTo}.pdf`);
 			if (saved) toasts.success(t('overview.exportSuccess'));
 		} catch (err) {
-			toasts.error(`${t('overview.exportError')}: ${err}`);
+			toasts.error(`${t('overview.exportError')}: ${messageForUnknown(err)}`);
 		} finally {
 			exportingEuerPeriod = false;
 		}
@@ -283,7 +284,7 @@
 			const saved = await saveDatevFile(csv, `EXTF_Buchungsstapel_${year}.csv`);
 			if (saved) toasts.success(t('overview.exportSuccess'));
 		} catch (err) {
-			toasts.error(`${t('overview.exportError')}: ${err}`);
+			toasts.error(`${t('overview.exportError')}: ${messageForUnknown(err)}`);
 		} finally {
 			exportingDatev = false;
 		}
