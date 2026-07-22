@@ -15,7 +15,8 @@
 	import { generateInvoiceHtml, type InvoicePdfData } from '$lib/pdf/invoice-pdf';
 	import { createInvoicePdf } from '$lib/pdf/invoice-pdf-writer';
 	import { generateInvoiceNumber as formatInvoiceNumber } from '$lib/invoice-number';
-	import { invoke } from '@tauri-apps/api/core';
+	import { writeBinaryFile } from '$lib/fs';
+	import { messageForUnknown } from '$lib/shared/errors';
 	import { save } from '@tauri-apps/plugin-dialog';
 	import { t, LOCALE_LABELS, type Locale } from '$lib/i18n';
 	import { LEGAL_COUNTRIES, type LegalCountry } from '$lib/legal';
@@ -361,9 +362,9 @@
 		pdfLoading = true;
 		try {
 			const pdfBytes = await createInvoicePdf(data);
-			await invoke('write_binary_file', { path: filePath, data: Array.from(pdfBytes) });
+			await writeBinaryFile(filePath, pdfBytes);
 		} catch (err) {
-			pdfError = `${t('invoiceForm.pdfError')}: ${err}`;
+			pdfError = `${t('invoiceForm.pdfError')}: ${messageForUnknown(err)}`;
 		} finally {
 			pdfLoading = false;
 		}

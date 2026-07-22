@@ -37,6 +37,7 @@
  *     restore path REL-1.c shipped.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { writeBinaryFile } from "../fs";
 import { getDb } from "./connection";
 import { getS3Settings } from "./settings";
 import { uploadFile } from "../s3/client";
@@ -214,13 +215,7 @@ export async function backfillIncomingInvoiceFileData(
       } else {
         if (!localDir) throw new Error("Local directory unresolved");
         const path = joinPath(localDir, `${candidate.id}.pdf`);
-        const writer = deps.writeLocal
-          ? deps.writeLocal
-          : (p: string, b: Uint8Array) =>
-              invoke<void>("write_binary_file", {
-                path: p,
-                data: Array.from(b),
-              });
+        const writer = deps.writeLocal ?? writeBinaryFile;
         await writer(path, bytes);
         await db.execute(
           `UPDATE incoming_invoices

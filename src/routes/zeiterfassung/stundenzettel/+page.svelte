@@ -7,7 +7,8 @@
 	import { listTimeEntries } from '$lib/db/time-entries';
 	import type { Customer, TimeEntry } from '$lib/db/types';
 	import { createTimesheetPdf } from '$lib/pdf/timesheet-pdf-writer';
-	import { invoke } from '@tauri-apps/api/core';
+	import { writeBinaryFile } from '$lib/fs';
+	import { messageForUnknown } from '$lib/shared/errors';
 	import { save } from '@tauri-apps/plugin-dialog';
 
 	type GroupingMode = 'customer-date' | 'customer-week';
@@ -192,9 +193,9 @@
 					}))
 				}))
 			});
-			await invoke('write_binary_file', { path: filePath, data: Array.from(pdfBytes) });
+			await writeBinaryFile(filePath, pdfBytes);
 		} catch (err) {
-			pdfError = `PDF-Export fehlgeschlagen: ${err}`;
+			pdfError = `PDF-Export fehlgeschlagen: ${messageForUnknown(err)}`;
 		} finally {
 			pdfLoading = false;
 		}

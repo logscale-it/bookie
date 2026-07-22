@@ -60,11 +60,16 @@ const fakeKeyring: {
 } = { creds: null };
 
 mock.module("@tauri-apps/api/core", () => ({
-  invoke: async (cmd: string, args?: unknown) => {
+  invoke: async (
+    cmd: string,
+    args?: unknown,
+    opts?: { headers?: Record<string, string> },
+  ) => {
     if (cmd === "get_app_data_dir") return fixture.appDataDir;
     if (cmd === "write_binary_file") {
-      const a = args as { path: string; data: number[] };
-      fixture.writes.push({ path: a.path, bytes: a.data });
+      // Raw-body shape (see src/lib/fs.ts): bytes as body, path in header.
+      const path = decodeURIComponent(opts?.headers?.["x-bookie-path"] ?? "");
+      fixture.writes.push({ path, bytes: Array.from(args as Uint8Array) });
       return;
     }
     if (cmd === "store_s3_credentials") {

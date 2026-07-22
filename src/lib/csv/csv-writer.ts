@@ -6,7 +6,7 @@
  */
 
 import { save } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { writeBinaryFile } from "$lib/fs";
 import { encodeCp1252 } from "./datev-csv";
 
 const BOM = "\uFEFF";
@@ -45,12 +45,7 @@ export async function saveCsvFile(
   });
   if (!filePath) return false;
 
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(csvString);
-  await invoke("write_binary_file", {
-    path: filePath,
-    data: Array.from(bytes),
-  });
+  await writeBinaryFile(filePath, new TextEncoder().encode(csvString));
   return true;
 }
 
@@ -65,10 +60,7 @@ export async function savePdfFile(
   });
   if (!filePath) return false;
 
-  await invoke("write_binary_file", {
-    path: filePath,
-    data: Array.from(pdfBytes),
-  });
+  await writeBinaryFile(filePath, pdfBytes);
   return true;
 }
 
@@ -84,9 +76,6 @@ export async function saveDatevFile(
   });
   if (!filePath) return false;
 
-  await invoke("write_binary_file", {
-    path: filePath,
-    data: Array.from(encodeCp1252(csvString)),
-  });
+  await writeBinaryFile(filePath, encodeCp1252(csvString));
   return true;
 }
