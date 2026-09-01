@@ -90,7 +90,7 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 # not try to compile or invoke Docker. The crates have no runtime effect on
 # the shipped binary because they're behind `#[cfg(feature = "e2e")]` in the
 # integration tests under `tests/` and never referenced from `src/`.
-testcontainers = { version = "0.27", optional = true }
+testcontainers = { version = "0.28", optional = true }
 testcontainers-modules = { version = "0.15", features = ["minio"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
