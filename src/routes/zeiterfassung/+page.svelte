@@ -38,7 +38,8 @@
 	let projectId = $state('');
 	let entryDate = $state('');
 	let startTime = $state('08:00');
-	let endTime = $state('09:00');
+	let endTime = $state('17:00');
+	let pauseMinutes = $state(60);
 
 	const customerOptions = $derived.by(() => [
 		{ value: '', label: t('timeTracking.noCustomer') },
@@ -53,9 +54,11 @@
 	const startMinutes = $derived.by(() => parseTimeToMinutes(startTime));
 	const endMinutes = $derived.by(() => parseTimeToMinutes(endTime));
 
+	const pause = $derived.by(() => Math.max(0, Number(pauseMinutes) || 0));
+
 	const durationHours = $derived.by(() => {
 		if (startMinutes === null || endMinutes === null) return 0;
-		const diffMinutes = endMinutes - startMinutes;
+		const diffMinutes = endMinutes - startMinutes - pause;
 		if (diffMinutes <= 0 || diffMinutes > 24 * 60) return 0;
 		return diffMinutes / 60;
 	});
@@ -122,11 +125,14 @@
 
 	function resetForm() {
 		description = '';
-		customerId = '';
-		projectId = '';
+		// ponytail: single active project assumed; first match wins
+		const activeProject = projects.find((project) => project.status === 'active');
+		projectId = activeProject ? String(activeProject.id) : '';
+		customerId = activeProject?.customer_id ? String(activeProject.customer_id) : '';
 		entryDate = todayIsoDate();
 		startTime = '08:00';
-		endTime = '09:00';
+		endTime = '17:00';
+		pauseMinutes = 60;
 		formError = '';
 		editingTimeEntryId = null;
 	}
@@ -143,7 +149,12 @@
 		projectId = row.project_id ? String(row.project_id) : '';
 		entryDate = row.entry_date;
 		startTime = toLocalTimeInputValue(row.started_at, row.entry_date) ?? '08:00';
-		endTime = toLocalTimeInputValue(row.ended_at, row.entry_date) ?? '09:00';
+		endTime = toLocalTimeInputValue(row.ended_at, row.entry_date) ?? '17:00';
+		// Pause is not stored — derive it as gross time span minus booked duration.
+		const start = parseTimeToMinutes(startTime);
+		const end = parseTimeToMinutes(endTime);
+		pauseMinutes =
+			start !== null && end !== null && row.duration_minutes ? Math.max(0, end - start - row.duration_minutes) : 0;
 		formError = '';
 		showEntryDialog = true;
 	}
@@ -157,7 +168,8 @@
 		if (!startTime) return;
 		const start = parseTimeToMinutes(startTime);
 		if (start === null) return;
-		const next = Math.min(start + minutes, 24 * 60);
+		// Quick buttons mean net working time, so the pause is added on top.
+		const next = Math.min(start + minutes + pause, 24 * 60);
 		endTime = formatMinutesToTimeValue(next);
 	}
 
@@ -172,7 +184,7 @@
 		try {
 			const start = composeDateTime(entryDate, startMinutes);
 			const end = composeDateTime(entryDate, endMinutes);
-			const minutes = endMinutes - startMinutes;
+			const minutes = endMinutes - startMinutes - pause;
 
 			if (editingTimeEntryId === null) {
 				const companyId = await ensureCompanyId();
@@ -325,7 +337,7 @@
 						<label for="entry-date" class="label">{t('common.date')}</label>
 						<input id="entry-date" type="date" bind:value={entryDate} class="input-base input-valid" />
 					</div>
-					<div class="grid grid-cols-2 gap-3">
+					<div class="grid grid-cols-3 gap-3">
 						<div class="flex flex-col gap-1">
 							<label for="entry-start" class="label">{t('timeTracking.startTime')}</label>
 							<input id="entry-start" type="time" step="900" bind:value={startTime} class="input-base input-valid" />
@@ -333,6 +345,10 @@
 						<div class="flex flex-col gap-1">
 							<label for="entry-end" class="label">{t('timeTracking.endTime')}</label>
 							<input id="entry-end" type="time" step="900" bind:value={endTime} class="input-base {durationHours > 0 ? 'input-valid' : 'input-error'}" />
+						</div>
+						<div class="flex flex-col gap-1">
+							<label for="entry-pause" class="label">{t('timeTracking.pause')}</label>
+							<input id="entry-pause" type="number" min="0" step="15" bind:value={pauseMinutes} class="input-base input-valid" />
 						</div>
 					</div>
 				</div>
