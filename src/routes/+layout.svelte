@@ -16,6 +16,7 @@
 	import BootDiagnostics from '$lib/diagnostics/BootDiagnostics.svelte';
 	import CommandPalette from '../common/CommandPalette.svelte';
 	import Toaster from '../common/Toaster.svelte';
+	import UpdatePrompt from '../common/UpdatePrompt.svelte';
 	import { commandPalette } from '$lib/ui/command.svelte';
 	import { theme } from '$lib/ui/theme.svelte';
 	import {
@@ -220,6 +221,7 @@
 	<div class="flex h-screen overflow-hidden bg-zinc-100 text-sm text-zinc-900 antialiased dark:bg-zinc-900 dark:text-zinc-100">
 		<CommandPalette />
 		<Toaster />
+		<UpdatePrompt />
 		<!-- Desktop sidebar -->
 		<aside class="hidden w-72 shrink-0 flex-col overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:flex dark:border-zinc-700 dark:bg-zinc-800/60">
 			<div class="mb-5 flex items-center gap-2.5">

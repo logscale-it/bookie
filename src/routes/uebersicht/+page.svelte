@@ -443,14 +443,17 @@
 				<div>
 					<p class="label">{t('overview.revenue')}</p>
 					<p class="mt-1 text-xl font-semibold text-emerald-600 dark:text-emerald-400">{formatCurrency(totals.revenue)}</p>
+					<p class="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{t('overview.revenueHint')}</p>
 				</div>
 				<div>
 					<p class="label">{t('overview.expenses')}</p>
 					<p class="mt-1 text-xl font-semibold text-red-500 dark:text-red-400">{formatCurrency(totals.costs)}</p>
+					<p class="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{t('overview.expensesHint')}</p>
 				</div>
 				<div>
 					<p class="label">{t('overview.profit')}</p>
 					<p class="mt-1 text-xl font-semibold {totals.profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}">{formatCurrency(totals.profit)}</p>
+					<p class="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">= {t('overview.revenue')} − {t('overview.expenses')}</p>
 				</div>
 			</div>
 
@@ -482,14 +485,17 @@
 				<div>
 					<p class="label">{t('overview.vatOut')}</p>
 					<p class="mt-1 text-xl font-semibold">{formatCurrency(totals.vatOut)}</p>
+					<p class="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{t('overview.vatOutHint')}</p>
 				</div>
 				<div>
 					<p class="label">{t('overview.vatIn')}</p>
 					<p class="mt-1 text-xl font-semibold">{formatCurrency(totals.vatIn)}</p>
+					<p class="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{t('overview.vatInHint')}</p>
 				</div>
 				<div>
 					<p class="label">{t('overview.vatPayable')}</p>
 					<p class="mt-1 text-xl font-semibold text-blue-600 dark:text-blue-400">{formatCurrency(totals.vatPayable)}</p>
+					<p class="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">= {t('overview.vatOut')} − {t('overview.vatIn')}</p>
 				</div>
 			</div>
 

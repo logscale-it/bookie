@@ -3547,6 +3547,8 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // OBS-1.a: install the tracing subscriber as early as possible so
             // that subsequent setup work and command handlers land in the file

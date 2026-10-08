@@ -221,6 +221,36 @@
       ]
     },
     {
+      "plugin": "@tauri-apps/plugin-updater",
+      "symbol": "check",
+      "permission": "updater:allow-check",
+      "note": "Checks the GitHub Releases `latest.json` endpoint for a signed update.",
+      "call_sites": [
+        { "file": "src/routes/einstellungen/updates/+page.svelte", "line": 2 },
+        { "file": "src/common/UpdatePrompt.svelte", "line": 3 }
+      ]
+    },
+    {
+      "plugin": "@tauri-apps/plugin-updater",
+      "symbol": "downloadAndInstall",
+      "permission": "updater:allow-download-and-install",
+      "note": "Downloads and installs the signed update bundle (method on the `Update` returned by `check()`).",
+      "call_sites": [
+        { "file": "src/routes/einstellungen/updates/+page.svelte", "line": 2 },
+        { "file": "src/common/UpdatePrompt.svelte", "line": 3 }
+      ]
+    },
+    {
+      "plugin": "@tauri-apps/plugin-process",
+      "symbol": "relaunch",
+      "permission": "process:allow-restart",
+      "note": "Restarts the app after an update is installed.",
+      "call_sites": [
+        { "file": "src/routes/einstellungen/updates/+page.svelte", "line": 3 },
+        { "file": "src/common/UpdatePrompt.svelte", "line": 4 }
+      ]
+    },
+    {
       "plugin": "@tauri-apps/plugin-opener",
       "symbol": "openUrl",
       "permission": "opener:allow-open-url",
@@ -280,8 +310,11 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "opener:allow-open-url",
+    "process:allow-restart",
     "sql:allow-load",
     "sql:allow-execute",
-    "sql:allow-select"
+    "sql:allow-select",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
   ]
 }
