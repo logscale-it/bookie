@@ -10,8 +10,11 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "opener:allow-open-url",
+    "process:allow-restart",
     "sql:allow-execute",
     "sql:allow-load",
-    "sql:allow-select"
+    "sql:allow-select",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
   ]
 }

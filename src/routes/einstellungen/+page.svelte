@@ -4,7 +4,8 @@
 		{ href: '/einstellungen/rechnung', label: 'Rechnung' },
 		{ href: '/einstellungen/mwst', label: 'MwSt.-Steuern' },
 		{ href: '/einstellungen/backup', label: 'Backup & Wiederherstellung' },
-		{ href: '/einstellungen/diagnose', label: 'Diagnose' }
+		{ href: '/einstellungen/diagnose', label: 'Diagnose' },
+		{ href: '/einstellungen/updates', label: 'Updates' }
 	];
 </script>
 

@@ -9,7 +9,7 @@ on:
       tag:
         description: Release tag to publish
         required: true
-        default: v0.1.2
+        default: v0.1.3
 
 permissions:
   contents: write
@@ -22,6 +22,7 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
+    environment: release
     strategy:
       fail-fast: false
       matrix:
@@ -50,68 +51,16 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build Tauri bundle
-        run: bun run tauri build
-
-      - name: Upload platform bundles
-        uses: actions/upload-artifact@v6
-        with:
-          name: bookie-${{ matrix.platform }}
-          if-no-files-found: error
-          path: |
-            src-tauri/target/release/bundle/**/*.AppImage
-            src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.rpm
-            src-tauri/target/release/bundle/**/*.dmg
-            src-tauri/target/release/bundle/**/*.msi
-            src-tauri/target/release/bundle/**/*.exe
-
-  publish:
-    name: Publish GitHub Release
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Download platform bundles
-        uses: actions/download-artifact@v6
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Publish release
+      - name: Build, sign and publish
+        uses: tauri-apps/tauri-action@v0
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-
-          if ! find dist -type f -print -quit | grep -q .; then
-            echo "No release assets found in dist" >&2
-            exit 1
-          fi
-
-          release_json="$(gh api \
-            --method POST \
-            "repos/${GITHUB_REPOSITORY}/releases" \
-            -f tag_name="${RELEASE_TAG}" \
-            -f name="Bookie ${RELEASE_TAG}" \
-            -F draft=true \
-            -F prerelease=false)"
-          release_id="$(jq -r '.id' <<<"${release_json}")"
-          upload_url="$(jq -r '.upload_url | sub("\\{\\?name,label\\}$"; "")' <<<"${release_json}")"
-
-          while IFS= read -r -d '' asset; do
-            name="$(basename "${asset}")"
-            echo "Uploading ${name}"
-            gh api \
-              --method POST \
-              "${upload_url}?name=${name}" \
-              -H "Content-Type: application/octet-stream" \
-              --input "${asset}" \
-              >/dev/null
-          done < <(find dist -type f -print0)
-
-          gh api \
-            --method PATCH \
-            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            -F draft=false \
-            >/dev/null
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          releaseName: "Bookie ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+          # ponytail: uploads latest.json (updater manifest) next to the bundles
+          uploadUpdaterJson: true
