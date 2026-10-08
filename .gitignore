@@ -28,3 +28,4 @@ Cargo.lock
 # wasn't caught earlier).
 !.github/
 !.github/**
+*.pdf
