@@ -40,6 +40,23 @@ export async function listTimeEntries(
   return { rows, totalCount };
 }
 
+/** Unpaginated, filtered in SQL. entry_date is ISO `YYYY-MM-DD`, so string compare is a date compare. */
+export async function listTimesheetEntries(
+  companyId: number,
+  filter: { from?: string; to?: string; customerId?: number | null } = {},
+): Promise<TimeEntry[]> {
+  const db = await getDb();
+  return db.select<TimeEntry[]>(
+    `SELECT * FROM time_entries
+     WHERE company_id = $1
+       AND ($2 IS NULL OR entry_date >= $2)
+       AND ($3 IS NULL OR entry_date <= $3)
+       AND ($4 IS NULL OR customer_id = $4)
+     ORDER BY entry_date DESC`,
+    [companyId, filter.from || null, filter.to || null, filter.customerId ?? null],
+  );
+}
+
 export async function getTimeEntryById(
   id: number,
 ): Promise<TimeEntry | undefined> {
