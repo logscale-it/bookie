@@ -60,6 +60,31 @@ describe("time entries", () => {
     expect(list[0].duration_minutes).toBe(90);
   });
 
+  test("listTimesheetEntries filters date range + customer in SQL with no 200 cap", async () => {
+    const { companyId, customerId, projectId } = await seed();
+    const other = await customers.createCustomer({
+      company_id: companyId, customer_number: null, name: "Other",
+      contact_name: null, email: null, phone: null, street: null,
+      postal_code: null, city: null, country_code: "DE",
+      vat_id: null, website: null, type: "kunde",
+    });
+    // 250 in-range entries for customerId (Jan 2025), plus out-of-range and other-customer noise.
+    for (let i = 0; i < 250; i++) {
+      const day = String((i % 28) + 1).padStart(2, "0");
+      await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, `2025-01-${day}`, 1));
+    }
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, "2025-02-01", 1));
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, "2024-12-31", 1));
+    await timeEntries.createTimeEntry(blankEntry(companyId, other, projectId, "2025-01-15", 1));
+
+    const rows = await timeEntries.listTimesheetEntries(companyId, {
+      from: "2025-01-01", to: "2025-01-31", customerId,
+    });
+    expect(rows.length).toBe(250);
+    expect(await timeEntries.listTimesheetEntries(companyId)).toHaveLength(253);
+    expect(await timeEntries.listTimesheetEntries(companyId, { from: "2025-01-28", to: "" })).toHaveLength(9);
+  });
+
   test("update changes whitelisted columns", async () => {
     const { companyId, customerId, projectId } = await seed();
     const id = await timeEntries.createTimeEntry(

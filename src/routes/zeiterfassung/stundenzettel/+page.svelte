@@ -4,7 +4,7 @@
 	import Select from '../../../common/Select.svelte';
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { listClients } from '$lib/db/customers';
-	import { listTimeEntries } from '$lib/db/time-entries';
+	import { listTimesheetEntries } from '$lib/db/time-entries';
 	import type { Customer, TimeEntry } from '$lib/db/types';
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageForUnknown } from '$lib/shared/errors';
@@ -21,7 +21,8 @@
 	};
 
 	let loading = $state(true);
-	let rows = $state<TimeSheetRow[]>([]);
+	let rows = $state<TimeEntry[]>([]);
+	let companyId = $state<number | null>(null);
 	let customers = $state<Customer[]>([]);
 
 	let periodStart = $state('');
@@ -40,18 +41,11 @@
 	]);
 
 	const filteredRows = $derived.by(() => {
-		const start = periodStart ? new Date(`${periodStart}T00:00:00`) : null;
-		const end = periodEnd ? new Date(`${periodEnd}T23:59:59`) : null;
-		const selectedId = selectedCustomerId !== 'all' ? Number(selectedCustomerId) : null;
-
-		return rows.filter((entry) => {
-			const date = new Date(entry.entry_date);
-			if (Number.isNaN(date.getTime())) return false;
-			if (start && date < start) return false;
-			if (end && date > end) return false;
-			if (selectedId && entry.customer_id !== selectedId) return false;
-			return true;
-		});
+		const customerMap = new Map(customers.map((customer) => [customer.id, customer.name]));
+		return rows.map((entry) => ({
+			...entry,
+			customerName: entry.customer_id ? (customerMap.get(entry.customer_id) ?? '—') : '—'
+		}));
 	});
 
 	const groupedRows = $derived.by(() => {
@@ -93,6 +87,15 @@
 		loadData();
 	});
 
+	$effect(() => {
+		const filter = {
+			from: periodStart,
+			to: periodEnd,
+			customerId: selectedCustomerId !== 'all' ? Number(selectedCustomerId) : null
+		};
+		if (companyId !== null) loadEntries(companyId, filter);
+	});
+
 	async function ensureCompanyId(): Promise<number> {
 		const companies = await listCompanies();
 		if (companies.length > 0) return companies[0].id;
@@ -113,17 +116,18 @@
 	}
 
 	async function loadData() {
+		const id = await ensureCompanyId();
+		customers = await listClients(id);
+		companyId = id;
+	}
+
+	let loadSeq = 0;
+	async function loadEntries(id: number, filter: Parameters<typeof listTimesheetEntries>[1]) {
+		const seq = ++loadSeq;
 		loading = true;
-		const companyId = await ensureCompanyId();
-		const [entriesResult, customerRows] = await Promise.all([listTimeEntries(companyId), listClients(companyId)]);
-
-		customers = customerRows;
-		const customerMap = new Map(customerRows.map((customer) => [customer.id, customer.name]));
-
-		rows = entriesResult.rows.map((entry) => ({
-			...entry,
-			customerName: entry.customer_id ? (customerMap.get(entry.customer_id) ?? '—') : '—'
-		}));
+		const result = await listTimesheetEntries(id, filter);
+		if (seq !== loadSeq) return; // a newer filter change superseded this load
+		rows = result;
 		loading = false;
 	}
 
