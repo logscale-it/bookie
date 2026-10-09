@@ -105,32 +105,32 @@
     {
       "command": "s3_backup_db",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 55 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 58 }]
     },
     {
       "command": "s3_delete_file",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 79 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 82 }]
     },
     {
       "command": "s3_download_file",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 67 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 70 }]
     },
     {
       "command": "s3_presign_download_url",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 104 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 107 }]
     },
     {
       "command": "s3_test_connection",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 114 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 117 }]
     },
     {
       "command": "s3_upload_file",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 35 }]
+      "call_sites": [{ "file": "src/lib/s3/client.ts", "line": 42 }]
     },
     {
       "command": "schema_version_check",

@@ -375,7 +375,7 @@
 			}
 		} else if (fileInfo.local_path) {
 			try {
-				const data = await invoke<number[]>('read_binary_file', { path: fileInfo.local_path });
+				const data = await invoke<ArrayBuffer>('read_binary_file', { path: fileInfo.local_path });
 				await writeBinaryFile(path, new Uint8Array(data));
 			} catch (err) {
 				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${messageForUnknown(err)}`;
