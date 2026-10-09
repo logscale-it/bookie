@@ -2,8 +2,9 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import InvoiceForm, { type SaveData } from '../../../common/InvoiceForm.svelte';
-	import { getInvoiceById, updateInvoice, deleteInvoice } from '$lib/db/invoices';
-	import { listByInvoice, createInvoiceItem, updateInvoiceItem, deleteInvoiceItem } from '$lib/db/invoice-items';
+	import { getInvoiceById, updateInvoice, deleteInvoice, syncInvoiceItems } from '$lib/db/invoices';
+	import { listByInvoice } from '$lib/db/invoice-items';
+	import { withTransaction } from '$lib/db/connection';
 	import { getS3Settings } from '$lib/db/settings';
 	import { deleteFile } from '$lib/s3/client';
 	import { createLogger } from '$lib/logger';
@@ -40,63 +41,48 @@
 	async function handleSave(data: SaveData) {
 		if (!invoice) return;
 
-		// DAT-1.d: float totals are converted to integer cents at the DB boundary.
-		await updateInvoice(invoice.id, {
-			customer_id: data.customerId,
-			invoice_number: data.invoiceNumber,
-			issue_date: data.issueDate,
-			due_date: data.dueDate || null,
-			service_period_start: data.servicePeriodStart || null,
-			service_period_end: data.servicePeriodEnd || null,
-			currency: data.currency,
-			net_cents: Math.round(data.subtotal * 100),
-			tax_cents: Math.round(data.taxTotal * 100),
-			gross_cents: Math.round(data.grossTotal * 100),
-			issuer_name: data.company.legal_name || data.company.name,
-			issuer_tax_number: data.company.tax_number || null,
-			issuer_vat_id: data.company.vat_id || null,
-			issuer_bank_account_holder: data.company.bank_account_holder || null,
-			issuer_bank_iban: data.company.bank_iban || null,
-			issuer_bank_bic: data.company.bank_bic || null,
-			issuer_bank_name: data.company.bank_name || null,
-			notes: data.notes || null,
-			language: data.language || 'de',
-			legal_country_code: data.legalCountry || 'DE'
-		});
-
-		// Sync line items: delete removed, update existing, create new
-		const newItemIds = new Set(data.items.filter(i => i.id).map(i => i.id!));
-		for (const existing of existingItems) {
-			if (!newItemIds.has(existing.id)) {
-				await deleteInvoiceItem(existing.id);
-			}
-		}
-
-		for (let i = 0; i < data.items.length; i++) {
-			const item = data.items[i];
+		const items = data.items.map((item, i) => {
 			const quantity = parseFloat(item.quantity) || 0;
 			const unitPriceNet = parseFloat(item.unit_price_net) || 0;
-			const lineTotalNet = quantity * unitPriceNet;
-			const itemData = {
+			return {
+				id: item.id,
 				position: i + 1,
 				description: item.description,
 				quantity,
 				unit: 'Stk',
 				unit_price_net_cents: Math.round(unitPriceNet * 100),
 				tax_rate: parseFloat(item.tax_rate) || 0,
-				line_total_net_cents: Math.round(lineTotalNet * 100)
+				line_total_net_cents: Math.round(quantity * unitPriceNet * 100)
 			};
-			if (item.id) {
-				await updateInvoiceItem(item.id, itemData);
-			} else {
-				await createInvoiceItem({
-					invoice_id: invoice.id,
-					project_id: null,
-					time_entry_id: null,
-					...itemData
-				});
-			}
-		}
+		});
+		const id = invoice.id;
+		await withTransaction(async () => {
+			// DAT-1.d: float totals are converted to integer cents at the DB boundary.
+			await updateInvoice(id, {
+				customer_id: data.customerId,
+				invoice_number: data.invoiceNumber,
+				issue_date: data.issueDate,
+				due_date: data.dueDate || null,
+				service_period_start: data.servicePeriodStart || null,
+				service_period_end: data.servicePeriodEnd || null,
+				currency: data.currency,
+				net_cents: Math.round(data.subtotal * 100),
+				tax_cents: Math.round(data.taxTotal * 100),
+				gross_cents: Math.round(data.grossTotal * 100),
+				issuer_name: data.company.legal_name || data.company.name,
+				issuer_tax_number: data.company.tax_number || null,
+				issuer_vat_id: data.company.vat_id || null,
+				issuer_bank_account_holder: data.company.bank_account_holder || null,
+				issuer_bank_iban: data.company.bank_iban || null,
+				issuer_bank_bic: data.company.bank_bic || null,
+				issuer_bank_name: data.company.bank_name || null,
+				notes: data.notes || null,
+				language: data.language || 'de',
+				legal_country_code: data.legalCountry || 'DE'
+			});
+
+			await syncInvoiceItems(id, items, existingItems);
+		});
 
 		await goto('/rechnungen');
 	}

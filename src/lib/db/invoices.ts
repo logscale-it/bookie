@@ -1,5 +1,10 @@
 import { getDb, withTransaction, safeFields } from "./connection";
 import { assertOutsideRetention } from "./retention";
+import {
+  createInvoiceItem,
+  updateInvoiceItem,
+  deleteInvoiceItem,
+} from "./invoice-items";
 import type { Invoice, InvoiceItem } from "./types";
 
 export type InvoiceWithCustomer = Invoice & { customer_name: string | null };
@@ -175,6 +180,53 @@ export async function updateInvoice(
     `UPDATE invoices SET ${sets.join(", ")} WHERE id = $${values.length}`,
     values,
   );
+}
+
+export type InvoiceItemInput = Pick<
+  InvoiceItem,
+  | "position"
+  | "description"
+  | "quantity"
+  | "unit"
+  | "unit_price_net_cents"
+  | "tax_rate"
+  | "line_total_net_cents"
+> & { id?: number };
+
+/**
+ * Sync an invoice's line items to `items`: delete the ones no longer listed,
+ * update only those that differ from `existing` (each UPDATE writes an
+ * invoice_audit row), insert the new ones. Runs on the shared connection, so
+ * wrap the caller's whole save in `withTransaction` for a single commit.
+ */
+export async function syncInvoiceItems(
+  invoiceId: number,
+  items: InvoiceItemInput[],
+  existing: InvoiceItem[] = [],
+): Promise<void> {
+  const keep = new Set(items.map((i) => i.id));
+  for (const old of existing) {
+    if (!keep.has(old.id)) await deleteInvoiceItem(old.id);
+  }
+  const byId = new Map(existing.map((e) => [e.id, e]));
+  for (const { id, ...data } of items) {
+    const old = id === undefined ? undefined : byId.get(id);
+    if (id === undefined) {
+      await createInvoiceItem({
+        invoice_id: invoiceId,
+        project_id: null,
+        time_entry_id: null,
+        ...data,
+      });
+    } else if (
+      !old ||
+      (Object.keys(data) as (keyof typeof data)[]).some(
+        (k) => data[k] !== old[k],
+      )
+    ) {
+      await updateInvoiceItem(id, data);
+    }
+  }
 }
 
 export async function deleteInvoice(id: number): Promise<void> {
