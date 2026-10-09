@@ -3306,14 +3306,16 @@ mod frontend_log_tests {
 
 /// Initialise the global `tracing` subscriber with two layers:
 ///
-/// 1. A human-readable fmt layer that writes to stdout (so `bun run tauri dev`
-///    keeps showing logs in the terminal).
+/// 1. Debug builds only: a human-readable fmt layer that writes to stdout (so
+///    `bun run tauri dev` keeps showing logs in the terminal). Release builds
+///    skip it — nobody reads a GUI app's stdout, and it doubles formatting cost.
 /// 2. A JSON-line layer that writes to a daily-rotating file in `app_log_dir`,
 ///    retaining the last 14 files. The file layout produced by
 ///    `RollingFileAppender::builder()` is
 ///    `<app_log_dir>/bookie.<YYYY-MM-DD>.log`.
 ///
-/// `RUST_LOG` controls verbosity; absent, we default to `info,bookie=debug`.
+/// `RUST_LOG` controls verbosity; absent, we default to `info,bookie=debug` in
+/// debug builds and plain `info` in release builds.
 ///
 /// Existing `log::info!`/`log::warn!`/`log::error!` calls are bridged into
 /// `tracing` via the `tracing-log` feature of `tracing-subscriber` (enabled
@@ -3352,16 +3354,22 @@ fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::e
             .ok()
             .and_then(|directives| directives.parse::<Targets>().ok())
             .unwrap_or_else(|| {
-                Targets::new()
-                    .with_default(LevelFilter::INFO)
-                    .with_target("bookie", LevelFilter::DEBUG)
+                let targets = Targets::new().with_default(LevelFilter::INFO);
+                if cfg!(debug_assertions) {
+                    targets.with_target("bookie", LevelFilter::DEBUG)
+                } else {
+                    targets
+                }
             })
     };
 
-    let stdout_layer = tracing_subscriber::fmt::layer()
-        .with_target(true)
-        .with_writer(std::io::stdout)
-        .with_filter(env_filter());
+    // `Option<Layer>` is a no-op layer when `None`.
+    let stdout_layer = cfg!(debug_assertions).then(|| {
+        tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_writer(std::io::stdout)
+            .with_filter(env_filter())
+    });
 
     let file_layer = tracing_subscriber::fmt::layer()
         .json()
