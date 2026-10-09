@@ -1281,20 +1281,55 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, BookieError> {
     Ok(app_data_db)
 }
 
-/// Copy the live DB to a user-chosen path. Streaming `fs::copy` on the Rust
-/// side — the previous shape returned the whole file as IPC bytes, which
-/// buffered the DB twice (Vec + serialized IPC payload) just to write it back
-/// to disk in the frontend.
+/// Write a consistent snapshot of the SQLite DB at `src` to `dest` and return
+/// its size. The live DB runs in WAL mode, so a plain `fs::copy` of the main
+/// file would miss committed pages still sitting in `-wal`. `VACUUM INTO`
+/// reads through the WAL in a single read transaction. It refuses an existing
+/// non-empty target, so we write a sibling tmp file and rename it over `dest`.
+pub fn snapshot_db(src: &Path, dest: &Path) -> Result<u64, BookieError> {
+    let io = |what: &str, e: &dyn std::fmt::Display| BookieError::IoError {
+        message: format!("Failed to {what}: {e}"),
+    };
+    let mut tmp_name = dest.as_os_str().to_owned();
+    tmp_name.push(".tmp");
+    let tmp = PathBuf::from(tmp_name);
+    remove_if_exists(&tmp).map_err(|e| io("clear snapshot tmp", &e))?;
+    let conn =
+        rusqlite::Connection::open_with_flags(src, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .map_err(|e| io("open DB for snapshot", &e))?;
+    conn.execute("VACUUM INTO ?1", [tmp.to_string_lossy()])
+        .map_err(|e| io("snapshot DB", &e))?;
+    drop(conn);
+    fs::rename(&tmp, dest).map_err(|e| io("move snapshot into place", &e))?;
+    fs::metadata(dest)
+        .map(|m| m.len())
+        .map_err(|e| io("stat snapshot", &e))
+}
+
+/// Switch the DB file at `path` to WAL journaling (creating it if missing).
+pub fn enable_wal(path: &Path) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let conn = rusqlite::Connection::open(path).map_err(|e| e.to_string())?;
+    let mode: String = conn
+        .query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if mode != "wal" {
+        return Err(format!("journal_mode is {mode}"));
+    }
+    Ok(())
+}
+
+/// Snapshot the live DB to a user-chosen path on the Rust side — the DB never
+/// crosses IPC.
 #[tauri::command]
 async fn backup_database(app: AppHandle, target_path: String) -> Result<u64, BookieError> {
     run_blocking(move || {
         info!("Creating database backup at {target_path}");
         let db_file = db_path(&app)?;
-        let bytes = fs::copy(&db_file, &target_path).map_err(|err| {
+        let bytes = snapshot_db(&db_file, Path::new(&target_path)).inspect_err(|err| {
             error!("Failed to write backup: {err}");
-            BookieError::IoError {
-                message: format!("Failed to write backup: {err}"),
-            }
         })?;
 
         info!("Backup created: {bytes} bytes");
@@ -1352,7 +1387,7 @@ async fn restore_database(app: AppHandle, source_path: String) -> Result<(), Boo
         // Create automatic backup of current DB before overwriting
         let backup_file = db_file.with_extension("db.pre-restore-backup");
         if db_file.exists() {
-            let _ = fs::copy(&db_file, &backup_file);
+            let _ = snapshot_db(&db_file, &backup_file);
         }
 
         let (wal_file, shm_file) = wal_shm_sibling_paths(&db_file);
@@ -2143,11 +2178,15 @@ async fn s3_backup_db(
     let client = config.build_client()?;
 
     run_blocking(move || {
-        let digest = with_retry(
-            || client.put_object_from_file(&key, &db_file, "application/octet-stream"),
+        // Upload a WAL-consistent snapshot, not the live main file.
+        let snapshot = db_file.with_extension("db.s3-backup");
+        snapshot_db(&db_file, &snapshot)?;
+        let result = with_retry(
+            || client.put_object_from_file(&key, &snapshot, "application/octet-stream"),
             RetryPolicy::s3_default(),
-        )
-        .map_err(|e| {
+        );
+        let _ = fs::remove_file(&snapshot);
+        let digest = result.map_err(|e| {
             error!("S3 DB backup failed: key={key}, {e}");
             BookieError::S3Unreachable
         })?;
@@ -2393,7 +2432,7 @@ async fn restore_db_backup(
     // not abort the restore.
     let backup_file = db_file.with_extension("db.pre-restore-backup");
     if db_file.exists() {
-        if let Err(e) = fs::copy(&db_file, &backup_file) {
+        if let Err(e) = snapshot_db(&db_file, &backup_file) {
             warn!("Pre-restore snapshot failed (continuing): {e}");
         }
     }
@@ -3661,6 +3700,18 @@ pub fn run() {
                     let _ = tracing_log::LogTracer::init();
                     info!("Bookie starting (file logging disabled)");
                 }
+            }
+            // PERF-4 (#275): WAL is persistent on the file, so set it once
+            // here before the frontend's `Database.load`. Can't live in a
+            // migration (those run inside a transaction). Path is where
+            // tauri-plugin-sql opens `sqlite:bookie.db` (app_config_dir).
+            match app.path().app_config_dir() {
+                Ok(dir) => {
+                    if let Err(e) = enable_wal(&dir.join(DB_FILE_NAME)) {
+                        warn!("Failed to enable WAL: {e}");
+                    }
+                }
+                Err(e) => warn!("Failed to resolve app_config_dir for WAL: {e}"),
             }
             Ok(())
         })
