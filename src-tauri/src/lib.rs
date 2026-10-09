@@ -602,9 +602,8 @@ async fn boot_check(app: AppHandle) -> Result<BootStatus, BookieError> {
         let app_data = probe_app_data_dir(&app_data_dir);
         let keyring = probe_keyring(KEYRING_SERVICE, KEYRING_USER);
 
-        // We deliberately use `db_path(&app)` (not just
-        // `app_data_dir.join(DB_FILE_NAME)`) so the probes run against
-        // whichever location `tauri-plugin-sql` will actually open at boot.
+        // The probes use `db_path(&app)` (app_config_dir, the same file
+        // `tauri-plugin-sql` opens at boot), not `app_data_dir`.
         // ponytail: schema + S3 probes still open two read-only connections;
         // share one if boot latency ever shows up in a profile.
         let (schema, s3_config) = match db_path(&app) {
