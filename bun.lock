@@ -11,8 +11,11 @@
         "@tauri-apps/plugin-process": "^2.4.0",
         "@tauri-apps/plugin-sql": "~2.4.1",
         "@tauri-apps/plugin-updater": "^2.13.2",
+        "cookie": "^0.7.2",
         "devalue": "^5.9.4",
         "pdf-lib": "^1.17.1",
+        "postcss": "^8.5.29",
+        "source-map-js": "^1.2.2",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
