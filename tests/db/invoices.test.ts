@@ -5,6 +5,7 @@ import * as customers from "../../src/lib/db/customers";
 import * as invoices from "../../src/lib/db/invoices";
 import * as invoiceItems from "../../src/lib/db/invoice-items";
 import { testDb } from "./setup";
+import { withTransaction } from "../../src/lib/db/connection";
 
 let counter = 0;
 async function seed() {
@@ -275,5 +276,51 @@ describe("invoices CRUD + items + status history", () => {
         service_period_end: "2026-05-01",
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe("syncInvoiceItems (#277)", () => {
+  test("unchanged items write no audit rows; changes sync in one transaction", async () => {
+    const { companyId, customerId } = await seed();
+    const invId = await invoices.createInvoice(
+      blankInvoice(companyId, customerId, "INV-SYNC"),
+    );
+    const line = (position: number, description: string) => ({
+      position,
+      description,
+      quantity: 2,
+      unit: "Stk",
+      unit_price_net_cents: 1000,
+      tax_rate: 19,
+      line_total_net_cents: 2000,
+    });
+    await withTransaction(() =>
+      invoices.syncInvoiceItems(invId, [line(1, "A"), line(2, "B")]),
+    );
+    const auditCount = async () =>
+      (
+        await testDb.select<{ n: number }[]>(
+          "SELECT COUNT(*) AS n FROM invoice_audit WHERE entity_type = 'invoice_items'",
+        )
+      )[0].n;
+
+    let existing = (await invoiceItems.listByInvoice(invId)).rows;
+    const before = await auditCount();
+    await withTransaction(() =>
+      invoices.syncInvoiceItems(invId, existing, existing),
+    );
+    expect(await auditCount()).toBe(before);
+
+    // Drop B, edit A, add C: one delete + one update + one insert.
+    await withTransaction(() =>
+      invoices.syncInvoiceItems(
+        invId,
+        [{ ...line(1, "A2"), id: existing[0].id }, line(2, "C")],
+        existing,
+      ),
+    );
+    expect(await auditCount()).toBe(before + 3);
+    existing = (await invoiceItems.listByInvoice(invId)).rows;
+    expect(existing.map((i) => i.description)).toEqual(["A2", "C"]);
   });
 });
