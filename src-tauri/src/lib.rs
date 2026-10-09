@@ -1547,7 +1547,7 @@ async fn write_zip_file(
 /// user's save-as dialog. Mirror of `write_binary_file` in shape and error
 /// handling so the two endpoints remain symmetrical.
 #[tauri::command]
-async fn read_binary_file(path: String) -> Result<Vec<u8>, BookieError> {
+async fn read_binary_file(path: String) -> Result<tauri::ipc::Response, BookieError> {
     run_blocking(move || {
         info!("Reading file: {path}");
         fs::read(&path).map_err(|e| BookieError::IoError {
@@ -1555,6 +1555,8 @@ async fn read_binary_file(path: String) -> Result<Vec<u8>, BookieError> {
         })
     })
     .await
+    // Raw-body response: the webview gets an ArrayBuffer, not a JSON number array.
+    .map(tauri::ipc::Response::new)
 }
 
 /// Resolve the platform-specific app data directory and ensure it exists.
@@ -2027,8 +2029,46 @@ fn upload_sha256_sidecar(client: &S3Client, key: &str, digest_hex: &str) {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct S3UploadArgs {
+    config: S3Config,
+    path_prefix: String,
+    file_name: String,
+    content_type: String,
+}
+
+/// Raw-body IPC like `write_binary_file`: the bytes are the invoke body, the
+/// remaining args travel as percent-encoded JSON in the `x-bookie-args` header.
 #[tauri::command]
-async fn s3_upload_file(
+async fn s3_upload_file(request: tauri::ipc::Request<'_>) -> Result<String, BookieError> {
+    let args: S3UploadArgs = request
+        .headers()
+        .get("x-bookie-args")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            serde_json::from_str(&percent_encoding::percent_decode_str(v).decode_utf8_lossy()).ok()
+        })
+        .ok_or_else(|| BookieError::IoError {
+            message: "s3_upload_file: missing or invalid x-bookie-args header".to_string(),
+        })?;
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err(BookieError::IoError {
+            message: "s3_upload_file: expected raw body".to_string(),
+        });
+    };
+    let data = data.clone();
+    s3_upload_bytes(
+        args.config,
+        args.path_prefix,
+        args.file_name,
+        data,
+        args.content_type,
+    )
+    .await
+}
+
+async fn s3_upload_bytes(
     config: S3Config,
     path_prefix: String,
     file_name: String,
@@ -2121,8 +2161,18 @@ async fn s3_backup_db(
     .await
 }
 
+/// Raw-body response: the webview gets an ArrayBuffer, not a JSON number array.
 #[tauri::command]
-async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, BookieError> {
+async fn s3_download_file(
+    config: S3Config,
+    key: String,
+) -> Result<tauri::ipc::Response, BookieError> {
+    s3_download_bytes(config, key)
+        .await
+        .map(tauri::ipc::Response::new)
+}
+
+async fn s3_download_bytes(config: S3Config, key: String) -> Result<Vec<u8>, BookieError> {
     info!("S3 download: key={key}");
     let client = config.build_client()?;
 
@@ -2870,7 +2920,7 @@ mod s3_round_trip {
         let key = unique_key("rtrip/file.bin");
         let data = b"non-sqlite payload".to_vec();
 
-        let returned_key = s3_upload_file(
+        let returned_key = s3_upload_bytes(
             cfg(),
             String::new(),
             key.clone(),
@@ -2881,14 +2931,14 @@ mod s3_round_trip {
         .expect("upload");
         assert_eq!(returned_key, key);
 
-        let fetched = s3_download_file(cfg(), key.clone())
+        let fetched = s3_download_bytes(cfg(), key.clone())
             .await
             .expect("download");
         assert_eq!(fetched, data);
 
         s3_delete_file(cfg(), key.clone()).await.expect("delete");
 
-        let after_delete = s3_download_file(cfg(), key).await;
+        let after_delete = s3_download_bytes(cfg(), key).await;
         assert!(after_delete.is_err(), "object should be gone after delete");
     }
 
@@ -2904,7 +2954,7 @@ mod s3_round_trip {
         data.extend_from_slice(b"the rest of the database");
         let expected_digest = sha256_hex(&data);
 
-        s3_upload_file(
+        s3_upload_bytes(
             cfg(),
             String::new(),
             key.clone(),
@@ -2915,7 +2965,7 @@ mod s3_round_trip {
         .expect("upload");
 
         let sidecar_key = format!("{key}.sha256");
-        let sidecar_bytes = s3_download_file(cfg(), sidecar_key.clone())
+        let sidecar_bytes = s3_download_bytes(cfg(), sidecar_key.clone())
             .await
             .expect("sidecar should exist for sqlite uploads");
         let sidecar = String::from_utf8(sidecar_bytes).expect("sidecar utf8");
@@ -2935,7 +2985,7 @@ mod s3_round_trip {
         let key = unique_key("invoices/not-a-db.pdf");
         let data = b"%PDF-1.7 fake pdf content".to_vec();
 
-        s3_upload_file(
+        s3_upload_bytes(
             cfg(),
             String::new(),
             key.clone(),
@@ -2946,7 +2996,7 @@ mod s3_round_trip {
         .expect("upload");
 
         let sidecar_key = format!("{key}.sha256");
-        let sidecar_result = s3_download_file(cfg(), sidecar_key).await;
+        let sidecar_result = s3_download_bytes(cfg(), sidecar_key).await;
         assert!(
             sidecar_result.is_err(),
             "non-sqlite uploads must not produce a .sha256 sidecar"
@@ -2962,7 +3012,7 @@ mod s3_round_trip {
         }
         ensure_bucket();
         let key = unique_key("presign/test.txt");
-        s3_upload_file(
+        s3_upload_bytes(
             cfg(),
             String::new(),
             key.clone(),
@@ -2996,7 +3046,7 @@ mod s3_round_trip {
         ensure_bucket();
         let prefix = "rechnungen/2026";
         let file_name = unique_key("file.txt");
-        let key = s3_upload_file(
+        let key = s3_upload_bytes(
             cfg(),
             prefix.to_string(),
             file_name.clone(),

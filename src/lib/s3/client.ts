@@ -32,12 +32,15 @@ export async function uploadFile(
   // ships anywhere (support bundle, S3 mirror, future cloud variant).
   const s3_key = pathPrefix ? `${pathPrefix}/${fileName}` : fileName;
   log.info("S3 op", { op: "upload", s3_key, byte_size: data.byteLength });
-  return invoke<string>("s3_upload_file", {
+  // Raw-body IPC (see src/lib/fs.ts): bytes as the body, args in a header.
+  const args = {
     config: buildConfig(settings),
     pathPrefix,
     fileName,
-    data: Array.from(data),
     contentType,
+  };
+  return invoke<string>("s3_upload_file", data, {
+    headers: { "x-bookie-args": encodeURIComponent(JSON.stringify(args)) },
   });
 }
 
@@ -64,7 +67,7 @@ export async function downloadFile(
   key: string,
 ): Promise<Uint8Array> {
   log.info("S3 op", { op: "download", s3_key: key });
-  const data = await invoke<number[]>("s3_download_file", {
+  const data = await invoke<ArrayBuffer>("s3_download_file", {
     config: buildConfig(settings),
     key,
   });
