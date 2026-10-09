@@ -9,7 +9,6 @@
 	import { generateUstvaCsv } from '$lib/csv/ustva-csv';
 	import { generateEuerCsv } from '$lib/csv/euer-csv';
 	import { generateDatevBuchungsstapel } from '$lib/csv/datev-csv';
-	import { createEuerPdf } from '$lib/pdf/euer-pdf';
 	import { saveCsvFile, saveDatevFile, savePdfFile } from '$lib/csv/csv-writer';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { t, tp, translations } from '$lib/i18n';
@@ -247,7 +246,7 @@
 			const companyId = await ensureCompanyId();
 			const org = await getOrganizationSettings();
 			const report = await getEuerReport(companyId, euerFrom, euerTo);
-			const pdfBytes = await createEuerPdf(report, {
+			const pdfBytes = await (await import('$lib/pdf/euer-pdf')).createEuerPdf(report, {
 				companyName: org.name,
 				taxNumber: org.vatin,
 				createdAt: new Date()

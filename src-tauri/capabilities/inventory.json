@@ -201,12 +201,12 @@
       "call_sites": [
         {
           "file": "src/routes/zeiterfassung/stundenzettel/+page.svelte",
-          "line": 12
+          "line": 11
         },
         { "file": "src/routes/unternehmen/+page.svelte", "line": 3 },
         { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 6 },
         { "file": "src/routes/einstellungen/backup/+page.svelte", "line": 4 },
-        { "file": "src/common/InvoiceForm.svelte", "line": 20 },
+        { "file": "src/common/InvoiceForm.svelte", "line": 19 },
         { "file": "src/lib/csv/csv-writer.ts", "line": 8 },
         { "file": "src/lib/boot/recovery-actions.ts", "line": 20 }
       ]
