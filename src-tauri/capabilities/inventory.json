@@ -56,7 +56,7 @@
     {
       "command": "boot_check",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/diagnostics/boot.ts", "line": 85 }]
+      "call_sites": [{ "file": "src/lib/diagnostics/boot.ts", "line": 76 }]
     },
     {
       "command": "export_gobd",
