@@ -18,7 +18,6 @@
 // `BootDiagnostics.svelte`.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { S3Settings } from "$lib/db/types";
 
 /** Minimal local mirror of the Rust `BookieError` discriminant string set.
  *  `BookieError` is serialised with `#[serde(tag = "kind")]`, so `kind` is the
@@ -71,52 +70,8 @@ export function hasS3Warning(status: BootStatus): boolean {
   return isFailure(status.s3);
 }
 
-/** Tauri command bridge. The optional `s3_config` lets the backend skip the
- *  S3 probe when the user has not configured a bucket. */
-export async function runBootCheck(
-  s3Config?: {
-    endpointUrl: string;
-    region: string;
-    bucketName: string;
-    accessKeyId: string;
-    secretAccessKey: string;
-  } | null,
-): Promise<BootStatus> {
-  return invoke<BootStatus>("boot_check", {
-    s3Config: s3Config ?? null,
-  });
-}
-
-/** Build the optional `s3_config` argument for `boot_check` from a stored
- *  `S3Settings` row. Returns `null` when the user has not enabled S3 or has
- *  not provided credentials, so the backend skips the probe (slot becomes
- *  `{ kind: "Skipped" }`) instead of failing on empty creds. */
-export function s3ConfigFromSettings(
-  settings: Pick<
-    S3Settings,
-    | "enabled"
-    | "endpoint_url"
-    | "region"
-    | "bucket_name"
-    | "access_key_id"
-    | "secret_access_key"
-  > | null,
-): {
-  endpointUrl: string;
-  region: string;
-  bucketName: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-} | null {
-  if (!settings) return null;
-  if (!settings.enabled) return null;
-  if (!settings.access_key_id || !settings.secret_access_key) return null;
-  if (!settings.bucket_name) return null;
-  return {
-    endpointUrl: settings.endpoint_url ?? "",
-    region: settings.region ?? "",
-    bucketName: settings.bucket_name,
-    accessKeyId: settings.access_key_id,
-    secretAccessKey: settings.secret_access_key,
-  };
+/** Tauri command bridge. Takes no arguments: the backend reads S3 settings
+ *  (DB + keychain) itself and skips the probe when S3 is unconfigured. */
+export async function runBootCheck(): Promise<BootStatus> {
+  return invoke<BootStatus>("boot_check");
 }

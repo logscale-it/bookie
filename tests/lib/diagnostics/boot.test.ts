@@ -41,7 +41,6 @@ import {
   hasS3Warning,
   isFailure,
   runBootCheck,
-  s3ConfigFromSettings,
   type BootStatus,
 } from "../../../src/lib/diagnostics/boot";
 
@@ -138,71 +137,8 @@ describe("hasS3Warning", () => {
   });
 });
 
-describe("s3ConfigFromSettings", () => {
-  test("null settings -> null (probe will be skipped)", () => {
-    expect(s3ConfigFromSettings(null)).toBeNull();
-  });
-
-  test("disabled -> null (probe will be skipped)", () => {
-    expect(
-      s3ConfigFromSettings({
-        enabled: 0,
-        endpoint_url: "https://s3.example.com",
-        region: "eu-central-1",
-        bucket_name: "b",
-        access_key_id: "k",
-        secret_access_key: "s",
-      }),
-    ).toBeNull();
-  });
-
-  test("missing creds -> null (don't fail probe on empty fields)", () => {
-    expect(
-      s3ConfigFromSettings({
-        enabled: 1,
-        endpoint_url: "https://s3.example.com",
-        region: "eu-central-1",
-        bucket_name: "b",
-        access_key_id: "",
-        secret_access_key: "",
-      }),
-    ).toBeNull();
-  });
-
-  test("missing bucket -> null", () => {
-    expect(
-      s3ConfigFromSettings({
-        enabled: 1,
-        endpoint_url: "https://s3.example.com",
-        region: "eu-central-1",
-        bucket_name: "",
-        access_key_id: "k",
-        secret_access_key: "s",
-      }),
-    ).toBeNull();
-  });
-
-  test("complete settings -> camelCase config matching Rust S3Config", () => {
-    const cfg = s3ConfigFromSettings({
-      enabled: 1,
-      endpoint_url: "https://s3.example.com",
-      region: "eu-central-1",
-      bucket_name: "my-bucket",
-      access_key_id: "AKIA",
-      secret_access_key: "secret",
-    });
-    expect(cfg).toEqual({
-      endpointUrl: "https://s3.example.com",
-      region: "eu-central-1",
-      bucketName: "my-bucket",
-      accessKeyId: "AKIA",
-      secretAccessKey: "secret",
-    });
-  });
-});
-
 describe("runBootCheck", () => {
-  test("invokes 'boot_check' with s3Config: null when no config given", async () => {
+  test("invokes 'boot_check' with no args (backend reads S3 settings itself)", async () => {
     setNextResult(freshStatus());
     setShouldThrow(null);
     setLast(null);
@@ -210,24 +146,7 @@ describe("runBootCheck", () => {
     await runBootCheck();
 
     expect(getLast()?.cmd).toBe("boot_check");
-    expect(getLast()?.args).toEqual({ s3Config: null });
-  });
-
-  test("forwards an explicit s3Config to the backend", async () => {
-    setNextResult(freshStatus());
-    setShouldThrow(null);
-    setLast(null);
-
-    const cfg = {
-      endpointUrl: "https://s3.example.com",
-      region: "eu-central-1",
-      bucketName: "b",
-      accessKeyId: "k",
-      secretAccessKey: "s",
-    };
-    await runBootCheck(cfg);
-
-    expect(getLast()?.args).toEqual({ s3Config: cfg });
+    expect(getLast()?.args).toBeUndefined();
   });
 
   test("returns the backend's BootStatus shape unmodified", async () => {

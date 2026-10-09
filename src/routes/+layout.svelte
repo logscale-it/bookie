@@ -7,7 +7,7 @@
 	import { listCompanies } from '$lib/db/companies';
 	import { runDueRecurring } from '$lib/db/recurring';
 	import { t, setLocale, type Locale } from '$lib/i18n';
-	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
+	import { getOrganizationSettings } from '$lib/db/settings';
 	import {
 		runSchemaVersionCheck,
 		type MigrationOutOfDateError
@@ -21,7 +21,6 @@
 	import { theme } from '$lib/ui/theme.svelte';
 	import {
 		runBootCheck,
-		s3ConfigFromSettings,
 		hasBlockingFailure,
 		hasS3Warning,
 		type BootStatus
@@ -52,19 +51,7 @@
 	async function performBootCheck(): Promise<void> {
 		bootError = null;
 		try {
-			// Best-effort load of S3 settings so the backend's S3 probe runs
-			// when the user has actually configured a bucket. If settings
-			// reads fail (e.g. DB not yet migrated), we still want to invoke
-			// boot_check so the user sees the underlying breakage in the
-			// diagnostics view rather than a blank screen.
-			let s3Config = null;
-			try {
-				const s3 = await getS3Settings();
-				s3Config = s3ConfigFromSettings(s3);
-			} catch (e) {
-				log.warn('Failed to load S3 settings for boot_check', e);
-			}
-			bootStatus = await runBootCheck(s3Config);
+			bootStatus = await runBootCheck();
 		} catch (e) {
 			// boot_check itself blew up (e.g. command not registered, bridge
 			// failure). Surface as a synthetic blocking failure so the user
