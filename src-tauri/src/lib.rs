@@ -24,7 +24,6 @@ use tracing_subscriber::{
 };
 
 const DB_URL: &str = "sqlite:bookie.db";
-const DB_FILE_NAME: &str = "bookie.db";
 const KEYRING_SERVICE: &str = "com.ranelkarimov.bookie";
 const KEYRING_USER: &str = "s3_credentials";
 
@@ -1273,29 +1272,25 @@ fn app_migrations() -> Vec<Migration> {
     ]
 }
 
+/// The SQLite file tauri-plugin-sql opens for `DB_URL`: `app_config_dir()`
+/// joined with the part after `sqlite:` (mirrors the plugin's `path_mapper`).
+/// On Linux `app_config_dir` (~/.config) differs from `app_data_dir`
+/// (~/.local/share), so resolving anywhere else hits the wrong file (#286).
 fn db_path(app: &AppHandle) -> Result<PathBuf, BookieError> {
-    let app_data_dir = app
+    let dir = app
         .path()
-        .app_data_dir()
+        .app_config_dir()
         .map_err(|err| BookieError::IoError {
-            message: format!("Failed to resolve app_data_dir: {err}"),
+            message: format!("Failed to resolve app_config_dir: {err}"),
         })?;
-    let app_data_db = app_data_dir.join(DB_FILE_NAME);
-
-    if app_data_db.exists() {
-        return Ok(app_data_db);
-    }
-
-    let current_dir_db = PathBuf::from(DB_FILE_NAME);
-    if current_dir_db.exists() {
-        return Ok(current_dir_db);
-    }
-
-    fs::create_dir_all(&app_data_dir).map_err(|err| BookieError::IoError {
-        message: format!("Failed to create app data directory: {err}"),
+    fs::create_dir_all(&dir).map_err(|err| BookieError::IoError {
+        message: format!("Failed to create app config directory: {err}"),
     })?;
+    Ok(db_file_in(&dir))
+}
 
-    Ok(app_data_db)
+fn db_file_in(config_dir: &Path) -> PathBuf {
+    config_dir.join(DB_URL.split_once(':').map_or(DB_URL, |(_, file)| file))
 }
 
 /// Write a consistent snapshot of the SQLite DB at `src` to `dest` and return
@@ -2783,6 +2778,17 @@ mod atomic_restore_helper_tests {
     }
 
     #[test]
+    fn db_file_matches_tauri_plugin_sql_resolution() {
+        // tauri-plugin-sql (wrapper.rs `path_mapper`) opens
+        // `app_config_dir()` + the part of DB_URL after `sqlite:`.
+        let dir = PathBuf::from("/home/u/.config/app.bookie");
+        assert_eq!(
+            super::db_file_in(&dir),
+            PathBuf::from("/home/u/.config/app.bookie/bookie.db")
+        );
+    }
+
+    #[test]
     fn restore_tmp_appends_suffix_in_same_parent() {
         let p = PathBuf::from("/foo/bar/bookie.db");
         let tmp = restore_tmp_path(&p);
@@ -3754,14 +3760,14 @@ pub fn run() {
             // PERF-4 (#275): WAL is persistent on the file, so set it once
             // here before the frontend's `Database.load`. Can't live in a
             // migration (those run inside a transaction). Path is where
-            // tauri-plugin-sql opens `sqlite:bookie.db` (app_config_dir).
-            match app.path().app_config_dir() {
-                Ok(dir) => {
-                    if let Err(e) = enable_wal(&dir.join(DB_FILE_NAME)) {
+            // tauri-plugin-sql opens `sqlite:bookie.db` (see `db_path`).
+            match db_path(app.handle()) {
+                Ok(db_file) => {
+                    if let Err(e) = enable_wal(&db_file) {
                         warn!("Failed to enable WAL: {e}");
                     }
                 }
-                Err(e) => warn!("Failed to resolve app_config_dir for WAL: {e}"),
+                Err(e) => warn!("Failed to resolve DB path for WAL: {e}"),
             }
             Ok(())
         })
