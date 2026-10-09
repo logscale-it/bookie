@@ -271,13 +271,36 @@ export async function listAllInvoices(opts?: {
 		SELECT i.*, c.name AS customer_name, COUNT(*) OVER() AS _total_count
 		FROM invoices i
 		LEFT JOIN customers c ON i.customer_id = c.id
-		ORDER BY i.issue_date DESC LIMIT ${limit} OFFSET ${offset}
-	`);
+		ORDER BY i.issue_date DESC LIMIT $1 OFFSET $2
+	`,
+    [limit, offset],
+  );
   const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
   const rows = raw.map(
     ({ _total_count: _, ...rest }) => rest as InvoiceWithCustomer,
   );
   return { rows, totalCount };
+}
+
+export type InvoiceSearchItem = Pick<
+  InvoiceWithCustomer,
+  "id" | "invoice_number" | "customer_name"
+>;
+
+/** Slim projection for the command palette: only what it displays/searches. */
+export async function listInvoiceSearchItems(
+  companyId: number,
+  limit = 500,
+): Promise<InvoiceSearchItem[]> {
+  const db = await getDb();
+  return db.select<InvoiceSearchItem[]>(
+    `SELECT i.id, i.invoice_number, c.name AS customer_name
+     FROM invoices i
+     LEFT JOIN customers c ON i.customer_id = c.id
+     WHERE i.company_id = $1
+     ORDER BY i.issue_date DESC LIMIT $2`,
+    [companyId, limit],
+  );
 }
 
 export async function updateInvoiceStatus(

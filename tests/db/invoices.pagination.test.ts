@@ -136,3 +136,21 @@ describe("listInvoices pagination (PERF-1.c)", () => {
     expect(tail.totalCount).toBe(1000);
   });
 });
+
+describe("listInvoiceSearchItems (PERF-12)", () => {
+  test("returns only id/number/customer for the given company", async () => {
+    const a = await seed();
+    await invoices.createInvoice(blankInvoice(a.companyId, a.customerId, "A-1"));
+    expect(await invoices.listInvoiceSearchItems(a.companyId + 1)).toEqual([]);
+
+    const rows = await invoices.listInvoiceSearchItems(a.companyId);
+    expect(rows.length).toBe(1);
+    expect(Object.keys(rows[0]).sort()).toEqual([
+      "customer_name",
+      "id",
+      "invoice_number",
+    ]);
+    expect(rows[0].invoice_number).toBe("A-1");
+    expect(rows[0].customer_name).toBe("Cu");
+  });
+});
