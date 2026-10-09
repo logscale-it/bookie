@@ -60,7 +60,17 @@ jobs:
         with:
           tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
           releaseName: "Bookie ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          releaseDraft: false
+          releaseDraft: true # immutable releases: assets only addable while draft; publish job below
           prerelease: false
           # ponytail: uploads latest.json (updater manifest) next to the bundles
           uploadUpdaterJson: true
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}" --draft=false --repo "${{ github.repository }}"
