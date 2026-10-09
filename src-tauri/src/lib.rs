@@ -317,7 +317,7 @@ pub fn check_schema_version_at(db_path: &Path, expected: i64) -> Result<(), Book
 /// going through the JS `Database` plugin. Avoids an async hop, keeps
 /// version arithmetic in Rust, and the read-only flag means we never
 /// contend with the sqlx pool.
-#[tauri::command]
+#[tauri::command(async)]
 fn schema_version_check(app: AppHandle) -> Result<(), BookieError> {
     let db_file = db_path(&app)?;
     check_schema_version_at(&db_file, EXPECTED_SCHEMA_VERSION)
@@ -1286,18 +1286,21 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, BookieError> {
 /// buffered the DB twice (Vec + serialized IPC payload) just to write it back
 /// to disk in the frontend.
 #[tauri::command]
-fn backup_database(app: AppHandle, target_path: String) -> Result<u64, BookieError> {
-    info!("Creating database backup at {target_path}");
-    let db_file = db_path(&app)?;
-    let bytes = fs::copy(&db_file, &target_path).map_err(|err| {
-        error!("Failed to write backup: {err}");
-        BookieError::IoError {
-            message: format!("Failed to write backup: {err}"),
-        }
-    })?;
+async fn backup_database(app: AppHandle, target_path: String) -> Result<u64, BookieError> {
+    run_blocking(move || {
+        info!("Creating database backup at {target_path}");
+        let db_file = db_path(&app)?;
+        let bytes = fs::copy(&db_file, &target_path).map_err(|err| {
+            error!("Failed to write backup: {err}");
+            BookieError::IoError {
+                message: format!("Failed to write backup: {err}"),
+            }
+        })?;
 
-    info!("Backup created: {bytes} bytes");
-    Ok(bytes)
+        info!("Backup created: {bytes} bytes");
+        Ok(bytes)
+    })
+    .await
 }
 
 /// SQLite magic header bytes: "SQLite format 3\0"
@@ -1322,65 +1325,68 @@ fn validate_restore_bytes(bytes: &[u8]) -> Result<(), String> {
 /// copy goes through the same tmp-file + atomic-rename + parent-fsync flow as
 /// the S3 restore.
 #[tauri::command]
-fn restore_database(app: AppHandle, source_path: String) -> Result<(), BookieError> {
-    use std::io::Read;
+async fn restore_database(app: AppHandle, source_path: String) -> Result<(), BookieError> {
+    run_blocking(move || {
+        use std::io::Read;
 
-    info!("Database restore started from {source_path}");
-    // Header-only validation via the same helper the byte-based flow used —
-    // `validate_restore_bytes` only ever inspects the first 16 bytes, so
-    // feeding it the header is equivalent to feeding it the whole file.
-    let mut header = Vec::with_capacity(16);
-    fs::File::open(&source_path)
-        .and_then(|f| f.take(16).read_to_end(&mut header).map(|_| ()))
-        .map_err(|err| {
-            error!("Failed to read restore source: {err}");
+        info!("Database restore started from {source_path}");
+        // Header-only validation via the same helper the byte-based flow used —
+        // `validate_restore_bytes` only ever inspects the first 16 bytes, so
+        // feeding it the header is equivalent to feeding it the whole file.
+        let mut header = Vec::with_capacity(16);
+        fs::File::open(&source_path)
+            .and_then(|f| f.take(16).read_to_end(&mut header).map(|_| ()))
+            .map_err(|err| {
+                error!("Failed to read restore source: {err}");
+                BookieError::IoError {
+                    message: format!("Failed to read restore source: {err}"),
+                }
+            })?;
+        validate_restore_bytes(&header).map_err(|msg| {
+            error!("Restore validation failed: {msg}");
+            BookieError::BackupCorrupt
+        })?;
+
+        let db_file = db_path(&app)?;
+
+        // Create automatic backup of current DB before overwriting
+        let backup_file = db_file.with_extension("db.pre-restore-backup");
+        if db_file.exists() {
+            let _ = fs::copy(&db_file, &backup_file);
+        }
+
+        let (wal_file, shm_file) = wal_shm_sibling_paths(&db_file);
+        if wal_file.exists() {
+            let _ = fs::remove_file(&wal_file);
+        }
+        if shm_file.exists() {
+            let _ = fs::remove_file(&shm_file);
+        }
+
+        // Copy into a tmp sibling, then atomically rename into place — a crash
+        // mid-copy can no longer leave a half-written live DB.
+        let tmp_file = restore_tmp_path(&db_file);
+        fs::copy(&source_path, &tmp_file).map_err(|err| {
+            error!("Failed to stage restore copy: {err}");
             BookieError::IoError {
-                message: format!("Failed to read restore source: {err}"),
+                message: format!("Failed to stage restore copy: {err}"),
             }
         })?;
-    validate_restore_bytes(&header).map_err(|msg| {
-        error!("Restore validation failed: {msg}");
-        BookieError::BackupCorrupt
-    })?;
-
-    let db_file = db_path(&app)?;
-
-    // Create automatic backup of current DB before overwriting
-    let backup_file = db_file.with_extension("db.pre-restore-backup");
-    if db_file.exists() {
-        let _ = fs::copy(&db_file, &backup_file);
-    }
-
-    let (wal_file, shm_file) = wal_shm_sibling_paths(&db_file);
-    if wal_file.exists() {
-        let _ = fs::remove_file(&wal_file);
-    }
-    if shm_file.exists() {
-        let _ = fs::remove_file(&shm_file);
-    }
-
-    // Copy into a tmp sibling, then atomically rename into place — a crash
-    // mid-copy can no longer leave a half-written live DB.
-    let tmp_file = restore_tmp_path(&db_file);
-    fs::copy(&source_path, &tmp_file).map_err(|err| {
-        error!("Failed to stage restore copy: {err}");
-        BookieError::IoError {
-            message: format!("Failed to stage restore copy: {err}"),
+        atomic_swap_into_place(&tmp_file, &db_file).map_err(|err| {
+            let _ = remove_if_exists(&tmp_file);
+            error!("Failed to restore backup: {err}");
+            BookieError::IoError {
+                message: format!("Failed to restore backup: {err}"),
+            }
+        })?;
+        if let Err(e) = fsync_parent_dir(&db_file) {
+            warn!("fsync of parent dir failed after restore swap (rename succeeded): {e}");
         }
-    })?;
-    atomic_swap_into_place(&tmp_file, &db_file).map_err(|err| {
-        let _ = remove_if_exists(&tmp_file);
-        error!("Failed to restore backup: {err}");
-        BookieError::IoError {
-            message: format!("Failed to restore backup: {err}"),
-        }
-    })?;
-    if let Err(e) = fsync_parent_dir(&db_file) {
-        warn!("fsync of parent dir failed after restore swap (rename succeeded): {e}");
-    }
 
-    info!("Database restored successfully");
-    Ok(())
+        info!("Database restored successfully");
+        Ok(())
+    })
+    .await
 }
 
 /// COMP-1.b: GoBD-Export ZIP generator.
@@ -1400,50 +1406,53 @@ fn restore_database(app: AppHandle, source_path: String) -> Result<(), BookieErr
 /// the underlying `GobdError` stringification is descriptive enough for the
 /// settings page; no new typed variants are introduced for this issue.
 #[tauri::command]
-fn export_gobd(
+async fn export_gobd(
     app: AppHandle,
     from_year: i32,
     to_year: i32,
     target_path: String,
 ) -> Result<(), BookieError> {
-    info!("GoBD export started: {from_year}..={to_year} -> {target_path}");
+    run_blocking(move || {
+        info!("GoBD export started: {from_year}..={to_year} -> {target_path}");
 
-    let db_file = db_path(&app)?;
-    let conn = gobd::open_readonly(&db_file).map_err(|e| {
-        error!("Failed to open DB read-only for GoBD export: {e}");
-        BookieError::IoError {
-            message: format!("open db: {e}"),
-        }
-    })?;
+        let db_file = db_path(&app)?;
+        let conn = gobd::open_readonly(&db_file).map_err(|e| {
+            error!("Failed to open DB read-only for GoBD export: {e}");
+            BookieError::IoError {
+                message: format!("open db: {e}"),
+            }
+        })?;
 
-    let out = fs::File::create(&target_path).map_err(|e| {
-        error!("Failed to create GoBD export file: {e}");
-        BookieError::IoError {
-            message: format!("create export file: {e}"),
-        }
-    })?;
+        let out = fs::File::create(&target_path).map_err(|e| {
+            error!("Failed to create GoBD export file: {e}");
+            BookieError::IoError {
+                message: format!("create export file: {e}"),
+            }
+        })?;
 
-    let export = gobd::build_export(
-        &conn,
-        gobd::YearRange {
-            from: from_year,
-            to: to_year,
-        },
-        std::io::BufWriter::new(out),
-    )
-    .map_err(|e| {
-        error!("GoBD export failed: {e}");
-        BookieError::IoError {
-            message: format!("export: {e}"),
-        }
-    })?;
+        let export = gobd::build_export(
+            &conn,
+            gobd::YearRange {
+                from: from_year,
+                to: to_year,
+            },
+            std::io::BufWriter::new(out),
+        )
+        .map_err(|e| {
+            error!("GoBD export failed: {e}");
+            BookieError::IoError {
+                message: format!("export: {e}"),
+            }
+        })?;
 
-    info!(
-        "GoBD export complete: {} (signature={})",
-        export.file_name, export.signature
-    );
+        info!(
+            "GoBD export complete: {} (signature={})",
+            export.file_name, export.signature
+        );
 
-    Ok(())
+        Ok(())
+    })
+    .await
 }
 
 /// Raw-body IPC: the file bytes arrive as the invoke body (no JSON number
@@ -1452,7 +1461,7 @@ fn export_gobd(
 /// percent-encoded in the `x-bookie-path` header because header values must
 /// be ASCII while app-data paths may not be.
 #[tauri::command]
-fn write_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), BookieError> {
+async fn write_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), BookieError> {
     let path = request
         .headers()
         .get("x-bookie-path")
@@ -1472,10 +1481,16 @@ fn write_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), BookieError
         });
     };
 
+    // ponytail: one memcpy of the body so the disk write can leave the IPC
+    // thread; Request only lends the bytes.
+    let data = data.clone();
     info!("Writing file: {path}");
-    fs::write(&path, data).map_err(|e| BookieError::IoError {
-        message: format!("Failed to write file: {e}"),
+    run_blocking(move || {
+        fs::write(&path, data).map_err(|e| BookieError::IoError {
+            message: format!("Failed to write file: {e}"),
+        })
     })
+    .await
 }
 
 /// Write a ZIP archive of small entries to `target_path`. Frontend export
@@ -1483,41 +1498,44 @@ fn write_binary_file(request: tauri::ipc::Request<'_>) -> Result<(), BookieError
 /// disk I/O happen here so the archive bytes never cross the IPC boundary
 /// and the frontend needs no ZIP library of its own.
 #[tauri::command]
-fn write_zip_file(
+async fn write_zip_file(
     target_path: String,
     text_entries: Vec<(String, String)>,
     binary_entries: Vec<(String, Vec<u8>)>,
 ) -> Result<(), BookieError> {
-    use std::io::Write as _;
-    use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
+    run_blocking(move || {
+        use std::io::Write as _;
+        use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
-    info!("Writing ZIP: {target_path}");
-    let io_err = |e: String| BookieError::IoError { message: e };
+        info!("Writing ZIP: {target_path}");
+        let io_err = |e: String| BookieError::IoError { message: e };
 
-    let file = fs::File::create(&target_path)
-        .map_err(|e| io_err(format!("Failed to create ZIP file: {e}")))?;
-    let mut zip = ZipWriter::new(std::io::BufWriter::new(file));
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let file = fs::File::create(&target_path)
+            .map_err(|e| io_err(format!("Failed to create ZIP file: {e}")))?;
+        let mut zip = ZipWriter::new(std::io::BufWriter::new(file));
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
 
-    for (name, content) in &text_entries {
-        zip.start_file(name, opts)
-            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
-        zip.write_all(content.as_bytes())
-            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
-    }
-    for (name, content) in &binary_entries {
-        zip.start_file(name, opts)
-            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
-        zip.write_all(content)
-            .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
-    }
+        for (name, content) in &text_entries {
+            zip.start_file(name, opts)
+                .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+            zip.write_all(content.as_bytes())
+                .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+        }
+        for (name, content) in &binary_entries {
+            zip.start_file(name, opts)
+                .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+            zip.write_all(content)
+                .map_err(|e| io_err(format!("ZIP entry {name}: {e}")))?;
+        }
 
-    let mut out = zip
-        .finish()
-        .map_err(|e| io_err(format!("Failed to finish ZIP: {e}")))?;
-    out.flush()
-        .map_err(|e| io_err(format!("Failed to flush ZIP: {e}")))?;
-    Ok(())
+        let mut out = zip
+            .finish()
+            .map_err(|e| io_err(format!("Failed to finish ZIP: {e}")))?;
+        out.flush()
+            .map_err(|e| io_err(format!("Failed to flush ZIP: {e}")))?;
+        Ok(())
+    })
+    .await
 }
 
 /// Read a file from disk and return its bytes.
@@ -1529,11 +1547,14 @@ fn write_zip_file(
 /// user's save-as dialog. Mirror of `write_binary_file` in shape and error
 /// handling so the two endpoints remain symmetrical.
 #[tauri::command]
-fn read_binary_file(path: String) -> Result<Vec<u8>, BookieError> {
-    info!("Reading file: {path}");
-    fs::read(&path).map_err(|e| BookieError::IoError {
-        message: format!("Failed to read file: {e}"),
+async fn read_binary_file(path: String) -> Result<Vec<u8>, BookieError> {
+    run_blocking(move || {
+        info!("Reading file: {path}");
+        fs::read(&path).map_err(|e| BookieError::IoError {
+            message: format!("Failed to read file: {e}"),
+        })
     })
+    .await
 }
 
 /// Resolve the platform-specific app data directory and ensure it exists.
@@ -1762,15 +1783,16 @@ fn validate_endpoint(url: &str) -> Result<(), String> {
 }
 
 /// Await a `spawn_blocking` task, mapping a join failure (panic inside the
-/// blocking task) onto `BookieError`. All S3 commands funnel their blocking
-/// client work through this.
-async fn run_s3_task<T: Send + 'static>(
+/// blocking task) onto `BookieError`. S3 commands and the heavy file-I/O
+/// commands (backup, restore, GoBD export, ...) funnel blocking work here so
+/// it never runs on the UI thread or the two async workers.
+async fn run_blocking<T: Send + 'static>(
     task: impl FnOnce() -> Result<T, BookieError> + Send + 'static,
 ) -> Result<T, BookieError> {
     tauri::async_runtime::spawn_blocking(task)
         .await
         .map_err(|e| BookieError::Unknown {
-            message: format!("S3 task failed to complete: {e}"),
+            message: format!("Blocking task failed to complete: {e}"),
         })?
 }
 
@@ -1791,7 +1813,7 @@ async fn s3_test_connection(config: S3Config) -> Result<(), BookieError> {
     }
     let client = config.build_client()?;
 
-    run_s3_task(move || {
+    run_blocking(move || {
         let test_key = ".bookie-connection-test";
 
         // REL-2.b: retry transient failures (network blips, 5xx, 429) via
@@ -2023,7 +2045,7 @@ async fn s3_upload_file(
     info!("S3 upload: key={key}, size={}", data.len());
     let client = config.build_client()?;
 
-    run_s3_task(move || {
+    run_blocking(move || {
         // Detect SQLite backups by magic header so we can attach a SHA-256
         // sidecar. Other upload paths (invoice PDFs, connection-test blobs)
         // are unaffected.
@@ -2080,7 +2102,7 @@ async fn s3_backup_db(
     info!("S3 DB backup: key={key}");
     let client = config.build_client()?;
 
-    run_s3_task(move || {
+    run_blocking(move || {
         let digest = with_retry(
             || client.put_object_from_file(&key, &db_file, "application/octet-stream"),
             RetryPolicy::s3_default(),
@@ -2104,7 +2126,7 @@ async fn s3_download_file(config: S3Config, key: String) -> Result<Vec<u8>, Book
     info!("S3 download: key={key}");
     let client = config.build_client()?;
 
-    run_s3_task(move || {
+    run_blocking(move || {
         // REL-2.b: retry transient failures (network / 5xx / 429) via
         // `with_retry`. A mid-stream read failure surfaces as a transport
         // error and is retried whole — partial bodies are not resumable
@@ -2194,7 +2216,7 @@ async fn restore_db_backup(
         let client = client.clone();
         let key = key.clone();
         let tmp = tmp_file.clone();
-        run_s3_task(move || {
+        run_blocking(move || {
             client.get_object_to_file(&key, &tmp).map_err(|e| {
                 error!("S3 download failed: key={key}, {e}");
                 BookieError::S3Unreachable
@@ -2374,7 +2396,7 @@ async fn s3_delete_file(config: S3Config, key: String) -> Result<(), BookieError
     info!("S3 delete: key={key}");
     let client = config.build_client()?;
 
-    run_s3_task(move || {
+    run_blocking(move || {
         client.delete_object(&key).map_err(|e| {
             error!("S3 delete failed: key={key}, {e}");
             // S3Unreachable: catch-all at the delete boundary.
@@ -2420,7 +2442,7 @@ struct S3Credentials {
     secret_access_key: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn store_s3_credentials(
     access_key_id: String,
     secret_access_key: String,
@@ -2465,7 +2487,7 @@ fn store_s3_credentials(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_s3_credentials() -> Result<S3Credentials, BookieError> {
     info!("Reading S3 credentials from keyring");
     // `?` uses `From<keyring_core::error::Error>` -> `KeyringUnavailable`.
@@ -2505,7 +2527,7 @@ fn get_s3_credentials() -> Result<S3Credentials, BookieError> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_s3_credentials() -> Result<(), BookieError> {
     info!("Deleting S3 credentials from keyring");
     // `?` uses `From<keyring_core::error::Error>` -> `KeyringUnavailable`.
@@ -3069,59 +3091,62 @@ fn append_frontend_log(entry: FrontendLogEntry) -> Result<(), BookieError> {
 ///
 /// `max_lines` is hard-capped at 1000 to keep the IPC payload bounded.
 #[tauri::command]
-fn read_log_tail(app: AppHandle, max_lines: usize) -> Result<Vec<String>, BookieError> {
-    let cap = max_lines.min(1000);
-    let log_dir = app.path().app_log_dir().map_err(|e| BookieError::IoError {
-        message: format!("Failed to resolve app log dir: {e}"),
-    })?;
+async fn read_log_tail(app: AppHandle, max_lines: usize) -> Result<Vec<String>, BookieError> {
+    run_blocking(move || {
+        let cap = max_lines.min(1000);
+        let log_dir = app.path().app_log_dir().map_err(|e| BookieError::IoError {
+            message: format!("Failed to resolve app log dir: {e}"),
+        })?;
 
-    if !log_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut log_files: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&log_dir)
-        .map_err(|e| BookieError::IoError {
-            message: format!("Failed to read log dir: {e}"),
-        })?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            let path = entry.path();
-            // tracing-appender writes `bookie.<YYYY-MM-DD>.log`.
-            let name = path.file_name()?.to_string_lossy().into_owned();
-            if !name.starts_with("bookie.") || !name.ends_with(".log") {
-                return None;
-            }
-            let mtime = entry.metadata().ok()?.modified().ok()?;
-            Some((mtime, path))
-        })
-        .collect();
-
-    // Newest file first.
-    log_files.sort_by_key(|entry| std::cmp::Reverse(entry.0));
-
-    let mut collected: Vec<String> = Vec::with_capacity(cap);
-    for (_, path) in log_files {
-        if collected.len() >= cap {
-            break;
+        if !log_dir.exists() {
+            return Ok(Vec::new());
         }
-        let content = match fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        // Walk lines from the end so we accumulate newest-first across files.
-        let lines: Vec<&str> = content.lines().collect();
-        for line in lines.iter().rev() {
+
+        let mut log_files: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(&log_dir)
+            .map_err(|e| BookieError::IoError {
+                message: format!("Failed to read log dir: {e}"),
+            })?
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let path = entry.path();
+                // tracing-appender writes `bookie.<YYYY-MM-DD>.log`.
+                let name = path.file_name()?.to_string_lossy().into_owned();
+                if !name.starts_with("bookie.") || !name.ends_with(".log") {
+                    return None;
+                }
+                let mtime = entry.metadata().ok()?.modified().ok()?;
+                Some((mtime, path))
+            })
+            .collect();
+
+        // Newest file first.
+        log_files.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+
+        let mut collected: Vec<String> = Vec::with_capacity(cap);
+        for (_, path) in log_files {
             if collected.len() >= cap {
                 break;
             }
-            if line.is_empty() {
-                continue;
+            let content = match fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            // Walk lines from the end so we accumulate newest-first across files.
+            let lines: Vec<&str> = content.lines().collect();
+            for line in lines.iter().rev() {
+                if collected.len() >= cap {
+                    break;
+                }
+                if line.is_empty() {
+                    continue;
+                }
+                collected.push((*line).to_string());
             }
-            collected.push((*line).to_string());
         }
-    }
 
-    Ok(collected)
+        Ok(collected)
+    })
+    .await
 }
 
 #[cfg(test)]
