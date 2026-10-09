@@ -24,4 +24,10 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  // Tauri v2 recommendation: WebView2 (Chromium) on Windows, WebKit
+  // (WKWebView / WebKitGTK) elsewhere.
+  build: {
+    target:
+      process.env.TAURI_ENV_PLATFORM == "windows" ? "chrome105" : "safari13",
+  },
 }));
