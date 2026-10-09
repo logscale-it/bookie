@@ -6,8 +6,10 @@
 //! the SHA-256 of the manifest itself.
 //!
 //! The ZIP is streamed into a caller-provided `Write + Seek` sink (a file in
-//! production, a `Cursor<Vec<u8>>` in tests), so the archive is never held
-//! in memory as a whole — only the per-table CSV currently being written.
+//! production, a `Cursor<Vec<u8>>` in tests). Each CSV is written row by row
+//! straight into its zip entry through a writer that hashes and counts the
+//! bytes on the way, so neither the archive nor any table is buffered in
+//! memory; only the small manifest is assembled before being written last.
 //! This keeps `gobd` itself free of Tauri / filesystem coupling so the
 //! entire pipeline is unit-testable against a temp SQLite DB without a
 //! running app.
@@ -42,7 +44,7 @@
 //! universe of the requested period, including the parties involved and the
 //! complete change history.
 
-use std::io::{Seek, Write};
+use std::io::{self, Seek, Write};
 
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
@@ -158,56 +160,90 @@ const FULL_TABLES: &[&str] = &["companies", "customers", "invoice_audit"];
 /// payments referencing invoices that are not in the archive.
 const FILTERED_TABLES: &[&str] = &["invoices", "invoice_items", "payments"];
 
-/// CSV escaping per RFC 4180. Quotes the field if it contains `,`, `"`, `\n`
-/// or `\r`; doubles internal `"`.
-fn csv_escape(value: &str) -> String {
-    let needs_quote = value
-        .chars()
-        .any(|c| c == ',' || c == '"' || c == '\n' || c == '\r');
-    if !needs_quote {
-        return value.to_string();
+/// Write one CSV field per RFC 4180. Quotes the field if it contains `,`,
+/// `"`, `\n` or `\r`; doubles internal `"`.
+fn write_csv_field(out: &mut impl Write, value: &str) -> io::Result<()> {
+    if !value.contains([',', '"', '\n', '\r']) {
+        return out.write_all(value.as_bytes());
     }
-    let escaped = value.replace('"', "\"\"");
-    format!("\"{escaped}\"")
+    out.write_all(b"\"")?;
+    for (i, part) in value.split('"').enumerate() {
+        if i > 0 {
+            out.write_all(b"\"\"")?;
+        }
+        out.write_all(part.as_bytes())?;
+    }
+    out.write_all(b"\"")
 }
 
-/// Render a single SQLite value as the string written to the CSV cell.
-/// `NULL` → empty string (RFC 4180 has no NULL marker; an empty unquoted
-/// cell is the conventional in-band signal). Blobs are hex-encoded.
-fn render_value(value: ValueRef<'_>) -> String {
-    use std::fmt::Write as _;
+/// Write a single SQLite value as a CSV cell. `NULL` → empty field (RFC 4180
+/// has no NULL marker; an empty unquoted cell is the conventional in-band
+/// signal). Blobs are hex-encoded. Numbers and hex never need quoting.
+fn write_value(out: &mut impl Write, value: ValueRef<'_>) -> io::Result<()> {
     match value {
-        ValueRef::Null => String::new(),
-        ValueRef::Integer(i) => i.to_string(),
-        ValueRef::Real(f) => {
-            // Use Rust's default float formatting; this is round-trip safe
-            // (the auditor's CSV parser will read back an f64).
-            f.to_string()
-        }
-        ValueRef::Text(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-        ValueRef::Blob(bytes) => {
-            let mut hex = String::with_capacity(bytes.len() * 2);
-            for b in bytes {
-                let _ = write!(hex, "{b:02x}");
-            }
-            hex
-        }
+        ValueRef::Null => Ok(()),
+        ValueRef::Integer(i) => write!(out, "{i}"),
+        // Rust's default float formatting is round-trip safe (the auditor's
+        // CSV parser will read back an f64).
+        ValueRef::Real(f) => write!(out, "{f}"),
+        ValueRef::Text(bytes) => write_csv_field(out, &String::from_utf8_lossy(bytes)),
+        ValueRef::Blob(bytes) => bytes.iter().try_for_each(|b| write!(out, "{b:02x}")),
     }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 /// Lowercase hex SHA-256 of `data`. Duplicated from `lib::sha256_hex` so
 /// the gobd module is self-contained (and unit-testable without the full
 /// crate context).
 fn sha256_hex(data: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let digest = hasher.finalize();
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest.as_slice() {
-        let _ = write!(out, "{byte:02x}");
+    hex(&Sha256::digest(data))
+}
+
+/// Pass-through writer that hashes and counts every byte on its way into a
+/// zip entry, so the manifest entry is known without keeping a copy.
+struct HashingWriter<W> {
+    inner: W,
+    hasher: Sha256,
+    bytes: u64,
+}
+
+impl<W: Write> HashingWriter<W> {
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            hasher: Sha256::new(),
+            bytes: 0,
+        }
     }
-    out
+
+    fn into_entry(self, path: String) -> ManifestEntry {
+        ManifestEntry {
+            path,
+            sha256: hex(&self.hasher.finalize()),
+            bytes: self.bytes,
+        }
+    }
+}
+
+impl<W: Write> Write for HashingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.hasher.update(&buf[..n]);
+        self.bytes += n as u64;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 /// Discover the column list of a table via `PRAGMA table_info`. Used to
@@ -270,27 +306,26 @@ fn select_for_table(table: &str, range: &YearRange) -> Result<(String, Vec<Strin
     Ok((sql, params))
 }
 
-/// Dump one table to a CSV byte buffer.
-pub fn dump_table_to_csv(
+/// Stream one table as CSV into `out`, row by row.
+fn write_table_csv(
     conn: &Connection,
     table: &str,
     range: &YearRange,
-) -> Result<Vec<u8>, GobdError> {
+    out: &mut impl Write,
+) -> Result<(), GobdError> {
     let cols = table_columns(conn, table)?;
     let (sql, params) = select_for_table(table, range)?;
-
-    let mut out: Vec<u8> = Vec::new();
 
     // Header row: column names in PRAGMA order. `invoices.*` etc. SELECTs
     // also return columns in PRAGMA order so the header lines up with the
     // data rows even with the join-based filters above.
-    let header_line = cols
-        .iter()
-        .map(|c| csv_escape(c))
-        .collect::<Vec<_>>()
-        .join(",");
-    out.extend_from_slice(header_line.as_bytes());
-    out.extend_from_slice(b"\r\n");
+    for (i, c) in cols.iter().enumerate() {
+        if i > 0 {
+            out.write_all(b",")?;
+        }
+        write_csv_field(out, c)?;
+    }
+    out.write_all(b"\r\n")?;
 
     let mut stmt = conn.prepare(&sql)?;
     let bind: Vec<&dyn rusqlite::ToSql> =
@@ -298,16 +333,16 @@ pub fn dump_table_to_csv(
     let mut rows = stmt.query(bind.as_slice())?;
 
     while let Some(row) = rows.next()? {
-        let mut fields: Vec<String> = Vec::with_capacity(cols.len());
         for i in 0..cols.len() {
-            let v = row.get_ref(i)?;
-            fields.push(csv_escape(&render_value(v)));
+            if i > 0 {
+                out.write_all(b",")?;
+            }
+            write_value(out, row.get_ref(i)?)?;
         }
-        out.extend_from_slice(fields.join(",").as_bytes());
-        out.extend_from_slice(b"\r\n");
+        out.write_all(b"\r\n")?;
     }
 
-    Ok(out)
+    Ok(())
 }
 
 /// Build the `schema_version.txt` content: the SQLite `PRAGMA user_version`
@@ -334,9 +369,9 @@ pub fn open_readonly(db_path: &std::path::Path) -> Result<Connection, GobdError>
     Ok(conn)
 }
 
-/// End-to-end: read the DB, dump each table, build the manifest, sign it,
-/// and return the assembled ZIP bytes. Pure I/O wrapper around the helpers
-/// above so the orchestration is itself unit-testable.
+/// End-to-end: stream each table into the ZIP, then build, sign and append
+/// the manifest. Pure I/O wrapper around the helpers above so the
+/// orchestration is itself unit-testable.
 pub fn build_export<W: Write + Seek>(
     conn: &Connection,
     range: YearRange,
@@ -349,45 +384,35 @@ pub fn build_export<W: Write + Seek>(
         });
     }
 
-    // 1. Dump each table to bytes.
-    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut zip = ZipWriter::new(out);
+    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut entries: Vec<ManifestEntry> = Vec::new();
+
+    // 1. Stream each table's CSV straight into its zip entry, hashing as we go.
     for table in FULL_TABLES.iter().chain(FILTERED_TABLES.iter()) {
-        let csv = dump_table_to_csv(conn, table, &range)?;
-        files.push((format!("{table}.csv"), csv));
+        let path = format!("{table}.csv");
+        zip.start_file(&path, opts)?;
+        let mut w = HashingWriter::new(&mut zip);
+        write_table_csv(conn, table, &range, &mut w)?;
+        entries.push(w.into_entry(path));
     }
 
     // 2. schema_version.txt — included in manifest just like CSVs.
-    let schema_version = build_schema_version(conn)?;
-    files.push(("schema_version.txt".to_string(), schema_version));
+    zip.start_file("schema_version.txt", opts)?;
+    let mut w = HashingWriter::new(&mut zip);
+    w.write_all(&build_schema_version(conn)?)?;
+    entries.push(w.into_entry("schema_version.txt".to_string()));
 
-    // 3. Compute per-file digests, then build the manifest.
-    let manifest_entries: Vec<ManifestEntry> = files
-        .iter()
-        .map(|(path, bytes)| ManifestEntry {
-            path: path.clone(),
-            sha256: sha256_hex(bytes),
-            bytes: bytes.len() as u64,
-        })
-        .collect();
-
+    // 3. Manifest + signature are written last.
     let manifest = Manifest {
         format_version: 1,
         generated_at: rfc3339_now(),
         year_range: range,
-        files: manifest_entries,
+        files: entries,
     };
     // Pretty-printed so an auditor can read the manifest in a text editor.
     let manifest_json = serde_json::to_vec_pretty(&manifest)?;
     let signature = sha256_hex(&manifest_json);
-
-    // 4. Stream everything into the caller-provided sink.
-    let mut zip = ZipWriter::new(out);
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-
-    for (path, bytes) in &files {
-        zip.start_file(path, opts)?;
-        zip.write_all(bytes)?;
-    }
 
     zip.start_file("manifest.json", opts)?;
     zip.write_all(&manifest_json)?;
@@ -447,6 +472,22 @@ mod tests {
     use super::*;
     use rusqlite::params;
     use std::io::Read;
+
+    fn csv_escape(value: &str) -> String {
+        let mut out = Vec::new();
+        write_csv_field(&mut out, value).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    fn dump_table_to_csv(
+        conn: &Connection,
+        table: &str,
+        range: &YearRange,
+    ) -> Result<Vec<u8>, GobdError> {
+        let mut out = Vec::new();
+        write_table_csv(conn, table, range, &mut out)?;
+        Ok(out)
+    }
 
     /// Build an in-memory DB seeded with the minimum schema needed by the
     /// export. We deliberately avoid pulling the production migrations here
@@ -770,6 +811,73 @@ inside');
                 entry.path
             );
         }
+    }
+
+    /// Golden digests captured from the pre-streaming (buffer-everything)
+    /// implementation: streaming must not change a single output byte.
+    #[test]
+    fn build_export_manifest_unchanged_by_streaming() {
+        let conn = seed_db();
+        let mut buf: Vec<u8> = Vec::new();
+        build_export(
+            &conn,
+            YearRange {
+                from: 2024,
+                to: 2025,
+            },
+            std::io::Cursor::new(&mut buf),
+        )
+        .expect("export");
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&buf)).expect("open zip");
+        let mut manifest_bytes = Vec::new();
+        zip.by_name("manifest.json")
+            .unwrap()
+            .read_to_end(&mut manifest_bytes)
+            .unwrap();
+        let manifest: Manifest = serde_json::from_slice(&manifest_bytes).unwrap();
+        let got: Vec<(&str, &str, u64)> = manifest
+            .files
+            .iter()
+            .map(|e| (e.path.as_str(), e.sha256.as_str(), e.bytes))
+            .collect();
+        let expected = [
+            (
+                "companies.csv",
+                "ebd09164dd78a5df4f16b818b013babf93e6ca7fe965031b08dc0dd7b389ab35",
+                22,
+            ),
+            (
+                "customers.csv",
+                "9209036cdb169c4e947eb207f49563561436926c30065e759fa07523e5e1d127",
+                118,
+            ),
+            (
+                "invoice_audit.csv",
+                "3e3771a25480b36c3f4adbf6e8bc8b6c45324ccd02af8a114feeb0b5626bd3eb",
+                154,
+            ),
+            (
+                "invoices.csv",
+                "3d6f642fb3d438f83db7317dae4b815c5ca54cd1aefab3c0ecbfd6d5114d9b3c",
+                167,
+            ),
+            (
+                "invoice_items.csv",
+                "0d662d0b754362c83386106fa8f2e68e5a250c9f46094ce2699e6d8772416db6",
+                120,
+            ),
+            (
+                "payments.csv",
+                "ec431171a750a4f04a8573886c87c865a9204d26c91a47bfe5aab40d3623fe76",
+                70,
+            ),
+            (
+                "schema_version.txt",
+                "35746d41ab6f514caeeac9178ac04aff6d51ec59038638daae7425bebc71788b",
+                318,
+            ),
+        ];
+        assert_eq!(got, expected);
     }
 
     #[test]
