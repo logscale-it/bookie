@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { getDashboardData, getActionItems, type GroupBy, type PeriodRow, type ActionItems } from '$lib/db/dashboard';
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { toasts } from '$lib/ui/toasts.svelte';
 	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
@@ -130,6 +131,18 @@
 		loadData();
 	});
 
+	// Action items and backup status don't depend on year/grouping: load once.
+	onMount(async () => {
+		actions = await getActionItems(await getCompanyId());
+		await loadBackupStatus();
+	});
+
+	// Shared so onMount and loadData can't race into creating two companies.
+	let companyIdPromise: Promise<number> | null = null;
+	function getCompanyId(): Promise<number> {
+		return (companyIdPromise ??= ensureCompanyId());
+	}
+
 	async function ensureCompanyId(): Promise<number> {
 		const companies = await listCompanies();
 		if (companies.length > 0) return companies[0].id;
@@ -151,21 +164,15 @@
 
 	async function loadData() {
 		loading = true;
-		const companyId = await ensureCompanyId();
-		const [data, items] = await Promise.all([
-			getDashboardData(companyId, year, groupBy),
-			getActionItems(companyId)
-		]);
+		const data = await getDashboardData(await getCompanyId(), year, groupBy);
 		revenue = data.revenue;
 		costs = data.costs;
-		actions = items;
-		await loadBackupStatus();
 		loading = false;
 	}
 
 	async function loadBackupStatus(): Promise<void> {
 		try {
-			const s3 = await getS3Settings();
+			const s3 = await getS3Settings(false);
 			if (
 				s3.enabled &&
 				s3.auto_backup_enabled &&

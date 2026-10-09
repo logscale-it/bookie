@@ -79,7 +79,7 @@
     {
       "command": "get_s3_credentials",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/db/settings.ts", "line": 243 }]
+      "call_sites": [{ "file": "src/lib/db/settings.ts", "line": 250 }]
     },
     {
       "command": "read_binary_file",
@@ -140,7 +140,7 @@
     {
       "command": "store_s3_credentials",
       "permission": "core:default",
-      "call_sites": [{ "file": "src/lib/db/settings.ts", "line": 256 }]
+      "call_sites": [{ "file": "src/lib/db/settings.ts", "line": 263 }]
     },
     {
       "command": "write_binary_file",

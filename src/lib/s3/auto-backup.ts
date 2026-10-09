@@ -64,7 +64,8 @@ export function classifyBackupError(e: unknown): string {
 
 async function checkAndBackup(): Promise<void> {
   try {
-    const s3 = await getS3Settings();
+    // Flags only: the keychain is read later, and only if a backup is due.
+    const s3 = await getS3Settings(false);
     if (!s3.enabled || !s3.auto_backup_enabled) return;
 
     const last = s3.last_auto_backup_at
@@ -74,7 +75,7 @@ async function checkAndBackup(): Promise<void> {
 
     // performBackup persists its own failure status before re-throwing,
     // so we only need to log here.
-    await performBackup(s3);
+    await performBackup();
   } catch (e) {
     log.error("Auto-backup failed", e);
   }
