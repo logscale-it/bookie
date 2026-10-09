@@ -16,7 +16,6 @@
   },
   "license": "MIT",
   "overrides": {
-    "devalue": "^5.8.1",
     "source-map-js": "^1.2.2",
     "cookie": "^0.7.2"
   },
