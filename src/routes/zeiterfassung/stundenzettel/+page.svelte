@@ -6,7 +6,6 @@
 	import { listClients } from '$lib/db/customers';
 	import { listTimeEntries } from '$lib/db/time-entries';
 	import type { Customer, TimeEntry } from '$lib/db/types';
-	import { createTimesheetPdf } from '$lib/pdf/timesheet-pdf-writer';
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { save } from '@tauri-apps/plugin-dialog';
@@ -178,7 +177,7 @@
 
 		pdfLoading = true;
 		try {
-			const pdfBytes = await createTimesheetPdf({
+			const pdfBytes = await (await import('$lib/pdf/timesheet-pdf-writer')).createTimesheetPdf({
 				createdAtLabel: new Date().toLocaleString('de-DE'),
 				filtersLabel: filters,
 				totalHoursLabel,

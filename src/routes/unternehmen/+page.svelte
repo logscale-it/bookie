@@ -7,7 +7,6 @@
 	import Select from '../../common/Select.svelte';
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { createCustomer, listCustomers, updateCustomer } from '$lib/db/customers';
-	import { exportCustomerData, suggestExportFileName } from '$lib/db/dsgvo_export';
 	import { anonymizeCustomer } from '$lib/db/dsgvo_erasure';
 	import type { Customer } from '$lib/db/types';
 	import { t } from '$lib/i18n';
@@ -227,6 +226,7 @@
 	async function handleDsgvoExport(customer: Customer) {
 		exportingCustomerId = customer.id;
 		try {
+			const { exportCustomerData, suggestExportFileName } = await import('$lib/db/dsgvo_export');
 			const defaultName = suggestExportFileName(customer);
 			const filePath = await save({
 				title: 'DSGVO-Auskunft speichern',

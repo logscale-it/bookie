@@ -13,7 +13,6 @@
 	import { uploadInvoicePdf, presignDownloadUrl } from '$lib/s3/client';
 	import type { Company, Customer, VatTax } from '$lib/db/types';
 	import { generateInvoiceHtml, type InvoicePdfData } from '$lib/pdf/invoice-pdf';
-	import { createInvoicePdf } from '$lib/pdf/invoice-pdf-writer';
 	import { generateInvoiceNumber as formatInvoiceNumber } from '$lib/invoice-number';
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageForUnknown } from '$lib/shared/errors';
@@ -361,7 +360,7 @@
 
 		pdfLoading = true;
 		try {
-			const pdfBytes = await createInvoicePdf(data);
+			const pdfBytes = await (await import('$lib/pdf/invoice-pdf-writer')).createInvoicePdf(data);
 			await writeBinaryFile(filePath, pdfBytes);
 		} catch (err) {
 			pdfError = `${t('invoiceForm.pdfError')}: ${messageForUnknown(err)}`;
@@ -402,7 +401,7 @@
 			const s3Config = await getS3Settings();
 			if (s3Config.enabled) {
 				const data = buildPdfData();
-				const pdfBytes = await createInvoicePdf(data);
+				const pdfBytes = await (await import('$lib/pdf/invoice-pdf-writer')).createInvoicePdf(data);
 				const safeNumber = invoiceNumber.replace(/[^a-zA-Z0-9\-_]/g, '-');
 				const key = await uploadInvoicePdf(s3Config, safeNumber, pdfBytes);
 				s3Key = key;
