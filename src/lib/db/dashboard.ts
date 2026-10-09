@@ -27,6 +27,11 @@ export function periodExpr(groupBy: GroupBy, dateCol: string): string {
   }
 }
 
+/** Half-open ISO date range [Jan 1, next Jan 1) so `date_col >= $a AND date_col < $b` can use an index (#284). */
+export function yearBounds(year: number): [string, string] {
+  return [`${year}-01-01`, `${year + 1}-01-01`];
+}
+
 // DAT-1.d (#54): aggregations now read the integer-cent columns and divide
 // by 100.0 at the SQL boundary so the consumer-facing API still returns
 // `total_net` / `total_tax` in major units (euros). The legacy REAL columns
@@ -44,9 +49,9 @@ export async function getRevenueByPeriod(
             COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
             COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM invoices
-     WHERE company_id = $1 AND strftime('%Y', issue_date) = $2 AND status IN ('sent', 'paid')
+     WHERE company_id = $1 AND issue_date >= $2 AND issue_date < $3 AND status IN ('sent', 'paid')
      GROUP BY period ORDER BY period`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
   log.debug("Revenue by period", { year, groupBy, rows: rows.length });
   return rows;
@@ -64,9 +69,9 @@ export async function getCostsByPeriod(
             COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
             COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM incoming_invoices
-     WHERE company_id = $1 AND strftime('%Y', invoice_date) = $2
+     WHERE company_id = $1 AND invoice_date >= $2 AND invoice_date < $3
      GROUP BY period ORDER BY period`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
   log.debug("Costs by period", { year, groupBy, rows: rows.length });
   return rows;
@@ -119,7 +124,11 @@ export async function getActionItems(companyId: number): Promise<ActionItems> {
   );
 
   return {
-    overdue: { count: overdueItems.length, totalCents: overdueTotal, items: overdueItems },
+    overdue: {
+      count: overdueItems.length,
+      totalCents: overdueTotal,
+      items: overdueItems,
+    },
     drafts: { count: draftRow?.cnt ?? 0, totalCents: draftRow?.total ?? 0 },
     openIncoming: { count: openRow?.cnt ?? 0, totalCents: openRow?.total ?? 0 },
   };

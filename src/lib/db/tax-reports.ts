@@ -1,5 +1,5 @@
 import { getDb } from "./connection";
-import { periodExpr, type GroupBy } from "./dashboard";
+import { periodExpr, yearBounds, type GroupBy } from "./dashboard";
 import { createLogger } from "$lib/logger";
 
 const log = createLogger("tax-reports");
@@ -84,11 +84,11 @@ export async function getUstvaData(
      FROM invoices i
      JOIN invoice_items ii ON ii.invoice_id = i.id
      WHERE i.company_id = $1
-       AND strftime('%Y', i.issue_date) = $2
+       AND i.issue_date >= $2 AND i.issue_date < $3
        AND i.status IN ('sent', 'paid')
      GROUP BY period, ii.tax_rate
      ORDER BY period`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
 
   // Input tax from incoming invoices
@@ -98,9 +98,9 @@ export async function getUstvaData(
             COALESCE(SUM(net_cents), 0) / 100.0 as total_net,
             COALESCE(SUM(tax_cents), 0) / 100.0 as total_tax
      FROM incoming_invoices
-     WHERE company_id = $1 AND strftime('%Y', invoice_date) = $2
+     WHERE company_id = $1 AND invoice_date >= $2 AND invoice_date < $3
      GROUP BY period ORDER BY period`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
 
   // Build period map
@@ -192,9 +192,9 @@ export async function getEuerData(
      FROM invoices
      WHERE company_id = $1
        AND status = 'paid'
-       AND strftime('%Y', paid_date) = $2
+       AND paid_date >= $2 AND paid_date < $3
      GROUP BY period ORDER BY period`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
 
   const expenseRows = await db.select<PeriodTotalRow[]>(
@@ -204,9 +204,9 @@ export async function getEuerData(
      FROM incoming_invoices
      WHERE company_id = $1
        AND status = 'bezahlt'
-       AND strftime('%Y', paid_date) = $2
+       AND paid_date >= $2 AND paid_date < $3
      GROUP BY period ORDER BY period`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
 
   const periods = new Map<
