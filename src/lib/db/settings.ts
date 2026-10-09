@@ -220,7 +220,13 @@ const S3_DEFAULT: UpsertS3Settings = {
   last_auto_backup_error: null,
 };
 
-export async function getS3Settings(): Promise<UpsertS3Settings> {
+/**
+ * Reads S3 settings. Pass `withCredentials = false` when only flags/status
+ * are needed: that skips the OS keychain read (and its log noise) entirely.
+ */
+export async function getS3Settings(
+  withCredentials = true,
+): Promise<UpsertS3Settings> {
   const db = await getDb();
   const rows = await db.select<S3Settings[]>(
     "SELECT * FROM settings_s3 WHERE id = 1",
@@ -235,6 +241,7 @@ export async function getS3Settings(): Promise<UpsertS3Settings> {
         return data;
       })()
     : { ...S3_DEFAULT };
+  if (!withCredentials) return base;
 
   try {
     const creds = await invoke<{

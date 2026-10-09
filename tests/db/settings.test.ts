@@ -170,6 +170,13 @@ describe("S3 settings", () => {
     expect(got.bucket_name).toBe("bucket");
   });
 
+  test("getS3Settings(false) skips the keyring read", async () => {
+    keyring.creds = { accessKeyId: "AKIA-READ", secretAccessKey: "SECRET-READ" };
+    const got = await settings.getS3Settings(false);
+    expect(got.access_key_id).toBe("");
+    expect(got.secret_access_key).toBe("");
+  });
+
   test("returns S3 defaults when nothing saved and no keyring entry", async () => {
     keyring.creds = null;
     const got = await settings.getS3Settings();
