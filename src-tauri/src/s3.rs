@@ -12,6 +12,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
 use aws_credential_types::Credentials;
@@ -104,6 +105,21 @@ impl IsRetryable for S3Error {
     }
 }
 
+/// Process-wide agent; built on first S3 use.
+static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+fn build_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        // Non-2xx responses come back as plain responses so status
+        // mapping stays in one place (`send`).
+        .http_status_as_error(false)
+        .timeout_connect(Some(Duration::from_secs(10)))
+        // Bounds a hung transfer; large backups stay comfortably inside.
+        .timeout_global(Some(Duration::from_secs(600)))
+        .build()
+        .into()
+}
+
 // Debug: `Credentials` redacts the secret key in its Debug impl, so deriving
 // here does not leak credentials into logs or test failure output.
 #[derive(Clone, Debug)]
@@ -125,21 +141,15 @@ impl S3Client {
         access_key_id: &str,
         secret_access_key: &str,
     ) -> Self {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            // Non-2xx responses come back as plain responses so status
-            // mapping stays in one place (`send`).
-            .http_status_as_error(false)
-            .timeout_connect(Some(Duration::from_secs(10)))
-            // Bounds a hung transfer; large backups stay comfortably inside.
-            .timeout_global(Some(Duration::from_secs(600)))
-            .build()
-            .into();
         Self {
             endpoint,
             region,
             bucket,
             credentials: Credentials::new(access_key_id, secret_access_key, None, None, "bookie"),
-            agent,
+            // Cheap clone (Arc): every client shares one connection pool, so
+            // keep-alive survives across commands instead of a fresh TLS
+            // handshake per call.
+            agent: AGENT.get_or_init(build_agent).clone(),
         }
     }
 
