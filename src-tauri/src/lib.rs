@@ -1608,10 +1608,9 @@ async fn read_binary_file(path: String) -> Result<tauri::ipc::Response, BookieEr
 
 /// Resolve the platform-specific app data directory and ensure it exists.
 ///
-/// Used by the DAT-5.a backfill (`src/lib/db/backfill-file-data.ts`) so the
-/// TS layer can compose `<appdata>/incoming_invoices/<id>.pdf` for rows
-/// being evacuated from `incoming_invoices.file_data` when S3 is not
-/// configured. We deliberately DO NOT expose any other directory: this
+/// Used by the incoming-invoices page so the TS layer can compose
+/// `<appdata>/incoming_invoices/<id>.pdf` when storing an upload locally
+/// because S3 is not configured. We deliberately DO NOT expose any other directory: this
 /// command's only contract is "give me the same root the DB lives under so
 /// the file ends up inside the user's existing backup boundary".
 #[tauri::command]
@@ -2193,10 +2192,21 @@ async fn s3_backup_db(
         // Upload a WAL-consistent snapshot, not the live main file.
         let snapshot = db_file.with_extension("db.s3-backup");
         snapshot_db(&db_file, &snapshot)?;
-        let result = with_retry(
-            || client.put_object_from_file(&key, &snapshot, "application/octet-stream"),
-            RetryPolicy::s3_default(),
-        );
+        // Hash once; retries re-send the same snapshot with the same digest.
+        let result = s3::file_sha256_hex(&snapshot).and_then(|digest| {
+            with_retry(
+                || {
+                    client.put_object_from_file_hashed(
+                        &key,
+                        &snapshot,
+                        "application/octet-stream",
+                        &digest,
+                    )
+                },
+                RetryPolicy::s3_default(),
+            )
+            .map(|()| digest)
+        });
         let _ = fs::remove_file(&snapshot);
         let digest = result.map_err(|e| {
             error!("S3 DB backup failed: key={key}, {e}");
@@ -3264,20 +3274,8 @@ async fn read_log_tail(app: AppHandle, max_lines: usize) -> Result<Vec<String>, 
             if collected.len() >= cap {
                 break;
             }
-            let content = match fs::read_to_string(&path) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            // Walk lines from the end so we accumulate newest-first across files.
-            let lines: Vec<&str> = content.lines().collect();
-            for line in lines.iter().rev() {
-                if collected.len() >= cap {
-                    break;
-                }
-                if line.is_empty() {
-                    continue;
-                }
-                collected.push((*line).to_string());
+            if let Ok(lines) = tail_lines(&path, cap - collected.len()) {
+                collected.extend(lines);
             }
         }
 
@@ -3286,9 +3284,50 @@ async fn read_log_tail(app: AppHandle, max_lines: usize) -> Result<Vec<String>, 
     .await
 }
 
+/// Last `n` non-empty lines of `path`, newest first. Reads a window from the
+/// end of the file and grows it until it holds `n` lines or covers the whole
+/// file, so a large daily log is not read in full for a 1000-line tail.
+fn tail_lines(path: &Path, n: usize) -> std::io::Result<Vec<String>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    let mut window: u64 = 256 * 1024;
+    loop {
+        let start = len.saturating_sub(window);
+        file.seek(SeekFrom::Start(start))?;
+        let mut buf = Vec::with_capacity((len - start) as usize);
+        file.read_to_end(&mut buf)?;
+        let text = String::from_utf8_lossy(&buf);
+        let mut lines = text.lines();
+        if start > 0 {
+            lines.next(); // first line is likely cut mid-way
+        }
+        let lines: Vec<&str> = lines.filter(|l| !l.is_empty()).collect();
+        if lines.len() >= n || start == 0 {
+            return Ok(lines.iter().rev().take(n).map(|l| l.to_string()).collect());
+        }
+        window *= 4;
+    }
+}
+
 #[cfg(test)]
 mod frontend_log_tests {
     use super::*;
+
+    #[test]
+    fn tail_lines_returns_newest_first_across_window_growth() {
+        let path = std::env::temp_dir().join(format!("bookie-tail-{}.log", std::process::id()));
+        // ~1 MB of 100-byte lines forces the 256 KB window to grow.
+        let body: String = (0..10_000).map(|i| format!("{i:099}\n")).collect();
+        fs::write(&path, format!("{body}\n")).unwrap();
+        let tail = tail_lines(&path, 5000).unwrap();
+        assert_eq!(tail.len(), 5000);
+        assert_eq!(tail[0], format!("{:099}", 9999));
+        assert_eq!(tail[4999], format!("{:099}", 5000));
+        // Asking for more than exists returns the whole file, nothing cut.
+        assert_eq!(tail_lines(&path, 50_000).unwrap().len(), 10_000);
+        let _ = fs::remove_file(&path);
+    }
 
     #[test]
     fn frontend_log_entry_deserialises_minimal_payload() {

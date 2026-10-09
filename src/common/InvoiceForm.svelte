@@ -196,15 +196,19 @@
 
 	async function loadData() {
 		loading = true;
-		const companies = await listCompanies();
+		const [companies, org, inv, vats] = await Promise.all([
+			listCompanies(),
+			getOrganizationSettings(),
+			getInvoiceSettings(),
+			listVatTaxes()
+		]);
+		orgSettings = org;
+		invoiceSettings = inv;
+		vatTaxes = vats;
 		if (companies.length > 0) {
 			company = companies[0];
 			customers = await listClients(company.id);
 		}
-
-		orgSettings = await getOrganizationSettings();
-		invoiceSettings = await getInvoiceSettings();
-		vatTaxes = await listVatTaxes();
 		noCompanyWarning = !company && !orgSettings.name;
 
 		if (mode === 'create') {

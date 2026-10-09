@@ -10,7 +10,7 @@
 //! `tauri::async_runtime::spawn_blocking`.
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
@@ -38,6 +38,14 @@ const STREAM_BUF_BYTES: usize = 64 * 1024;
 
 /// Cap on the error-XML excerpt read from a failed streaming request.
 const ERROR_EXCERPT_BYTES: u64 = 64 * 1024;
+
+/// Lowercase hex SHA-256 of the file at `path`; I/O errors map to
+/// `Transport` like the other local-file faults in this module.
+pub fn file_sha256_hex(path: &Path) -> Result<String, S3Error> {
+    File::open(path)
+        .and_then(|mut f| sha256_hex_reader(&mut f))
+        .map_err(|e| S3Error::Transport(format!("read {}: {e}", path.display())))
+}
 
 /// Lowercase hex SHA-256 of everything `reader` yields, via a fixed 64 KB
 /// buffer. Shared by the two streaming paths; `lib.rs` keeps its own
@@ -267,19 +275,15 @@ impl S3Client {
             .map_err(|e| S3Error::Transport(e.to_string()))?;
 
         let status = response.status().as_u16();
-        let bytes = response
+        if !(200..300).contains(&status) {
+            return Err(Self::status_error(status, response));
+        }
+        response
             .into_body()
             .with_config()
             .limit(MAX_RESPONSE_BYTES)
             .read_to_vec()
-            .map_err(|e| S3Error::Transport(format!("response read error: {e}")))?;
-
-        if (200..300).contains(&status) {
-            Ok(bytes)
-        } else {
-            let excerpt: String = String::from_utf8_lossy(&bytes).chars().take(512).collect();
-            Err(S3Error::Status(status, excerpt))
-        }
+            .map_err(|e| S3Error::Transport(format!("response read error: {e}")))
     }
 
     pub fn put_object(&self, key: &str, body: &[u8], content_type: &str) -> Result<(), S3Error> {
@@ -330,28 +334,36 @@ impl S3Client {
     /// 64 KB window. Returns the lowercase hex digest so callers can reuse it
     /// for the `.sha256` sidecar without re-reading the file. Local I/O
     /// failures map to `Transport` so `with_retry` treats them like any other
-    /// transient fault (each attempt reopens and re-hashes).
+    /// transient fault.
     pub fn put_object_from_file(
         &self,
         key: &str,
         path: &Path,
         content_type: &str,
     ) -> Result<String, S3Error> {
-        let io_err = |op: &str, e: std::io::Error| {
-            S3Error::Transport(format!("{op} {}: {e}", path.display()))
-        };
+        let digest_hex = file_sha256_hex(path)?;
+        self.put_object_from_file_hashed(key, path, content_type, &digest_hex)?;
+        Ok(digest_hex)
+    }
 
-        let mut file = File::open(path).map_err(|e| io_err("open", e))?;
-        let digest_hex = sha256_hex_reader(&mut file).map_err(|e| io_err("read", e))?;
-        file.seek(SeekFrom::Start(0))
-            .map_err(|e| io_err("seek", e))?;
+    /// Pass 2 of [`Self::put_object_from_file`] with a precomputed digest, so
+    /// a retry loop over an unchanging file hashes it once, not per attempt.
+    pub fn put_object_from_file_hashed(
+        &self,
+        key: &str,
+        path: &Path,
+        content_type: &str,
+        digest_hex: &str,
+    ) -> Result<(), S3Error> {
+        let file = File::open(path)
+            .map_err(|e| S3Error::Transport(format!("open {}: {e}", path.display())))?;
 
         let url = self.object_url(key);
         let request = self.build_signed_request(
             "PUT",
             &url,
             &[("content-type", content_type)],
-            SignableBody::Precomputed(digest_hex.clone()),
+            SignableBody::Precomputed(digest_hex.to_owned()),
             file,
             Self::base_settings(),
         )?;
@@ -363,7 +375,7 @@ impl S3Client {
 
         let status = response.status().as_u16();
         if (200..300).contains(&status) {
-            Ok(digest_hex)
+            Ok(())
         } else {
             Err(Self::status_error(status, response))
         }
