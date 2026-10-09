@@ -9,7 +9,7 @@
 	import { commandPalette } from '$lib/ui/command.svelte';
 	import { listCompanies } from '$lib/db/companies';
 	import { listCustomers } from '$lib/db/customers';
-	import { listAllInvoices, type InvoiceWithCustomer } from '$lib/db/invoices';
+	import { listInvoiceSearchItems, type InvoiceSearchItem } from '$lib/db/invoices';
 	import type { Customer } from '$lib/db/types';
 
 	interface Command {
@@ -37,8 +37,8 @@
 	let query = $state('');
 	let selected = $state(0);
 	let loaded = $state(false);
-	let customers = $state<Customer[]>([]);
-	let invoices = $state<InvoiceWithCustomer[]>([]);
+	let customers = $state.raw<Customer[]>([]);
+	let invoices = $state.raw<InvoiceSearchItem[]>([]);
 	let inputEl = $state<HTMLInputElement | null>(null);
 	let listEl = $state<HTMLDivElement | null>(null);
 
@@ -60,10 +60,10 @@
 			if (companyId === undefined) return;
 			const [cs, inv] = await Promise.all([
 				listCustomers(companyId),
-				listAllInvoices({ limit: 500 })
+				listInvoiceSearchItems(companyId)
 			]);
 			customers = cs;
-			invoices = inv.rows;
+			invoices = inv;
 		} catch {
 			// Data unavailable (e.g. DB not ready) — the palette still works for
 			// navigation and quick actions.
@@ -100,6 +100,8 @@
 			query = '';
 			selected = 0;
 			ensureData().then(() => tick().then(() => inputEl?.focus()));
+		} else if (!commandPalette.open) {
+			loaded = false; // refetch on next open so new invoices/customers show up
 		}
 		wasOpen = commandPalette.open;
 	});
@@ -138,17 +140,22 @@
 		}))
 	]);
 
+	// Lowercased search key built once per data load, not per keystroke.
+	const searchable = $derived(
+		[...staticCommands, ...dynamicCommands].map((c) => ({
+			c,
+			hay: `${c.label} ${c.sublabel ?? ''} ${c.keywords}`.toLowerCase()
+		}))
+	);
+
 	const filtered = $derived.by(() => {
 		const q = query.trim().toLowerCase();
-		const all = [...staticCommands, ...dynamicCommands];
-		if (!q) return all.slice(0, 30);
+		if (!q) return searchable.slice(0, 30).map((s) => s.c);
 		const terms = q.split(/\s+/);
-		return all
-			.filter((c) => {
-				const hay = `${c.label} ${c.sublabel ?? ''} ${c.keywords}`.toLowerCase();
-				return terms.every((term) => hay.includes(term));
-			})
-			.slice(0, 30);
+		return searchable
+			.filter((s) => terms.every((term) => s.hay.includes(term)))
+			.slice(0, 30)
+			.map((s) => s.c);
 	});
 
 	const groups = $derived.by(() => {
