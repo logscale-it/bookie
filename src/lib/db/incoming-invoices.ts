@@ -7,9 +7,8 @@ import type { IncomingInvoice } from "./types";
 //
 // DAT-5.b (#66): `local_path` is populated by the DAT-5.a backfill OR by the
 // no-S3 upload path in the UI; either way it is supplied here when the row
-// has a file on disk. The `file_data` BLOB column is no longer touched by
-// any read or write in this module — the only remaining reference to it
-// lives in `backfill-file-data.ts`, which exists solely to evacuate it.
+// has a file on disk. The `file_data` BLOB column was dropped in
+// migration 0023.
 type CreateIncomingInvoice = Omit<
   IncomingInvoice,
   "id" | "created_at" | "updated_at" | "gross_cents" | "paid_date"
@@ -220,9 +219,7 @@ export async function deleteIncomingInvoice(id: number): Promise<void> {
 // DAT-5.b: read path returns ONLY `s3_key` / `local_path` — the legacy
 // `file_data` BLOB is no longer surfaced. Callers that previously fell
 // through to it must now treat a row with neither column populated as
-// "no file attached". Rows that still hold a BLOB on disk should be
-// evacuated by `backfillIncomingInvoiceFileData` (DAT-5.a) before being
-// read through this function.
+// "no file attached".
 export async function getIncomingInvoiceFile(id: number): Promise<
   | {
       file_name: string | null;

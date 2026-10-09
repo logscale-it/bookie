@@ -72,8 +72,7 @@
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
           "line": 192
-        },
-        { "file": "src/lib/db/backfill-file-data.ts", "line": 80 }
+        }
       ]
     },
     {
@@ -179,7 +178,6 @@
           "note": "Lazy `import('@tauri-apps/api/core')` so the logger no-ops outside the Tauri webview."
         },
         { "file": "src/lib/s3/client.ts", "line": 1 },
-        { "file": "src/lib/db/backfill-file-data.ts", "line": 39 },
         { "file": "src/lib/db/settings.ts", "line": 1 },
         { "file": "src/lib/diagnostics/boot.ts", "line": 20 },
         { "file": "src/lib/boot/schema-check.ts", "line": 21 },
@@ -273,7 +271,6 @@
       "permission": "sql:allow-execute",
       "files": [
         "src/lib/db/audit.ts",
-        "src/lib/db/backfill-file-data.ts",
         "src/lib/db/companies.ts",
         "src/lib/db/connection.ts",
         "src/lib/db/customers.ts",

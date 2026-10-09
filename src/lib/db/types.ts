@@ -226,9 +226,7 @@ export interface IncomingInvoice {
   status: string;
   // DAT-5.b (#66): the legacy `file_data` BLOB column is no longer exposed
   // on the type. New rows store their PDF in either S3 (`s3_key`) or on disk
-  // (`local_path`). The `incoming_invoices` table retains the column so the
-  // DAT-5.a backfill can read+null it; `backfill-file-data.ts` is the only
-  // remaining file-data reader and types the BLOB locally on its query.
+  // (`local_path`). The column itself was dropped in migration 0023.
   file_name: string | null;
   file_type: string | null;
   s3_key: string | null;
