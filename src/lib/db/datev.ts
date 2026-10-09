@@ -1,4 +1,5 @@
 import { getDb } from "./connection";
+import { yearBounds } from "./dashboard";
 import { createLogger } from "$lib/logger";
 import type { DatevBooking } from "$lib/csv/datev-csv";
 
@@ -49,11 +50,11 @@ export async function getDatevBookingRows(
      JOIN invoice_items ii ON ii.invoice_id = i.id
      LEFT JOIN customers c ON c.id = i.customer_id
      WHERE i.company_id = $1
-       AND strftime('%Y', i.issue_date) = $2
+       AND i.issue_date >= $2 AND i.issue_date < $3
        AND i.status IN ('sent', 'paid')
      GROUP BY i.id, ii.tax_rate
      ORDER BY i.issue_date, i.invoice_number, ii.tax_rate DESC`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
 
   const expenseRows = await db.select<ExpenseRow[]>(
@@ -64,9 +65,9 @@ export async function getDatevBookingRows(
             ii.tax_cents
      FROM incoming_invoices ii
      LEFT JOIN customers c ON c.id = ii.supplier_id
-     WHERE ii.company_id = $1 AND strftime('%Y', ii.invoice_date) = $2
+     WHERE ii.company_id = $1 AND ii.invoice_date >= $2 AND ii.invoice_date < $3
      ORDER BY ii.invoice_date, ii.id`,
-    [companyId, String(year)],
+    [companyId, ...yearBounds(year)],
   );
 
   const bookings: DatevBooking[] = [];
