@@ -589,40 +589,45 @@ fn build_s3_config_for_boot(db_path: &Path) -> Result<Option<S3Config>, BookieEr
 async fn boot_check(app: AppHandle) -> Result<BootStatus, BookieError> {
     info!("boot_check: probing environment");
 
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|err| BookieError::IoError {
-            message: format!("Failed to resolve app_data_dir: {err}"),
-        })?;
+    // Keychain read, rusqlite opens and the probe-file write are all
+    // blocking; keep them off the async workers. `s3_config` is `None` when
+    // `db_path` failed — we cannot tell whether S3 is configured without the DB.
+    let (app_data, keyring, schema, s3_config) = run_blocking(move || {
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|err| BookieError::IoError {
+                message: format!("Failed to resolve app_data_dir: {err}"),
+            })?;
 
-    let app_data = probe_app_data_dir(&app_data_dir);
-    let keyring = probe_keyring(KEYRING_SERVICE, KEYRING_USER);
+        let app_data = probe_app_data_dir(&app_data_dir);
+        let keyring = probe_keyring(KEYRING_SERVICE, KEYRING_USER);
 
-    // The schema probe needs the same DB-resolution logic the rest of the
-    // backend uses. We deliberately call `db_path(&app)` (not just
-    // `app_data_dir.join(DB_FILE_NAME)`) so the probe runs against whichever
-    // location `tauri-plugin-sql` will actually open at boot.
-    let schema = match db_path(&app) {
-        Ok(db_file) => probe_schema(&db_file, EXPECTED_SCHEMA_VERSION),
-        Err(e) => BootCheck::Failed { error: e },
-    };
+        // We deliberately use `db_path(&app)` (not just
+        // `app_data_dir.join(DB_FILE_NAME)`) so the probes run against
+        // whichever location `tauri-plugin-sql` will actually open at boot.
+        // ponytail: schema + S3 probes still open two read-only connections;
+        // share one if boot latency ever shows up in a profile.
+        let (schema, s3_config) = match db_path(&app) {
+            Ok(db_file) => (
+                probe_schema(&db_file, EXPECTED_SCHEMA_VERSION),
+                Some(build_s3_config_for_boot(&db_file)),
+            ),
+            Err(e) => (BootCheck::Failed { error: e }, None),
+        };
+        Ok((app_data, keyring, schema, s3_config))
+    })
+    .await?;
 
-    // S3 probe: load the persisted settings + keyring creds and, if
-    // configured, run the same `s3_test_connection` round-trip the
-    // settings page uses. The S3 probe needs `db_path` too — if that
-    // failed above, skip the probe (we cannot tell whether S3 is even
-    // configured without reading the DB).
-    let s3 = match db_path(&app) {
-        Ok(db_file) => match build_s3_config_for_boot(&db_file) {
-            Ok(None) => BootCheck::Skipped,
-            Ok(Some(config)) => match s3_test_connection(config).await {
-                Ok(()) => BootCheck::Ok,
-                Err(e) => BootCheck::Failed { error: e },
-            },
+    // S3 probe: if configured, run the same `s3_test_connection` round-trip
+    // the settings page uses.
+    let s3 = match s3_config {
+        None | Some(Ok(None)) => BootCheck::Skipped,
+        Some(Ok(Some(config))) => match s3_test_connection(config).await {
+            Ok(()) => BootCheck::Ok,
             Err(e) => BootCheck::Failed { error: e },
         },
-        Err(_) => BootCheck::Skipped,
+        Some(Err(e)) => BootCheck::Failed { error: e },
     };
 
     Ok(BootStatus {
@@ -2234,6 +2239,13 @@ async fn s3_download_bytes(config: S3Config, key: String) -> Result<Vec<u8>, Boo
     .await
 }
 
+/// Best-effort removal of the restore .tmp file on an abort path. Blocking.
+fn discard_restore_tmp(path: &Path) {
+    if let Err(e) = remove_if_exists(path) {
+        warn!("Failed to clean up restore tmp file: {e}");
+    }
+}
+
 /// Restore the live SQLite database from an S3 backup with SHA-256 sidecar
 /// verification and an atomic, durable swap into place.
 ///
@@ -2278,22 +2290,31 @@ async fn restore_db_backup(
 ) -> Result<(), BookieError> {
     info!("Restore from S3: key={key}, allow_missing_sidecar={allow_missing_sidecar}");
 
-    let db_file = db_path(&app)?;
-    // Tmp file lives in the same parent as the live DB so that the rename in
-    // step 8 is atomic — see `restore_tmp_path`.
-    let tmp_file = restore_tmp_path(&db_file);
-
-    // Best-effort cleanup of any leftover .tmp from a previous failed run.
-    let _ = remove_if_exists(&tmp_file);
+    let (db_file, tmp_file) = {
+        let app = app.clone();
+        run_blocking(move || {
+            let db_file = db_path(&app)?;
+            // Tmp file lives in the same parent as the live DB so that the
+            // rename in step 8 is atomic — see `restore_tmp_path`.
+            let tmp_file = restore_tmp_path(&db_file);
+            // Best-effort cleanup of any leftover .tmp from a previous failed run.
+            let _ = remove_if_exists(&tmp_file);
+            Ok((db_file, tmp_file))
+        })
+        .await?
+    };
 
     let client = config.build_client()?;
 
-    // Helper: clean up the .tmp file on any abort path.
+    // Helper: clean up the .tmp file on any abort path, off the async worker.
     let cleanup_tmp = |path: &PathBuf| {
-        if path.exists() {
-            if let Err(e) = fs::remove_file(path) {
-                warn!("Failed to clean up restore tmp file: {e}");
-            }
+        let path = path.clone();
+        async move {
+            let _ = run_blocking(move || {
+                discard_restore_tmp(&path);
+                Ok(())
+            })
+            .await;
         }
     };
 
@@ -2316,13 +2337,13 @@ async fn restore_db_backup(
     let (downloaded_bytes, actual_digest) = match download {
         Ok(v) => v,
         Err(e) => {
-            cleanup_tmp(&tmp_file);
+            cleanup_tmp(&tmp_file).await;
             return Err(e);
         }
     };
 
     if downloaded_bytes == 0 {
-        cleanup_tmp(&tmp_file);
+        cleanup_tmp(&tmp_file).await;
         return Err(BookieError::BackupCorrupt);
     }
 
@@ -2331,25 +2352,24 @@ async fn restore_db_backup(
     let sidecar_resp = {
         let client = client.clone();
         let sidecar_key = sidecar_key.clone();
-        tauri::async_runtime::spawn_blocking(move || client.get_object(&sidecar_key))
-            .await
-            .map_err(|e| {
-                cleanup_tmp(&tmp_file);
-                BookieError::Unknown {
+        match tauri::async_runtime::spawn_blocking(move || client.get_object(&sidecar_key)).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                cleanup_tmp(&tmp_file).await;
+                return Err(BookieError::Unknown {
                     message: format!("S3 task failed to complete: {e}"),
-                }
-            })?
+                });
+            }
+        }
     };
 
     let expected_digest: Option<String> = match sidecar_resp {
         Ok(bytes) => {
-            let text = std::str::from_utf8(&bytes)
-                .map_err(|_| {
-                    cleanup_tmp(&tmp_file);
-                    BookieError::BackupSidecarMismatch
-                })?
-                .trim()
-                .to_string();
+            let Ok(text) = std::str::from_utf8(&bytes) else {
+                cleanup_tmp(&tmp_file).await;
+                return Err(BookieError::BackupSidecarMismatch);
+            };
+            let text = text.trim().to_string();
             // A valid sidecar is exactly 64 lowercase hex chars (per REL-1.a:
             // sha256_hex always emits lowercase). Reject anything else.
             let valid_shape = text.len() == 64
@@ -2357,7 +2377,7 @@ async fn restore_db_backup(
                     .chars()
                     .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
             if !valid_shape {
-                cleanup_tmp(&tmp_file);
+                cleanup_tmp(&tmp_file).await;
                 error!("Sidecar contents are not a valid lowercase SHA-256 hex digest");
                 return Err(BookieError::BackupSidecarMismatch);
             }
@@ -2370,14 +2390,14 @@ async fn restore_db_backup(
             let is_missing = e.status_code() == Some(404);
             if is_missing {
                 if !allow_missing_sidecar {
-                    cleanup_tmp(&tmp_file);
+                    cleanup_tmp(&tmp_file).await;
                     warn!("Sidecar missing for key={key}; aborting (no unsafe override)");
                     return Err(BookieError::BackupSidecarMissing);
                 }
                 warn!("Sidecar missing for key={key}; proceeding under user-confirmed unsafe path");
                 None
             } else {
-                cleanup_tmp(&tmp_file);
+                cleanup_tmp(&tmp_file).await;
                 error!("S3 sidecar fetch failed: key={sidecar_key}, {e}");
                 return Err(BookieError::S3Unreachable);
             }
@@ -2387,7 +2407,7 @@ async fn restore_db_backup(
     // 3. Verify the streamed digest matches the sidecar.
     if let Some(expected) = expected_digest.as_deref() {
         if actual_digest != expected {
-            cleanup_tmp(&tmp_file);
+            cleanup_tmp(&tmp_file).await;
             error!(
                 "Sidecar SHA-256 mismatch: expected={expected}, actual={actual_digest}, key={key}"
             );
@@ -2399,15 +2419,20 @@ async fn restore_db_backup(
     // 4. Sanity-check the SQLite magic header on the verified .tmp file —
     // 16 bytes read, not the whole file.
     let header_ok = {
-        use std::io::Read;
-        let mut header = [0u8; SQLITE_MAGIC.len()];
-        fs::File::open(&tmp_file)
-            .and_then(|mut f| f.read_exact(&mut header))
-            .is_ok()
-            && &header == SQLITE_MAGIC
+        let tmp = tmp_file.clone();
+        run_blocking(move || {
+            use std::io::Read;
+            let mut header = [0u8; SQLITE_MAGIC.len()];
+            Ok(fs::File::open(&tmp)
+                .and_then(|mut f| f.read_exact(&mut header))
+                .is_ok()
+                && &header == SQLITE_MAGIC)
+        })
+        .await
+        .unwrap_or(false)
     };
     if !header_ok {
-        cleanup_tmp(&tmp_file);
+        cleanup_tmp(&tmp_file).await;
         error!("Restored bytes failed SQLite magic-header check: key={key}");
         return Err(BookieError::BackupCorrupt);
     }
@@ -2427,54 +2452,59 @@ async fn restore_db_backup(
         );
     }
 
-    // 6. Save a snapshot of the live DB so the user can recover if step 8/9
-    // fails partway. This is best-effort; failure to copy is logged but does
-    // not abort the restore.
-    let backup_file = db_file.with_extension("db.pre-restore-backup");
-    if db_file.exists() {
-        if let Err(e) = snapshot_db(&db_file, &backup_file) {
-            warn!("Pre-restore snapshot failed (continuing): {e}");
+    // Steps 6-9 are pure file I/O; run them on the blocking pool.
+    run_blocking(move || {
+        // 6. Save a snapshot of the live DB so the user can recover if step 8/9
+        // fails partway. This is best-effort; failure to copy is logged but does
+        // not abort the restore.
+        let backup_file = db_file.with_extension("db.pre-restore-backup");
+        if db_file.exists() {
+            if let Err(e) = snapshot_db(&db_file, &backup_file) {
+                warn!("Pre-restore snapshot failed (continuing): {e}");
+            }
         }
-    }
 
-    // 7. Remove OLD WAL/SHM siblings. They belong to the live DB we are
-    // about to replace and must not be reapplied to the restored bytes.
-    let (wal_file, shm_file) = wal_shm_sibling_paths(&db_file);
-    if let Err(e) = remove_if_exists(&wal_file) {
-        warn!("Failed to remove old WAL ({}): {e}", wal_file.display());
-    }
-    if let Err(e) = remove_if_exists(&shm_file) {
-        warn!("Failed to remove old SHM ({}): {e}", shm_file.display());
-    }
-
-    // 8. Atomic rename: the verified bytes in `tmp_file` replace the live DB
-    // file in a single inode flip. On Unix this is the canonical durable-swap
-    // primitive; the previous in-place `fs::write` could leave a half-written
-    // DB on a crash mid-write. Note that the tmp path is in the same parent
-    // directory (see `restore_tmp_path`) — required for atomicity.
-    atomic_swap_into_place(&tmp_file, &db_file).map_err(|err| {
-        cleanup_tmp(&tmp_file);
-        error!(
-            "Atomic rename {tmp:?} -> {live:?} failed: {err}",
-            tmp = tmp_file,
-            live = db_file
-        );
-        BookieError::IoError {
-            message: format!("Atomic rename failed: {err}"),
+        // 7. Remove OLD WAL/SHM siblings. They belong to the live DB we are
+        // about to replace and must not be reapplied to the restored bytes.
+        let (wal_file, shm_file) = wal_shm_sibling_paths(&db_file);
+        if let Err(e) = remove_if_exists(&wal_file) {
+            warn!("Failed to remove old WAL ({}): {e}", wal_file.display());
         }
-    })?;
+        if let Err(e) = remove_if_exists(&shm_file) {
+            warn!("Failed to remove old SHM ({}): {e}", shm_file.display());
+        }
 
-    // 9. fsync the parent directory so the rename is durable across power
-    // loss. On Windows this is a no-op (see `fsync_parent_dir`); a future
-    // hardening pass can add `MOVEFILE_WRITE_THROUGH` via `windows-sys`.
-    if let Err(e) = fsync_parent_dir(&db_file) {
-        // The rename has already been observed by the kernel page cache, so
-        // userspace sees the new DB. We log loudly but do not error — losing
-        // the rename to a power loss in the next few seconds is the worst
-        // case, which is the same risk the OS-level filesystem flush schedule
-        // imposes on every other write in the app.
-        warn!("fsync of parent dir failed after restore swap (rename succeeded): {e}");
-    }
+        // 8. Atomic rename: the verified bytes in `tmp_file` replace the live DB
+        // file in a single inode flip. On Unix this is the canonical durable-swap
+        // primitive; the previous in-place `fs::write` could leave a half-written
+        // DB on a crash mid-write. Note that the tmp path is in the same parent
+        // directory (see `restore_tmp_path`) — required for atomicity.
+        atomic_swap_into_place(&tmp_file, &db_file).map_err(|err| {
+            discard_restore_tmp(&tmp_file);
+            error!(
+                "Atomic rename {tmp:?} -> {live:?} failed: {err}",
+                tmp = tmp_file,
+                live = db_file
+            );
+            BookieError::IoError {
+                message: format!("Atomic rename failed: {err}"),
+            }
+        })?;
+
+        // 9. fsync the parent directory so the rename is durable across power
+        // loss. On Windows this is a no-op (see `fsync_parent_dir`); a future
+        // hardening pass can add `MOVEFILE_WRITE_THROUGH` via `windows-sys`.
+        if let Err(e) = fsync_parent_dir(&db_file) {
+            // The rename has already been observed by the kernel page cache, so
+            // userspace sees the new DB. We log loudly but do not error — losing
+            // the rename to a power loss in the next few seconds is the worst
+            // case, which is the same risk the OS-level filesystem flush schedule
+            // imposes on every other write in the app.
+            warn!("fsync of parent dir failed after restore swap (rename succeeded): {e}");
+        }
+        Ok(())
+    })
+    .await?;
 
     info!("Database restored successfully from S3: key={key}");
     Ok(())
