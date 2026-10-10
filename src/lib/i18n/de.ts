@@ -254,7 +254,7 @@ export default {
     netAmount: "Nettobetrag (€)",
     taxAmount: "MwSt-Betrag (€)",
     grossAmount: "Bruttobetrag",
-    uploadFile: "Rechnung (PDF/Bild)",
+    uploadFile: "Rechnung (PDF/XML/Bild)",
     optionalNotes: "Optionale Bemerkungen…",
     saveInvoice: "Rechnung speichern",
     overview: "Rechnungsübersicht",
@@ -271,6 +271,13 @@ export default {
     s3UploadFailed: "S3-Upload fehlgeschlagen",
     s3DownloadFailed: "S3-Download fehlgeschlagen",
     searchPlaceholder: "Lieferant, Rechnungsnr. …",
+    einvoiceTitle: "E-Rechnung erkannt",
+    einvoiceSyntax: "Format",
+    einvoiceApply: "Daten übernehmen",
+    einvoiceError: "E-Rechnung konnte nicht gelesen werden",
+    einvoiceHint:
+      "Die Originaldatei wird unverändert archiviert. Die Übernahme füllt nur das Formular; Werte bitte prüfen.",
+    einvoiceLines: "Positionen",
   },
   projects: {
     title: "Projekte",
