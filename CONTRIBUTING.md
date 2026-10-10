@@ -22,12 +22,22 @@ bun install
 bun run tauri dev
 ```
 
+## 5-minute setup
+
+1. Install the prerequisites above.
+2. `git clone https://github.com/logscale-it/bookie.git && cd bookie && bun install`
+3. `bun run tauri dev` (first Rust build takes a few minutes)
+4. Make a change, run `bun test` and `bun run check`.
+5. Browse [`good first issue`s](https://github.com/logscale-it/bookie/labels/good%20first%20issue).
+
 ## Development
 
 | Command               | Description                         |
 | --------------------- | ----------------------------------- |
 | `bun run tauri dev`   | Start the app with hot-reload       |
 | `bun run check`       | TypeScript / Svelte type checking   |
+| `bun test`            | Frontend tests (`tests/`)           |
+| `bun run test:all`    | Full pre-push gate (all 7 checks)   |
 | `bun run tauri build` | Production build of the desktop app |
 
 ## Code Style
@@ -68,6 +78,10 @@ bun run tauri dev
 3. Run `bun run test:all` and ensure it exits 0.
 4. Include a summary of changes in the PR description
 5. One feature or bugfix per PR
+
+PR checklist: tests added or updated, `bun run test:all` green, UI labels in
+German, code and identifiers in English, and a `CHANGELOG.md` entry for
+user-visible changes.
 
 ## Database Migrations
 

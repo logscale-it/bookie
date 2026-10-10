@@ -1,5 +1,14 @@
 # Changelog
 
+All notable changes to this project are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); entries are grouped by date.
+
+## [Unreleased]
+
+- Reworked `README.md`, added `README.de.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`.
+- E-Rechnung: incoming XRechnung and ZUGFeRD invoices can be read (see `docs/e-rechnung.md`).
+- Removed `package-lock.json`; Bun (`bun.lock`) is the only package manager.
+
 ## 2026-05-17
 
 - **Restored `.github/dependabot.yml`** with monthly cadence and
