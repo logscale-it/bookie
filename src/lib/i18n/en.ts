@@ -253,7 +253,7 @@ export default {
     netAmount: "Net amount",
     taxAmount: "VAT amount",
     grossAmount: "Gross amount",
-    uploadFile: "Invoice (PDF/Image)",
+    uploadFile: "Invoice (PDF/XML/Image)",
     optionalNotes: "Optional notes…",
     saveInvoice: "Save invoice",
     overview: "Invoice overview",
@@ -270,6 +270,13 @@ export default {
     s3UploadFailed: "S3 upload failed",
     s3DownloadFailed: "S3 download failed",
     searchPlaceholder: "Supplier, invoice no. …",
+    einvoiceTitle: "E-invoice detected",
+    einvoiceSyntax: "Format",
+    einvoiceApply: "Apply data",
+    einvoiceError: "Could not read e-invoice",
+    einvoiceHint:
+      "The original file is archived unchanged. Applying only fills the form; please check the values.",
+    einvoiceLines: "Lines",
   },
   projects: {
     title: "Projects",

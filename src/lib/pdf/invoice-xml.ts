@@ -52,6 +52,12 @@ export interface InvoiceXmlData {
   dueDate?: string;
   /** ISO 4217 currency code (e.g. 'EUR'). */
   currency: string;
+  /**
+   * Optional buyer reference (BT-10). XRechnung requires it (BR-DE-15), e.g.
+   * the Leitweg-ID for public-sector buyers. Emitted first inside
+   * ApplicableHeaderTradeAgreement, as the CII schema sequence demands.
+   */
+  buyerReference?: string;
   /** Optional invoice notes — emitted as `IncludedNote/Content`. */
   notes?: string;
 
@@ -219,6 +225,10 @@ export function renderInvoiceXml(
       )
     : "";
 
+  const buyerRefXml = data.buyerReference
+    ? `\n\t\t\t<ram:BuyerReference>${escapeXml(data.buyerReference)}</ram:BuyerReference>`
+    : "";
+
   const dueDateXml = dueDate102
     ? `\n\t\t\t<ram:SpecifiedTradePaymentTerms>\n\t\t\t\t<ram:DueDateDateTime><udt:DateTimeString format="102">${dueDate102}</udt:DateTimeString></ram:DueDateDateTime>\n\t\t\t</ram:SpecifiedTradePaymentTerms>`
     : "";
@@ -238,7 +248,7 @@ export function renderInvoiceXml(
 		</ram:IssueDateTime>${noteXml}
 	</rsm:ExchangedDocument>
 	<rsm:SupplyChainTradeTransaction>${itemsXml}
-		<ram:ApplicableHeaderTradeAgreement>
+		<ram:ApplicableHeaderTradeAgreement>${buyerRefXml}
 			<ram:SellerTradeParty>
 				<ram:Name>${escapeXml(data.seller.name)}</ram:Name>
 				<ram:PostalTradeAddress>

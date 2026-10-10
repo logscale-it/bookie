@@ -71,7 +71,7 @@
       "call_sites": [
         {
           "file": "src/routes/eingehende-rechnungen/+page.svelte",
-          "line": 192
+          "line": 194
         }
       ]
     },
@@ -84,7 +84,7 @@
       "command": "read_binary_file",
       "permission": "core:default",
       "call_sites": [
-        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 378 }
+        { "file": "src/routes/eingehende-rechnungen/+page.svelte", "line": 380 }
       ]
     },
     {

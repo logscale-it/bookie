@@ -30,6 +30,8 @@
 	import { uploadFile, downloadFile as s3DownloadFile, deleteFile as s3DeleteFile } from '$lib/s3/client';
 	import { createLogger } from '$lib/logger';
 	import type { Customer } from '$lib/db/types';
+	import EInvoicePreview from '../../common/EInvoicePreview.svelte';
+	import type { EInvoice } from '$lib/einvoice';
 
 	const log = createLogger('eingehende-rechnungen');
 
@@ -381,6 +383,14 @@
 				uploadError = `${t('incomingInvoices.s3DownloadFailed')}: ${messageForUnknown(err)}`;
 			}
 		}
+	}
+
+	function applyEInvoice(e: EInvoice) {
+		form.supplierName = e.seller.name;
+		form.invoiceNumber = e.number;
+		if (e.issueDate) form.invoiceDate = e.issueDate;
+		form.netAmount = (e.totals.netCents / 100).toFixed(2);
+		form.taxAmount = (e.totals.taxCents / 100).toFixed(2);
 	}
 
 	function formatCurrency(amount: number): string {
