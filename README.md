@@ -34,7 +34,7 @@ A free, offline alternative to subscription invoicing tools like lexoffice or se
 Get the installer for your system from the [latest release](https://github.com/logscale-it/bookie/releases/latest):
 
 - **Windows:** `.msi` or `.exe`
-- **macOS:** `.dmg` (Apple Silicon and Intel)
+- **macOS:** `.dmg` (Apple Silicon)
 - **Linux:** `.AppImage` or `.deb`
 
 Bookie updates itself from GitHub Releases.
