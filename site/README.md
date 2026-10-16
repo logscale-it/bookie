@@ -19,15 +19,18 @@ bun run dev        # http://localhost:5173, no base path
 
 ## Production build
 
-The site is a project page, so it is served under the `/bookie/` base path:
+The site is a project page, so on GitHub Pages it is served under the
+`/bookie/` base path. That base path is only set in CI — locally, build
+**without** it so `preview` can serve the assets:
 
 ```bash
 cd site
-BASE_PATH=/bookie bun run build   # outputs static files to site/build
-bun run preview                   # serves site/build locally
+bun run build      # outputs static files to site/build (root-relative)
+bun run preview    # serves site/build at http://localhost:4173/
 ```
 
-`BASE_PATH` is set by the GitHub Actions workflow; locally it can stay unset.
+The GitHub Actions workflow builds with `BASE_PATH=/bookie`, which prefixes
+all asset URLs with `/bookie/` for the Pages deployment.
 
 ## Pages
 
