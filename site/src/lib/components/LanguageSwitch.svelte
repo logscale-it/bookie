@@ -1,9 +1,14 @@
 <script lang="ts">
+  import { page } from "$app/state";
   import { base } from "$app/paths";
+  import { counterpart } from "$lib/i18n";
 
   let { isDe }: { isDe: boolean } = $props();
 
-  const href = $derived(isDe ? `${base}/` : `${base}/de/`);
+  // Same page in the other language, falling back to that language's home.
+  const href = $derived(
+    counterpart(page.url.pathname) ?? (isDe ? `${base}/` : `${base}/de/`),
+  );
 </script>
 
 <a

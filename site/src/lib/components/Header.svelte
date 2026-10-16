@@ -12,7 +12,7 @@
     isDe ? `${base}/de/#download` : `${base}/#download`,
   );
   const pricingHref = $derived(
-    isDe ? `${base}/de/preise/` : `${base}/pricing/`,
+    isDe ? `${base}/de/#preise` : `${base}/#pricing`,
   );
 </script>
 

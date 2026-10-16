@@ -2,14 +2,12 @@
   import { SITE_URL } from "$lib/site";
 </script>
 
-<!-- RECHTLICHER HINWEIS:
-     Alle [Platzhalter] unten müssen vor dem Go-live durch die echten Angaben
-     der verantwortlichen Person / Firma (logscale-it) ersetzt werden. -->
 <svelte:head>
   <title>Impressum — Bookie</title>
   <meta name="description" content="Impressum der Bookie-Website." />
-  <meta name="robots" content="noindex" />
   <link rel="canonical" href="{SITE_URL}/de/impressum/" />
+  <link rel="alternate" hreflang="en" href="{SITE_URL}/imprint/" />
+  <link rel="alternate" hreflang="de" href="{SITE_URL}/de/impressum/" />
 </svelte:head>
 
 <div class="section">
@@ -19,32 +17,31 @@
     <p>Angaben gemäß § 5 DDG</p>
 
     <h2>Anbieter</h2>
-    <!-- TODO(legal): echte Angaben einsetzen -->
     <p>
-      [Firma / vollständiger Name]<br />
-      [Straße und Hausnummer]<br />
-      [PLZ Ort]<br />
+      logscale-it (Einzelunternehmen)<br />
+      Niddastraße 54<br />
+      60329 Frankfurt am Main<br />
       Deutschland
     </p>
 
-    <h2>Vertreten durch</h2>
-    <!-- TODO(legal): echte Angaben einsetzen -->
-    <p>[Name]</p>
+    <h2>Inhaber</h2>
+    <p>Ranel Karimov</p>
 
     <h2>Kontakt</h2>
-    <!-- TODO(legal): echte Angaben einsetzen -->
-    <p>E-Mail: <a href="mailto:[E-Mail-Adresse]">[E-Mail-Adresse]</a></p>
+    <p>
+      E-Mail: <a href="mailto:info@logscale-it.com">info@logscale-it.com</a><br
+      />
+      Telefon: +49 172 6158509
+    </p>
 
     <h2>Umsatzsteuer-ID</h2>
-    <!-- TODO(legal): echte Angaben einsetzen, falls vorhanden -->
     <p>
       Umsatzsteuer-Identifikationsnummer gemäß § 27a Umsatzsteuergesetz:
-      [USt-IdNr.]
+      DE412366728
     </p>
 
     <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
-    <!-- TODO(legal): echte Angaben einsetzen -->
-    <p>[Name, Anschrift]</p>
+    <p>Ranel Karimov, Niddastraße 54, 60329 Frankfurt am Main</p>
 
     <h2>EU-Streitschlichtung</h2>
     <p>
@@ -61,7 +58,6 @@
     </p>
 
     <h2>Verbraucherstreitbeilegung / Universalschlichtungsstelle</h2>
-    <!-- TODO(legal): Formulierung ggf. anpassen -->
     <p>
       Wir sind nicht bereit oder verpflichtet, an Streitbeilegungsverfahren vor
       einer Verbraucherschlichtungsstelle teilzunehmen.

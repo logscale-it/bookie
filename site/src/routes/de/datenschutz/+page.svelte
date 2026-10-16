@@ -2,14 +2,12 @@
   import { SITE_URL } from "$lib/site";
 </script>
 
-<!-- RECHTLICHER HINWEIS:
-     Alle [Platzhalter] unten müssen vor dem Go-live durch die echten Angaben
-     der verantwortlichen Person / Firma (logscale-it) ersetzt werden. -->
 <svelte:head>
   <title>Datenschutzerklärung — Bookie</title>
   <meta name="description" content="Datenschutzerklärung der Bookie-Website." />
-  <meta name="robots" content="noindex" />
   <link rel="canonical" href="{SITE_URL}/de/datenschutz/" />
+  <link rel="alternate" hreflang="en" href="{SITE_URL}/privacy/" />
+  <link rel="alternate" hreflang="de" href="{SITE_URL}/de/datenschutz/" />
 </svelte:head>
 
 <div class="section">
@@ -21,12 +19,13 @@
       Verantwortlich für die Datenverarbeitung auf dieser Website im Sinne der
       Datenschutz-Grundverordnung (DSGVO) ist:
     </p>
-    <!-- TODO(legal): echte Angaben einsetzen -->
     <p>
-      [Firma / vollständiger Name]<br />
-      [Straße und Hausnummer]<br />
-      [PLZ Ort]<br />
-      E-Mail: <a href="mailto:[E-Mail-Adresse]">[E-Mail-Adresse]</a>
+      logscale-it (Einzelunternehmen)<br />
+      Ranel Karimov<br />
+      Niddastraße 54<br />
+      60329 Frankfurt am Main<br />
+      Deutschland<br />
+      E-Mail: <a href="mailto:info@logscale-it.com">info@logscale-it.com</a>
     </p>
 
     <h2>2. Allgemeine Hinweise</h2>
@@ -75,7 +74,9 @@
     </p>
 
     <h2>7. Kontakt</h2>
-    <!-- TODO(legal): echte Angaben einsetzen -->
-    <p>Bei Fragen zum Datenschutz erreichst du uns unter: [E-Mail-Adresse]</p>
+    <p>
+      Bei Fragen zum Datenschutz erreichst du uns unter:
+      <a href="mailto:info@logscale-it.com">info@logscale-it.com</a>
+    </p>
   </div>
 </div>

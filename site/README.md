@@ -34,12 +34,10 @@ all asset URLs with `/bookie/` for the Pages deployment.
 
 ## Pages
 
-- `/` — English landing page
-- `/pricing/` — pricing (Cloud price is a placeholder until it is decided)
-- `/de/` — German landing page
-- `/de/preise/` — German pricing
-- `/de/impressum/` and `/de/datenschutz/` — legal pages (placeholders to be
-  replaced with real contact data before going live)
+- `/` and `/de/` — landing pages including the pricing section (the Cloud
+  price is a placeholder until it is decided)
+- `/imprint/` + `/de/impressum/` and `/privacy/` + `/de/datenschutz/` —
+  legal pages in both languages
 - `/404/` — styled fallback page (prerendered to `404.html`)
 
 ## Notes

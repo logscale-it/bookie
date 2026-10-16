@@ -11,7 +11,9 @@ body {
 /* Shared component classes (kept in sync with the design of the old docs/ site) */
 
 .btn-primary {
-  @apply inline-flex items-center gap-2 rounded-lg bg-blue-600 px-8 py-3 text-[0.9375rem] font-semibold text-white transition hover:bg-blue-700 active:scale-[0.98];
+  /* border-transparent keeps the box height identical to .btn-secondary
+     so primary and secondary buttons align pixel-perfectly */
+  @apply inline-flex items-center gap-2 rounded-lg border border-transparent bg-blue-600 px-8 py-3 text-[0.9375rem] font-semibold text-white transition hover:bg-blue-700 active:scale-[0.98];
 }
 
 .btn-secondary {

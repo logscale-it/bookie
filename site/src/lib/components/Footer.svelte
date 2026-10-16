@@ -11,7 +11,7 @@
   let { isDe }: { isDe: boolean } = $props();
 
   const pricingHref = $derived(
-    isDe ? `${base}/de/preise/` : `${base}/pricing/`,
+    isDe ? `${base}/de/#preise` : `${base}/#pricing`,
   );
 </script>
 
