@@ -1,9 +1,12 @@
 <script lang="ts">
   import { base } from "$app/paths";
+  import { slide } from "svelte/transition";
   import { REPO_URL } from "$lib/site";
   import LanguageSwitch from "./LanguageSwitch.svelte";
 
   let { isDe }: { isDe: boolean } = $props();
+
+  let menuOpen = $state(false);
 
   const featuresHref = $derived(
     isDe ? `${base}/de/#features` : `${base}/#features`,
@@ -14,6 +17,12 @@
   const pricingHref = $derived(
     isDe ? `${base}/de/#preise` : `${base}/#pricing`,
   );
+
+  const links = $derived([
+    { href: featuresHref, label: isDe ? "Funktionen" : "Features" },
+    { href: pricingHref, label: isDe ? "Preise" : "Pricing" },
+    { href: downloadHref, label: isDe ? "Herunterladen" : "Download" },
+  ]);
 </script>
 
 <header
@@ -28,25 +37,20 @@
       <img src={`${base}/favicon.svg`} alt="" class="h-7 w-7 rounded-lg" />
       <span class="text-base font-semibold tracking-tight">Bookie</span>
     </a>
-    <nav class="flex items-center gap-6">
-      <a
-        href={featuresHref}
-        class="hidden text-sm font-medium text-zinc-500 transition hover:text-zinc-900 sm:inline dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        {isDe ? "Funktionen" : "Features"}
-      </a>
-      <a
-        href={pricingHref}
-        class="hidden text-sm font-medium text-zinc-500 transition hover:text-zinc-900 sm:inline dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        {isDe ? "Preise" : "Pricing"}
-      </a>
-      <a
-        href={downloadHref}
-        class="hidden text-sm font-medium text-zinc-500 transition hover:text-zinc-900 sm:inline dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        {isDe ? "Herunterladen" : "Download"}
-      </a>
+
+    <!-- Desktop navigation -->
+    <nav class="hidden items-center gap-6 sm:flex">
+      {#each links as link (link.href)}
+        <a
+          href={link.href}
+          class="text-sm font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+        >
+          {link.label}
+        </a>
+      {/each}
+    </nav>
+
+    <div class="flex items-center gap-4 sm:gap-6">
       <LanguageSwitch {isDe} />
       <a
         href={REPO_URL}
@@ -61,6 +65,80 @@
           /></svg
         >
       </a>
-    </nav>
+      <!-- Burger menu (mobile only) -->
+      <button
+        type="button"
+        class="sm:hidden"
+        aria-expanded={menuOpen}
+        aria-controls="mobile-menu"
+        aria-label={menuOpen
+          ? isDe
+            ? "Menü schließen"
+            : "Close menu"
+          : isDe
+            ? "Menü öffnen"
+            : "Open menu"}
+        onclick={() => (menuOpen = !menuOpen)}
+      >
+        {#if menuOpen}
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            class="text-zinc-500"
+          >
+            <line x1="6" y1="6" x2="18" y2="18" /><line
+              x1="18"
+              y1="6"
+              x2="6"
+              y2="18"
+            />
+          </svg>
+        {:else}
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            class="text-zinc-500"
+          >
+            <line x1="4" y1="7" x2="20" y2="7" /><line
+              x1="4"
+              y1="12"
+              x2="20"
+              y2="12"
+            /><line x1="4" y1="17" x2="20" y2="17" />
+          </svg>
+        {/if}
+      </button>
+    </div>
   </div>
+
+  <!-- Mobile dropdown -->
+  {#if menuOpen}
+    <nav
+      id="mobile-menu"
+      class="border-t border-zinc-200 bg-zinc-50 px-6 py-3 sm:hidden dark:border-zinc-800 dark:bg-zinc-950"
+      transition:slide={{ duration: 200, axis: "y" }}
+    >
+      <div class="flex flex-col gap-1">
+        {#each links as link (link.href)}
+          <a
+            href={link.href}
+            class="rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+            onclick={() => (menuOpen = false)}
+          >
+            {link.label}
+          </a>
+        {/each}
+      </div>
+    </nav>
+  {/if}
 </header>

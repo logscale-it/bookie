@@ -8,6 +8,8 @@ const PAIRS: Record<string, string> = {
   "/de/impressum/": "/imprint/",
   "/privacy/": "/de/datenschutz/",
   "/de/datenschutz/": "/privacy/",
+  "/404/": "/de/404/",
+  "/de/404/": "/404/",
 };
 
 /**
