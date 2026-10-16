@@ -12,6 +12,11 @@ bun install
 bun run dev        # http://localhost:5173, no base path
 ```
 
+> **Known issue:** on Windows, `bun run dev` fails during dependency
+> optimization when the project sits inside this repo's path
+> ("Could not resolve 'node:module' in \0rolldown/runtime.js", Vite 8).
+> `bun run build && bun run preview` works and serves the identical site.
+
 ## Production build
 
 The site is a project page, so it is served under the `/bookie/` base path:
