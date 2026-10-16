@@ -7,5 +7,20 @@ export default defineConfig(({ command }) => ({
   // discovery walks up to the repo root and picks up the Tauri app's
   // tsconfig.json instead.
   ...(command === "build" ? { tsconfig: "tsconfig.json" } : {}),
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [
+    tailwindcss(),
+    sveltekit(),
+    // Never let the browser cache preview responses: asset filenames are
+    // content-hashed, so a cached HTML page would reference assets that no
+    // longer exist after a rebuild.
+    {
+      name: "no-store-preview-headers",
+      configurePreviewServer(server) {
+        server.middlewares.use((req, res, next) => {
+          res.setHeader("Cache-Control", "no-store");
+          next();
+        });
+      },
+    },
+  ],
 }));
