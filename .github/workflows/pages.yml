@@ -1,11 +1,12 @@
 name: Pages
 
-# Deploy docs/ only when docs change, not on every push to master.
+# Build the SvelteKit site in site/ and deploy it to GitHub Pages.
+# Deploys only when site/ (or this workflow) changes on master, plus manually.
 # Download links use releases/latest, so release tags need no redeploy.
 on:
   push:
     branches: [master]
-    paths: ['docs/**', '.github/workflows/pages.yml']
+    paths: ['site/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -25,12 +26,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install dependencies
+        working-directory: site
+        run: bun install --frozen-lockfile
+      - name: Build site
+        working-directory: site
+        run: bun run build
+        env:
+          BASE_PATH: /bookie
       - uses: actions/configure-pages@v5
-      # Keep Jekyll so docs/*.md still render as before the legacy build was dropped.
-      - uses: actions/jekyll-build-pages@v1
-        with:
-          source: docs
-          destination: _site
       - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/build
       - id: deployment
         uses: actions/deploy-pages@v4
