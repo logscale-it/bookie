@@ -31,13 +31,13 @@
     <nav class="flex items-center gap-6">
       <a
         href={featuresHref}
-        class="text-sm font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+        class="hidden text-sm font-medium text-zinc-500 transition hover:text-zinc-900 sm:inline dark:text-zinc-400 dark:hover:text-zinc-50"
       >
         {isDe ? "Funktionen" : "Features"}
       </a>
       <a
         href={pricingHref}
-        class="text-sm font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
+        class="hidden text-sm font-medium text-zinc-500 transition hover:text-zinc-900 sm:inline dark:text-zinc-400 dark:hover:text-zinc-50"
       >
         {isDe ? "Preise" : "Pricing"}
       </a>

@@ -412,7 +412,7 @@
         </ul>
         <a
           href={contactHref}
-          class="btn-secondary mt-auto rounded-lg px-8 py-3 text-[0.9375rem] font-semibold"
+          class="btn-secondary mt-auto rounded-lg px-8 py-3 text-[0.9375rem] leading-[1.5] font-semibold"
         >
           Contact us
         </a>
