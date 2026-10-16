@@ -219,7 +219,7 @@
     <h2 class="section-title">Bookie ist kostenlos</h2>
     <p class="mx-auto max-w-xl text-zinc-500 dark:text-zinc-400">
       Bookie Local ist kostenlos, Open Source, und bleibt es. Eine gemanagte
-      Cloud-Version ist in Arbeit.
+      Cloud-Version kommt bald.
     </p>
     <a
       href={`${base}/de/preise/`}

@@ -1,3 +1,4 @@
+export const CONTACT_EMAIL = "info@logscale-it.com";
 export const REPO_URL = "https://github.com/logscale-it/bookie";
 export const ORG_URL = "https://github.com/logscale-it";
 export const RELEASES_URL = `${REPO_URL}/releases`;

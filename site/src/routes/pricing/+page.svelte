@@ -1,12 +1,20 @@
 <script lang="ts">
-  import { LATEST_RELEASE_URL, REPO_URL, SITE_URL } from "$lib/site";
+  import { CONTACT_EMAIL, LATEST_RELEASE_URL, SITE_URL } from "$lib/site";
+
+  // Same pattern as the contact button on logscale-it.com: the mail app
+  // opens with a prepared subject and body template.
+  const contactSubject = encodeURIComponent("Inquiry: Bookie Cloud");
+  const contactBody = encodeURIComponent(
+    "Hello LogScale team,\n\nI am interested in [Bookie Cloud / service].\n\n[Brief description of your inquiry]\n\nName: [Your name]\nCompany: [Company]\nPhone (optional): [Phone number]",
+  );
+  const contactHref = `mailto:${CONTACT_EMAIL}?subject=${contactSubject}&body=${contactBody}`;
 </script>
 
 <svelte:head>
   <title>Pricing — Bookie</title>
   <meta
     name="description"
-    content="Bookie Local is free, open source, and stays that way. A managed cloud version is planned — pricing per seat will be announced here."
+    content="Bookie Local is free, open source, and stays that way. A managed cloud version is coming soon — pricing per seat will be announced here."
   />
   <link rel="canonical" href="{SITE_URL}/pricing/" />
   <link rel="alternate" hreflang="en" href="{SITE_URL}/pricing/" />
@@ -20,7 +28,7 @@
   <div class="section pb-14 text-center">
     <h1 class="text-[2.5rem] font-bold tracking-tight">Pricing</h1>
     <p class="mx-auto mt-3 max-w-xl text-lg text-zinc-500 dark:text-zinc-400">
-      Bookie Local is free, forever. A managed cloud version is in the works.
+      Bookie Local is free, forever. A managed cloud version is coming soon.
     </p>
   </div>
 </section>
@@ -30,7 +38,7 @@
 <section class="section">
   <div class="mx-auto grid max-w-4xl gap-6 md:grid-cols-2">
     <!-- Bookie Local -->
-    <div class="card p-8">
+    <div class="card flex flex-col p-8">
       <h2 class="text-lg font-semibold">Bookie Local</h2>
       <p class="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
         Free, open source
@@ -117,20 +125,22 @@
         href={LATEST_RELEASE_URL}
         target="_blank"
         rel="noopener"
-        class="btn-primary w-full justify-center"
+        class="btn-primary mt-auto w-full justify-center"
       >
         Download
       </a>
     </div>
 
-    <!-- Bookie Cloud (planned) -->
-    <div class="card border-blue-600 p-8 shadow-[0_0_0_1px_#2563eb]">
+    <!-- Bookie Cloud (coming soon) -->
+    <div
+      class="card flex flex-col border-blue-600 p-8 shadow-[0_0_0_1px_#2563eb]"
+    >
       <div class="mb-1 flex items-center gap-3">
         <h2 class="text-lg font-semibold">Bookie Cloud</h2>
         <span
           class="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300"
         >
-          Planned
+          Coming soon
         </span>
       </div>
       <p class="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
@@ -206,8 +216,11 @@
           Priority support
         </li>
       </ul>
-      <a href={REPO_URL} target="_blank" rel="noopener" class="btn-secondary">
-        Get notified
+      <a
+        href={contactHref}
+        class="btn-secondary mt-auto rounded-lg px-8 py-3 text-[0.9375rem] font-semibold"
+      >
+        Contact us
       </a>
     </div>
   </div>
@@ -217,4 +230,25 @@
     Pricing for Bookie Cloud is not final — this page will be updated as soon as
     the price per seat is decided. Until then, Bookie Local is and stays free.
   </p>
+</section>
+
+<!-- Contact -->
+<section class="border-t border-zinc-200 dark:border-zinc-800">
+  <div class="section text-center">
+    <h2 class="section-title">Questions about Bookie Cloud?</h2>
+    <p class="mx-auto max-w-xl text-zinc-500 dark:text-zinc-400">
+      Write us an email — your mail app opens with a prepared template. Just
+      replace the placeholders in square brackets.
+    </p>
+    <a href={contactHref} class="btn-primary mt-8">Send an email</a>
+    <p class="mx-auto mt-6 max-w-xl text-sm text-zinc-400 dark:text-zinc-500">
+      or write directly to
+      <a
+        href={`mailto:${CONTACT_EMAIL}`}
+        class="text-blue-600 dark:text-blue-400"
+      >
+        {CONTACT_EMAIL}
+      </a>
+    </p>
+  </div>
 </section>
