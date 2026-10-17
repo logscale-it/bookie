@@ -2,7 +2,10 @@ name: Pages
 
 # Deploy docs/ only when docs change, not on every push to master.
 # Download links use releases/latest, so release tags need no redeploy.
+# The daily run refreshes downloads.json for the README badge.
 on:
+  schedule:
+    - cron: '17 3 * * *'
   push:
     branches: [master]
     paths: ['docs/**', '.github/workflows/pages.yml']
@@ -26,6 +29,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # shields.io's own GitHub downloads lookup intermittently renders "invalid",
+      # so publish the count ourselves for an endpoint badge.
+      - name: Write downloads badge JSON
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api --paginate repos/${{ github.repository }}/releases --jq '[.[].assets[].download_count] | add' | awk '{s+=$1} END {print s+0}')
+          echo "{\"schemaVersion\":1,\"label\":\"downloads\",\"message\":\"$n\",\"color\":\"blue\"}" > docs/downloads.json
       # Keep Jekyll so docs/*.md still render as before the legacy build was dropped.
       - uses: actions/jekyll-build-pages@v1
         with:

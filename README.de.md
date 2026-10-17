@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/logscale-it/bookie/releases/latest"><img src="https://img.shields.io/github/v/release/logscale-it/bookie" alt="Neueste Version"></a>
-  <a href="https://github.com/logscale-it/bookie/releases"><img src="https://img.shields.io/github/downloads/logscale-it/bookie/total" alt="Downloads"></a>
+  <a href="https://github.com/logscale-it/bookie/releases"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Flogscale-it.github.io%2Fbookie%2Fdownloads.json" alt="Downloads"></a>
   <a href="LICENSE.txt"><img src="https://img.shields.io/badge/license-MIT-blue" alt="Lizenz"></a>
   <a href="https://tauri.app"><img src="https://img.shields.io/badge/made%20with-Tauri-24C8DB" alt="Made with Tauri"></a>
 </p>
