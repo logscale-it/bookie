@@ -64,6 +64,13 @@ ignore = [
   "RUSTSEC-2025-0081", # unic-char-property
   "RUSTSEC-2025-0098", # unic-ucd-version
   "RUSTSEC-2025-0100", # unic-ucd-ident
+  # zbus 5 helper crates unmaintained (folded into zbus 6). Pulled in on
+  # Linux by tauri-plugin-opener 2.7 and tauri-plugin-single-instance 2.5,
+  # both latest and still on zbus ^5.9 as of 2026-10-17. Remove once both
+  # plugins move to zbus 6.
+  "RUSTSEC-2026-0370", # zvariant
+  "RUSTSEC-2026-0371", # zbus_names
+  "RUSTSEC-2026-0372", # zvariant_derive
 
   # --- Unsound (no upstream fix on the pulled-in versions) ---
   # glib VariantStrIter unsoundness. Pulled in via the GTK3 stack (same
