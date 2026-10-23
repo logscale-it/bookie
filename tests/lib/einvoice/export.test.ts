@@ -226,6 +226,34 @@ describe("validateInvoiceXmlData", () => {
     )!;
     expect(describeIssue(issue)).toBe("Position 1: Beschreibung fehlt (BR-25)");
   });
+
+  test("an invalid VAT ID, IBAN or BIC says what a valid value looks like", () => {
+    const d = xml();
+    d.seller.vatId = "123";
+    d.seller.bankIban = "DE89 3704 0044";
+    d.seller.bankBic = "COBA";
+    const issues = validateInvoiceXmlData(d, "zugferd");
+    const text = (field: string) =>
+      describeIssue(issues.find((i) => i.field === field)!);
+    expect(text("seller.vatId")).toBe(
+      "USt-IdNr. oder Steuernummer ist ungültig: erwartet wird ein Ländercode mit Nummer, z. B. DE123456789 (BR-CO-9)",
+    );
+    expect(text("seller.bankIban")).toBe(
+      "IBAN des Rechnungsstellers (Unternehmen oder Einstellungen → Organisation) ist ungültig: Länge oder Prüfziffer stimmt nicht, bitte mit dem Kontoauszug vergleichen (BR-61)",
+    );
+    expect(text("seller.bankBic")).toBe(
+      "BIC ist ungültig: erwartet werden 8 oder 11 Buchstaben und Ziffern, z. B. COBADEFFXXX (BT-86)",
+    );
+  });
+
+  test("other invalid fields keep the short message", () => {
+    const d = xml();
+    d.currency = "euro";
+    const issue = validateInvoiceXmlData(d, "zugferd").find(
+      (i) => i.field === "currency",
+    )!;
+    expect(describeIssue(issue)).toBe("Währung ist ungültig (BR-5)");
+  });
 });
 
 describe("renderInvoiceXml (EN 16931 additions)", () => {

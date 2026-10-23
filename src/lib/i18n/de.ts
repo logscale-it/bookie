@@ -204,6 +204,12 @@ export default {
       unsupported:
         "wird als steuerbefreit (Kategorie E) übermittelt; Reverse-Charge und innergemeinschaftliche Lieferungen sind nicht abgedeckt",
     },
+    // What a valid value looks like, appended to "ist ungültig" for these fields.
+    invalidHint: {
+      vatId: "erwartet wird ein Ländercode mit Nummer, z. B. DE123456789",
+      iban: "Länge oder Prüfziffer stimmt nicht, bitte mit dem Kontoauszug vergleichen",
+      bic: "erwartet werden 8 oder 11 Buchstaben und Ziffern, z. B. COBADEFFXXX",
+    },
     fields: {
       invoiceNumber: "Rechnungsnummer",
       issueDate: "Rechnungsdatum",

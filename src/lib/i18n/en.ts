@@ -203,6 +203,12 @@ export default {
       unsupported:
         "is sent as tax-exempt (category E); reverse charge and intra-EU supplies are not covered",
     },
+    // What a valid value looks like, appended to "is invalid" for these fields.
+    invalidHint: {
+      vatId: "expected a country code followed by the number, e.g. DE123456789",
+      iban: "the length or check digits are wrong, compare it with your bank statement",
+      bic: "expected 8 or 11 letters and digits, e.g. COBADEFFXXX",
+    },
     fields: {
       invoiceNumber: "Invoice number",
       issueDate: "Invoice date",
