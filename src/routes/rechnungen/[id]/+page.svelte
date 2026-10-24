@@ -86,6 +86,15 @@
 				issuer_bank_iban: data.company.bank_iban || null,
 				issuer_bank_bic: data.company.bank_bic || null,
 				issuer_bank_name: data.company.bank_name || null,
+				issuer_street: data.company.street,
+				issuer_postal_code: data.company.postal_code,
+				issuer_city: data.company.city,
+				issuer_country_code: data.company.country_code,
+				recipient_name: data.customer?.name ?? '',
+				recipient_street: data.customer?.street ?? null,
+				recipient_postal_code: data.customer?.postal_code ?? null,
+				recipient_city: data.customer?.city ?? null,
+				recipient_country_code: data.customer?.country_code ?? null,
 				notes: data.notes || null,
 				language: data.language || 'de',
 				legal_country_code: data.legalCountry || 'DE'
@@ -264,7 +273,7 @@
 				tax_rate: String(i.tax_rate)
 			}))}
 			readonly={!isDraft}
-			snapshot={cloud() && !isDraft ? invoice : null}
+			snapshot={isDraft ? null : invoice}
 			onSave={handleSave}
 			onS3KeyUpdate={(key) => {
 				if (invoice) {

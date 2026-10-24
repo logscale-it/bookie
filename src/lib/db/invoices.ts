@@ -47,7 +47,18 @@ type CreateInvoice = Omit<
   | "cancellation_reason"
   | "paid_date"
   | "buyer_reference"
-> & { buyer_reference?: string | null }; // optional: recurring/legacy callers omit it
+  | "issuer_street"
+  | "issuer_postal_code"
+  | "issuer_city"
+  | "issuer_country_code"
+> & {
+  // optional: recurring/legacy callers omit them
+  buyer_reference?: string | null;
+  issuer_street?: string | null;
+  issuer_postal_code?: string | null;
+  issuer_city?: string | null;
+  issuer_country_code?: string | null;
+};
 type UpdateInvoice = Partial<CreateInvoice>;
 
 const ALLOWED_COLUMNS = [
@@ -74,6 +85,10 @@ const ALLOWED_COLUMNS = [
   "issuer_bank_iban",
   "issuer_bank_bic",
   "issuer_bank_name",
+  "issuer_street",
+  "issuer_postal_code",
+  "issuer_city",
+  "issuer_country_code",
   "recipient_name",
   "recipient_street",
   "recipient_postal_code",
@@ -199,8 +214,8 @@ export async function createInvoice(data: CreateInvoice): Promise<number> {
   if (cloud()) return remote.create(toRemote(data)); // always a draft, items via syncInvoiceItems
   const db = await getDb();
   const result = await db.execute(
-    `INSERT INTO invoices (company_id, customer_id, project_id, invoice_number, status, issue_date, due_date, service_period_start, service_period_end, currency, net_cents, tax_cents, gross_cents, issuer_name, issuer_tax_number, issuer_vat_id, issuer_bank_account_holder, issuer_bank_iban, issuer_bank_bic, issuer_bank_name, recipient_name, recipient_street, recipient_postal_code, recipient_city, recipient_country_code, notes, buyer_reference)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
+    `INSERT INTO invoices (company_id, customer_id, project_id, invoice_number, status, issue_date, due_date, service_period_start, service_period_end, currency, net_cents, tax_cents, gross_cents, issuer_name, issuer_tax_number, issuer_vat_id, issuer_bank_account_holder, issuer_bank_iban, issuer_bank_bic, issuer_bank_name, recipient_name, recipient_street, recipient_postal_code, recipient_city, recipient_country_code, notes, buyer_reference, issuer_street, issuer_postal_code, issuer_city, issuer_country_code)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)`,
     [
       data.company_id,
       data.customer_id,
@@ -229,6 +244,10 @@ export async function createInvoice(data: CreateInvoice): Promise<number> {
       data.recipient_country_code,
       data.notes,
       data.buyer_reference ?? null,
+      data.issuer_street ?? null,
+      data.issuer_postal_code ?? null,
+      data.issuer_city ?? null,
+      data.issuer_country_code ?? null,
     ],
   );
   return result.lastInsertId!;
@@ -560,7 +579,8 @@ export async function cancelInvoice(
          recipient_name, recipient_street, recipient_postal_code,
          recipient_city, recipient_country_code,
          delivery_date, due_surcharge, language, legal_country_code,
-         notes, references_invoice_id, cancellation_reason
+         notes, references_invoice_id, cancellation_reason,
+         issuer_street, issuer_postal_code, issuer_city, issuer_country_code
        ) VALUES (
          $1, $2, $3, $4, 'sent',
          $5, $6, $7, $8,
@@ -572,7 +592,8 @@ export async function cancelInvoice(
          $20, $21, $22,
          $23, $24,
          $25, $26, $27, $28,
-         $29, $30, $31
+         $29, $30, $31,
+         $32, $33, $34, $35
        )`,
       [
         original.company_id,
@@ -606,6 +627,10 @@ export async function cancelInvoice(
         original.notes,
         id,
         reason,
+        original.issuer_street,
+        original.issuer_postal_code,
+        original.issuer_city,
+        original.issuer_country_code,
       ],
     );
     const stornoId = result.lastInsertId!;

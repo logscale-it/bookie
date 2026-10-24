@@ -74,6 +74,11 @@ export interface Invoice {
   issuer_bank_iban: string | null;
   issuer_bank_bic: string | null;
   issuer_bank_name: string | null;
+  /** Seller address snapshot (migration 0033); NULL on older invoices. */
+  issuer_street: string | null;
+  issuer_postal_code: string | null;
+  issuer_city: string | null;
+  issuer_country_code: string | null;
   recipient_name: string | null;
   recipient_street: string | null;
   recipient_postal_code: string | null;

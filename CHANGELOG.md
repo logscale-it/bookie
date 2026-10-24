@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 
 - App identifier is now `com.logscale.bookie` (was `com.ranelkarimov.bookie`). On first start the old data
   directories and keyring entries (S3 credentials, cloud session) move over automatically.
+- Invoices now keep the seller address (migration 0033, `invoices.issuer_*` address columns) and, in local mode, the
+  recipient as they were when saved. Issued invoices render PDF and e-invoice from that snapshot in local mode too, so a
+  later change of company or customer address no longer alters old invoices. Older invoices fall back to the live data.
 
 ## [0.1.7] - 2026-10-14
 

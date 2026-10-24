@@ -1,6 +1,6 @@
 /// <reference types="bun" />
 import { describe, expect, test } from "bun:test";
-import type { Company, Customer } from "../../../src/lib/db/types";
+import type { Company, Customer, Invoice } from "../../../src/lib/db/types";
 import type { InvoicePdfData } from "../../../src/lib/pdf/invoice-pdf";
 import {
   renderInvoiceXml,
@@ -119,6 +119,22 @@ describe("buildInvoiceXmlData", () => {
       taxCents: 4560,
       grossCents: 28560,
     });
+  });
+
+  test("issued invoice: frozen addresses win, empty ones fall back to live", () => {
+    const snapshot = {
+      issuer_street: "Neue Str. 2",
+      issuer_postal_code: "50667",
+      issuer_city: "Köln",
+      issuer_country_code: "DE",
+      recipient_street: null,
+      recipient_postal_code: null,
+      recipient_city: "Hamburg",
+      recipient_country_code: null,
+    } as Invoice;
+    const d = buildInvoiceXmlData(pdf, { org, company, customer, snapshot });
+    expect(d.seller).toMatchObject({ street: "Neue Str. 2", city: "Köln" });
+    expect(d.buyer).toMatchObject({ street: "Beispielweg 9", city: "Hamburg" });
   });
 });
 

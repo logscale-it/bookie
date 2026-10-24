@@ -54,12 +54,13 @@
 		onSave: (data: SaveData) => Promise<void>;
 		onS3KeyUpdate?: (s3Key: string) => void;
 		readonly?: boolean;
-		/** Cloud: the issued invoice from the server; its issuer/recipient snapshot goes on the PDF. */
+		/** The issued invoice; its issuer/recipient snapshot goes on the PDF and e-invoice. */
 		snapshot?: Invoice | null;
 	};
 
 	export type SaveData = {
 		company: Company;
+		customer: Customer | undefined;
 		customerId: number;
 		invoiceNumber: string;
 		currency: string;
@@ -258,16 +259,15 @@
 		return customers.find((c) => c.id === Number(customerId));
 	}
 
+	const formatAddress = (street?: string | null, postalCode?: string | null, city?: string | null) =>
+		[street, [postalCode, city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+
 	function buildPdfData(): InvoicePdfData {
 		const customer = getSelectedCustomer();
-		const formatAddress = (street?: string | null, postalCode?: string | null, city?: string | null) =>
-			[street, [postalCode, city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
 		const companyAddress = company ? formatAddress(company.street, company.postal_code, company.city) : '';
 		const issuerAddress = companyAddress || formatAddress(orgSettings.street, orgSettings.postal_code, orgSettings.city) || orgSettings.address;
 
-		const recipientAddress = customer
-			? [customer.street, [customer.postal_code, customer.city].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-			: '';
+		const recipientAddress = customer ? formatAddress(customer.street, customer.postal_code, customer.city) : '';
 
 		return {
 			language: language as Locale,
@@ -317,19 +317,22 @@
 	}
 
 	function snapshotPdfFields(inv: Invoice): Partial<InvoicePdfData> {
-		return {
-			issuerName: inv.issuer_name ?? '',
-			issuerTaxNumber: inv.issuer_tax_number ?? '',
-			issuerVatId: inv.issuer_vat_id ?? '',
-			issuerBankAccountHolder: inv.issuer_bank_account_holder ?? '',
-			issuerBankName: inv.issuer_bank_name ?? '',
-			issuerBankIban: inv.issuer_bank_iban ?? '',
-			issuerBankBic: inv.issuer_bank_bic ?? '',
-			recipientName: inv.recipient_name ?? '',
-			recipientAddress: [inv.recipient_street, [inv.recipient_postal_code, inv.recipient_city].filter(Boolean).join(' ')]
-				.filter(Boolean)
-				.join(', ')
-		};
+		// Older invoices lack parts of the snapshot (addresses before migration 0033,
+		// recipient on local ones): empty fields keep the live value.
+		return Object.fromEntries(
+			Object.entries({
+				issuerName: inv.issuer_name,
+				issuerAddress: formatAddress(inv.issuer_street, inv.issuer_postal_code, inv.issuer_city),
+				issuerTaxNumber: inv.issuer_tax_number,
+				issuerVatId: inv.issuer_vat_id,
+				issuerBankAccountHolder: inv.issuer_bank_account_holder,
+				issuerBankName: inv.issuer_bank_name,
+				issuerBankIban: inv.issuer_bank_iban,
+				issuerBankBic: inv.issuer_bank_bic,
+				recipientName: inv.recipient_name,
+				recipientAddress: formatAddress(inv.recipient_street, inv.recipient_postal_code, inv.recipient_city)
+			}).filter(([, v]) => v)
+		);
 	}
 
 	function togglePreview() {
@@ -363,7 +366,7 @@
 	function prepareEInvoice(data: InvoicePdfData) {
 		const format = orgSettings.einvoice_format;
 		if (format === 'plain') return null;
-		const xml = buildInvoiceXmlData(data, { org: orgSettings, company, customer: getSelectedCustomer(), buyerReference });
+		const xml = buildInvoiceXmlData(data, { org: orgSettings, company, customer: getSelectedCustomer(), buyerReference, snapshot });
 		return { format, xml, issues: validateInvoiceXmlData(xml, format) };
 	}
 
@@ -429,6 +432,7 @@
 
 		await onSave({
 			company,
+			customer: getSelectedCustomer(),
 			customerId: Number(customerId),
 			invoiceNumber,
 			currency,

@@ -1,4 +1,9 @@
-import type { Company, Customer, OrganizationSettings } from "$lib/db/types";
+import type {
+  Company,
+  Customer,
+  Invoice,
+  OrganizationSettings,
+} from "$lib/db/types";
 import type { InvoicePdfData } from "$lib/pdf/invoice-pdf";
 import type { InvoiceXmlData } from "$lib/pdf/invoice-xml";
 
@@ -16,6 +21,8 @@ export interface InvoiceXmlSources {
   customer: Customer | undefined;
   /** BT-10, e.g. the Leitweg-ID of a public-sector buyer. */
   buyerReference?: string;
+  /** Issued invoice: its frozen addresses win over the live company/customer. */
+  snapshot?: Invoice | null;
 }
 
 const compact = (s: string | null | undefined) =>
@@ -31,6 +38,7 @@ export function buildInvoiceXmlData(
   src: InvoiceXmlSources,
 ): InvoiceXmlData {
   const { org, company, customer } = src;
+  const snap = src.snapshot;
   return {
     invoiceNumber: pdf.invoiceNumber,
     issueDate: pdf.issueDate,
@@ -43,10 +51,15 @@ export function buildInvoiceXmlData(
     servicePeriodEnd: pdf.servicePeriodEnd || undefined,
     seller: {
       name: pdf.issuerName,
-      street: company?.street || org.street || "",
-      postalCode: company?.postal_code || org.postal_code || "",
-      city: company?.city || org.city || "",
-      countryCode: company?.country_code || org.default_legal_country || "DE",
+      street: snap?.issuer_street || company?.street || org.street || "",
+      postalCode:
+        snap?.issuer_postal_code || company?.postal_code || org.postal_code || "",
+      city: snap?.issuer_city || company?.city || org.city || "",
+      countryCode:
+        snap?.issuer_country_code ||
+        company?.country_code ||
+        org.default_legal_country ||
+        "DE",
       vatId: compact(pdf.issuerVatId) || undefined,
       taxNumber: pdf.issuerTaxNumber || undefined,
       bankIban: compact(pdf.issuerBankIban) || undefined,
@@ -57,10 +70,11 @@ export function buildInvoiceXmlData(
     },
     buyer: {
       name: pdf.recipientName,
-      street: customer?.street ?? "",
-      postalCode: customer?.postal_code ?? "",
-      city: customer?.city ?? "",
-      countryCode: customer?.country_code || "DE",
+      street: snap?.recipient_street || customer?.street || "",
+      postalCode: snap?.recipient_postal_code || customer?.postal_code || "",
+      city: snap?.recipient_city || customer?.city || "",
+      countryCode:
+        snap?.recipient_country_code || customer?.country_code || "DE",
       vatId: compact(customer?.vat_id) || undefined,
       email: customer?.email || undefined,
     },
