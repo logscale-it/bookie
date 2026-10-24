@@ -548,17 +548,23 @@ export async function cancelInvoice(
     );
   }
 
+  if (original.references_invoice_id != null) {
+    throw invoiceImmutableError(
+      "Eine Stornorechnung kann nicht storniert werden",
+    );
+  }
+
   return await withTransaction(async (db) => {
-    // Determine the next storno suffix N. Look up existing stornos via the
-    // FK column rather than LIKE matching on invoice_number — robust to
-    // numbers that themselves contain "-storno-" substrings.
-    const existingStornos = await db.select<{ invoice_number: string }[]>(
-      `SELECT invoice_number FROM invoices
-       WHERE references_invoice_id = $1 AND company_id = $2`,
+    // Once only, like the server: a second full storno would negate the
+    // amounts twice. Looked up via the FK column, not LIKE on the number.
+    const existingStornos = await db.select<{ id: number }[]>(
+      `SELECT id FROM invoices WHERE references_invoice_id = $1 AND company_id = $2`,
       [id, original.company_id],
     );
-    const stornoSuffix = existingStornos.length + 1;
-    const stornoNumber = `${original.invoice_number}-storno-${stornoSuffix}`;
+    if (existingStornos.length > 0) {
+      throw invoiceImmutableError("Rechnung ist bereits storniert");
+    }
+    const stornoNumber = `${original.invoice_number}-storno-1`;
     const today = new Date().toISOString().slice(0, 10);
 
     // Insert the storno header. Negate every monetary column so the storno

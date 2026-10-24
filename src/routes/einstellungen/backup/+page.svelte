@@ -5,6 +5,8 @@
 	import { getS3Settings, saveS3Settings, type UpsertS3Settings } from '$lib/db/settings';
 	import { performBackup } from '$lib/s3/auto-backup';
 	import { t } from '$lib/i18n';
+	import { cloud } from '$lib/cloud';
+	import { saveCloudExport } from '$lib/cloud-export';
 
 	const SQLITE_FILTERS = [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }];
 
@@ -23,6 +25,26 @@
 	let gobdToYear = $state<number>(currentYear - 1);
 	let gobdLoading = $state(false);
 	let gobdFeedback = $state('');
+
+	let cloudExportLoading = $state(false);
+	let cloudExportFeedback = $state('');
+	let cloudExportFailed = $state(false);
+
+	async function handleCloudExport() {
+		cloudExportFeedback = '';
+		const dir = await open({ directory: true });
+		if (typeof dir !== 'string') return;
+		cloudExportLoading = true;
+		try {
+			const n = await saveCloudExport(dir);
+			cloudExportFeedback = t('settings.cloudExported').replace('{n}', String(n));
+			cloudExportFailed = false;
+		} catch (e) {
+			cloudExportFeedback = `${t('common.error')}: ${e instanceof Error ? e.message : e}`;
+			cloudExportFailed = true;
+		}
+		cloudExportLoading = false;
+	}
 
 	onMount(async () => {
 		s3 = await getS3Settings();
@@ -138,6 +160,19 @@
 		</button>
 		{#if feedback}<p class="text-xs text-emerald-600">{feedback}</p>{/if}
 	</section>
+
+	{#if cloud()}
+		<section class="card space-y-4">
+			<h2 class="text-base font-semibold">{t('settings.cloudExportTitle')}</h2>
+			<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('settings.cloudExportDesc')}</p>
+			<button type="button" onclick={handleCloudExport} disabled={cloudExportLoading} class="btn-primary">
+				{cloudExportLoading ? t('settings.gobdExporting') : t('settings.cloudExport')}
+			</button>
+			{#if cloudExportFeedback}
+				<p class="text-xs {cloudExportFailed ? 'text-red-600' : 'text-emerald-600'}">{cloudExportFeedback}</p>
+			{/if}
+		</section>
+	{/if}
 
 	<section class="card space-y-4">
 		<h2 class="text-base font-semibold">{t('settings.gobdTitle')}</h2>

@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format is based on
 - Invoices now keep the seller address (migration 0033, `invoices.issuer_*` address columns) and, in local mode, the
   recipient as they were when saved. Issued invoices render PDF and e-invoice from that snapshot in local mode too, so a
   later change of company or customer address no longer alters old invoices. Older invoices fall back to the live data.
+- Cloud-Export (Einstellungen → Backup & Wiederherstellung): saves all cloud company data (`bookie-export.json`) and
+  every receipt into a folder, also without an active subscription. A cancelled cloud company is deleted after 90 days.
+- Local mode: an invoice can be cancelled (storno) only once, and a storno itself not at all, like in cloud mode.
 
 ## [0.1.7] - 2026-10-14
 

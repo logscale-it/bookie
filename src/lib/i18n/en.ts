@@ -504,6 +504,11 @@ export default {
     gobdDesc:
       "Generates a signed ZIP archive (one CSV per table, manifest.json with per-file SHA-256, export_signature.txt) for a German tax audit covering the selected fiscal-year range.",
     gobdFromYear: "From year",
+    cloudExportTitle: "Cloud export",
+    cloudExportDesc:
+      "Saves all data of the cloud company (bookie-export.json) and every receipt into a folder. Works without an active subscription. Without one the company is deleted after 90 days; keep the export for 10 years (§ 147 AO).",
+    cloudExport: "Choose folder and export",
+    cloudExported: "Export saved ({n} receipts).",
     gobdToYear: "To year",
     gobdExport: "Generate GoBD export",
     gobdExporting: "Generating…",
