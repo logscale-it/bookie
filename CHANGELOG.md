@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-26
+
+- Cloud mode (Einstellungen → Cloud): sign in to a bookie-server; account, 2FA, billing, team with roles, invitations,
+  monthly approval and subcontractor overview. Invoices, payments, storno, incoming invoices, recurring entries and
+  reports work against the server. Local data moves into an empty cloud company on switch, including receipt files.
+  The session token is kept in the OS keyring.
+- Einstellungen → Wiederkehrend: list, edit, pause and delete recurring schedules.
+- XRechnung export now saves a PDF plus the XML original next to it. Validation messages say what a valid VAT ID, IBAN
+  and BIC look like.
+- Links to http(s) URLs (Stripe Checkout, customer websites) open again.
+- `zip` bumped to 9 (RUSTSEC-2026-0367/0368/0369); English UI wording reviewed, more strings moved to `src/lib/i18n`.
 - App identifier is now `com.logscale.bookie` (was `com.ranelkarimov.bookie`). On first start the old data
   directories and keyring entries (S3 credentials, cloud session) move over automatically.
 - Invoices now keep the seller address (migration 0033, `invoices.issuer_*` address columns) and, in local mode, the
