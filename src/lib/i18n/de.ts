@@ -507,6 +507,11 @@ export default {
     gobdDesc:
       "Erstellt ein signiertes ZIP-Archiv (CSV pro Tabelle, manifest.json mit SHA-256 je Datei, export_signature.txt) für eine Betriebsprüfung im gewählten Geschäftsjahr-Bereich.",
     gobdFromYear: "Von Jahr",
+    cloudExportTitle: "Cloud-Export",
+    cloudExportDesc:
+      "Speichert alle Daten des Cloud-Unternehmens (bookie-export.json) und alle Belege in einen Ordner. Geht auch ohne aktives Abo. Ohne Abo wird das Unternehmen nach 90 Tagen gelöscht; bewahre den Export 10 Jahre auf (§ 147 AO).",
+    cloudExport: "Ordner wählen und exportieren",
+    cloudExported: "Export gespeichert ({n} Belege).",
     gobdToYear: "Bis Jahr",
     gobdExport: "GoBD-Export erstellen",
     gobdExporting: "Wird erstellt…",

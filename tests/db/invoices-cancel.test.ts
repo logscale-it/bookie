@@ -230,7 +230,7 @@ describe("DAT-2.b: cancelInvoice (storno)", () => {
     expect(all).toEqual([]);
   });
 
-  test("cancelInvoice twice yields -storno-1 then -storno-2", async () => {
+  test("cancelInvoice only once, never on a storno (like the server)", async () => {
     const { companyId, customerId } = await seed();
     const invId = await invoices.createInvoice(
       blankInvoice(companyId, customerId, "INV-TWICE"),
@@ -238,14 +238,20 @@ describe("DAT-2.b: cancelInvoice (storno)", () => {
     await issue(invId);
 
     const first = await invoices.cancelInvoice(invId, "first attempt");
-    const second = await invoices.cancelInvoice(invId, "second attempt");
-
-    const firstRow = await invoices.getInvoiceById(first);
-    const secondRow = await invoices.getInvoiceById(second);
-    expect(firstRow?.invoice_number).toBe("INV-TWICE-storno-1");
-    expect(secondRow?.invoice_number).toBe("INV-TWICE-storno-2");
-    expect(firstRow?.cancellation_reason).toBe("first attempt");
-    expect(secondRow?.cancellation_reason).toBe("second attempt");
+    expect((await invoices.getInvoiceById(first))?.invoice_number).toBe(
+      "INV-TWICE-storno-1",
+    );
+    await expect(invoices.cancelInvoice(invId, "again")).rejects.toThrow(
+      "bereits storniert",
+    );
+    await expect(invoices.cancelInvoice(first, "storno of storno")).rejects.toThrow(
+      "Stornorechnung",
+    );
+    const all = await testDb.select<{ id: number }[]>(
+      "SELECT id FROM invoices WHERE references_invoice_id IN ($1, $2)",
+      [invId, first],
+    );
+    expect(all.map((r) => r.id)).toEqual([first]);
   });
 
   test("cancelInvoice rolls back if line item insert fails", async () => {
