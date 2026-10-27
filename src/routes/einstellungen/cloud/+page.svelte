@@ -30,7 +30,7 @@
 	const saved = initial ?? savedAccount();
 	let session = $state(initial);
 	let mode = $state<'login' | 'register' | 'forgot'>('login');
-	let url = $state(saved?.url ?? 'http://localhost:3000');
+	let url = $state(saved?.url ?? 'https://bookie.logscale-it.com');
 	let email = $state(saved?.email ?? '');
 	let name = $state('');
 	let password = $state('');
@@ -201,7 +201,7 @@
 
 	{#if !session}
 		<div class="grid gap-3 md:grid-cols-2">
-			<TextInput bind:value={url} label="Server" placeholder="https://api.example.de" />
+			<TextInput bind:value={url} label="Server" placeholder="https://bookie.logscale-it.com" />
 			<TextInput bind:value={email} label="E-Mail" type="email" />
 			{#if mode === 'register'}
 				<TextInput bind:value={name} label="Name" />
