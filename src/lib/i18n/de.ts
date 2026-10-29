@@ -349,6 +349,9 @@ export default {
     einvoiceSyntax: "Format",
     einvoiceApply: "Daten übernehmen",
     einvoiceError: "E-Rechnung konnte nicht gelesen werden",
+    aiReading: "KI liest Beleg …",
+    aiError: "KI-Erfassung fehlgeschlagen",
+    aiApplied: "Felder von der KI vorausgefüllt – bitte prüfen.",
     einvoiceHint:
       "Die Originaldatei wird unverändert archiviert. Die Übernahme füllt nur das Formular; Werte bitte prüfen.",
     einvoiceLines: "Positionen",
@@ -558,6 +561,7 @@ export default {
     credentialWarning:
       "Zugangsdaten konnten nicht aus dem Schlüsselbund geladen werden. Bitte erneut eingeben.",
     diagnose: "Diagnose",
+    ai: "KI-Erfassung",
     diagnoseTitle: "Diagnose-Logs",
     diagnoseDesc:
       "Die letzten 200 Log-Einträge der Anwendung. Hilfreich beim Erstellen eines Fehlerberichts.",

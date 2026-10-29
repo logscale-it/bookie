@@ -6,7 +6,8 @@
 	import { save } from '@tauri-apps/plugin-dialog';
 	import { invoke } from '@tauri-apps/api/core';
 	import { writeBinaryFile } from '$lib/fs';
-	import { messageForUnknown } from '$lib/shared/errors';
+	import { messageFor, messageForUnknown, parseBookieError } from '$lib/shared/errors';
+	import { aiConfig, extractInvoice } from '$lib/ai';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
@@ -75,6 +76,8 @@
 	let editingId = $state<number | null>(null);
 	let editForm = $state<InvoiceForm>(initialForm());
 	let uploadError = $state('');
+	let aiStatus = $state('');
+	let aiBusy = $state(false);
 
 	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
 	const pageCount = $derived(totalPages(totalCount, pager.size));
@@ -406,6 +409,36 @@
 		}
 	}
 
+	// AI receipt extraction: prefill the form from an uploaded PDF/image when
+	// configured (Einstellungen → KI). XML e-invoices go through EInvoicePreview.
+	$effect(() => {
+		const file = uploadFiles?.[0];
+		const config = aiConfig();
+		aiStatus = '';
+		if (!file || !config || /\.xml$/i.test(file.name)) return;
+		let stale = false;
+		aiBusy = true;
+		aiStatus = t('incomingInvoices.aiReading');
+		extractInvoice(file, config)
+			.then((x) => {
+				if (stale) return;
+				Object.assign(form, x);
+				aiStatus = t('incomingInvoices.aiApplied');
+			})
+			.catch((e) => {
+				if (stale) return;
+				const err = parseBookieError(e);
+				aiStatus = `${t('incomingInvoices.aiError')}: ${err.kind === 'Unknown' ? err.message : messageFor(err)}`;
+			})
+			.finally(() => {
+				if (!stale) aiBusy = false;
+			});
+		return () => {
+			stale = true;
+			aiBusy = false;
+		};
+	});
+
 	function applyEInvoice(e: EInvoice) {
 		form.supplierName = e.seller.name;
 		form.invoiceNumber = e.number;
@@ -461,6 +494,9 @@
 			<div class="md:col-span-2">
 				<EInvoicePreview files={uploadFiles} onapply={applyEInvoice} />
 			</div>
+			{#if aiStatus}
+				<p class="text-sm text-zinc-600 md:col-span-2 dark:text-zinc-300">{aiStatus}</p>
+			{/if}
 			<div class="md:col-span-2">
 				<TextInput bind:value={form.notes} label={t('common.notes')} placeholder={t('incomingInvoices.optionalNotes')} />
 			</div>
@@ -476,7 +512,7 @@
 			<button
 				type="button"
 				onclick={addInvoice}
-				disabled={saving || !form.invoiceDate || !form.netAmount}
+				disabled={saving || aiBusy || !form.invoiceDate || !form.netAmount}
 				class="btn-primary"
 			>
 				{saving ? t('common.saving') : t('incomingInvoices.saveInvoice')}

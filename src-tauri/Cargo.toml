@@ -63,6 +63,8 @@ url = "2"
 # `write_binary_file` IPC (file bytes travel as the raw invoke body instead
 # of a JSON number array). Already in the tree via `url`.
 percent-encoding = "2"
+# Base64 for receipt bytes in AI extraction requests (src/ai.rs). Already in the tree.
+base64 = "0.22"
 # COMP-1.b: GoBD-Export ZIP generator. `zip` is used to build the export
 # archive (per-table CSV + manifest + signature) in `export_gobd`.
 # `default-features = false` keeps the dependency lean (no bzip2/zstd

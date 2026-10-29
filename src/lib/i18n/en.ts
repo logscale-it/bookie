@@ -348,6 +348,9 @@ export default {
     einvoiceSyntax: "Format",
     einvoiceApply: "Apply data",
     einvoiceError: "Could not read e-invoice",
+    aiReading: "AI is reading the receipt …",
+    aiError: "AI extraction failed",
+    aiApplied: "Fields prefilled by AI – please check.",
     einvoiceHint:
       "The original file is archived unchanged. Applying only fills the form; please check the values.",
     einvoiceLines: "Lines",
@@ -555,6 +558,7 @@ export default {
     credentialWarning:
       "Credentials could not be loaded from the keychain. Please enter them again.",
     diagnose: "Diagnostics",
+    ai: "AI extraction",
     diagnoseTitle: "Diagnostic logs",
     diagnoseDesc:
       "The last 200 application log entries. Useful when filing a bug report.",
