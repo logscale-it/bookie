@@ -7,7 +7,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageFor, messageForUnknown, parseBookieError } from '$lib/shared/errors';
-	import { aiConfig, extractInvoice, extractInvoiceCloud } from '$lib/ai';
+	import { aiConfig, extractInvoice, extractInvoiceCloud, type Extracted } from '$lib/ai';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
@@ -78,6 +78,10 @@
 	let uploadError = $state('');
 	let aiStatus = $state('');
 	let aiBusy = $state(false);
+	let bulkFiles = $state<FileList | null>(null);
+	let bulkBusy = $state(false);
+	let bulkStatus = $state('');
+	const aiAvailable = cloud() !== null || aiConfig() !== null;
 
 	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
 	const pageCount = $derived(totalPages(totalCount, pager.size));
@@ -208,14 +212,11 @@
 		return path;
 	}
 
-	async function addInvoice() {
-		const net = parseFloat(form.netAmount);
-		if (!form.invoiceDate || isNaN(net)) return;
-		saving = true;
-		uploadError = '';
-
-		const companyId = await ensureCompanyId();
-		const tax = parseFloat(form.taxAmount) || 0;
+	// Creates the row from `f` and attaches `file` (S3, local disk or, in cloud
+	// mode, the server's bucket). Attach failures land in `uploadError`; the row stays.
+	async function storeInvoice(companyId: number, f: InvoiceForm, file: File | undefined): Promise<number> {
+		const net = parseFloat(f.netAmount);
+		const tax = parseFloat(f.taxAmount) || 0;
 
 		let fileName: string | null = null;
 		let fileType: string | null = null;
@@ -225,8 +226,7 @@
 		let localPath: string | null = null;
 
 		// Cloud: the receipt goes to the server's bucket after the row exists (below).
-		if (!cloud() && uploadFiles && uploadFiles.length > 0) {
-			const file = uploadFiles[0];
+		if (!cloud() && file) {
 			fileName = file.name;
 			fileType = file.type;
 
@@ -256,9 +256,9 @@
 		// `gross_cents` is derived inside `createIncomingInvoice`.
 		const newId = await createIncomingInvoice({
 			company_id: companyId,
-			supplier_id: await resolveSupplierId(companyId, form.supplierName),
-			invoice_number: form.invoiceNumber.trim() || null,
-			invoice_date: form.invoiceDate,
+			supplier_id: await resolveSupplierId(companyId, f.supplierName),
+			invoice_number: f.invoiceNumber.trim() || null,
+			invoice_date: f.invoiceDate,
 			net_cents: Math.round(net * 100),
 			tax_cents: Math.round(tax * 100),
 			status: 'offen',
@@ -266,16 +266,25 @@
 			file_type: fileType,
 			s3_key: s3Key,
 			local_path: localPath,
-			notes: form.notes.trim() || null
+			notes: f.notes.trim() || null
 		});
 
-		if (cloud() && uploadFiles && uploadFiles.length > 0) {
+		if (cloud() && file) {
 			try {
-				await uploadReceipt(newId, uploadFiles[0]);
+				await uploadReceipt(newId, file);
 			} catch (err) {
 				uploadError = `${t('incomingInvoices.s3UploadFailed')}: ${messageForUnknown(err)}`;
 			}
 		}
+		return newId;
+	}
+
+	async function addInvoice() {
+		if (!form.invoiceDate || isNaN(parseFloat(form.netAmount))) return;
+		saving = true;
+		uploadError = '';
+		const companyId = await ensureCompanyId();
+		const newId = await storeInvoice(companyId, form, uploadFiles?.[0]);
 
 		// Recurring: schedule the next copy one month out on the same day.
 		// The boot generator (see +layout) materialises it.
@@ -299,6 +308,40 @@
 		showAddForm = false;
 		saving = false;
 		await loadData();
+	}
+
+	// Bulk capture: one open row per receipt, prefilled by AI and flagged in the
+	// notes for review. Sequential: the server rate-limits OCR per company.
+	async function bulkCapture() {
+		const files = Array.from(bulkFiles ?? []);
+		if (!files.length) return;
+		bulkBusy = true;
+		uploadError = '';
+		let unread = 0;
+		try {
+			const companyId = await ensureCompanyId();
+			const config = aiConfig();
+			for (const [i, file] of files.entries()) {
+				bulkStatus = tp('incomingInvoices.bulkProgress', { i: i + 1, n: files.length });
+				let x: Extracted = {};
+				try {
+					x = cloud() ? await extractInvoiceCloud(file) : await extractInvoice(file, config!);
+				} catch (e) {
+					log.warn(`Bulk AI extraction failed: ${file.name}`, e);
+				}
+				if (!x.netAmount) unread++;
+				const note = t(x.netAmount ? 'incomingInvoices.aiCheckNote' : 'incomingInvoices.aiFailedNote');
+				await storeInvoice(companyId, { ...initialForm(), netAmount: '0', ...x, notes: note }, file);
+				suppliers = await listSuppliers(companyId); // a supplier created for this receipt is reused by the next
+			}
+			bulkStatus = tp('incomingInvoices.bulkDone', { n: files.length, failed: unread });
+			bulkFiles = null;
+		} catch (e) {
+			bulkStatus = messageForUnknown(e);
+		} finally {
+			bulkBusy = false;
+			await loadData();
+		}
 	}
 
 	function toEditForm(inv: IncomingInvoiceWithSupplier): InvoiceForm {
@@ -523,6 +566,25 @@
 			</button>
 		</div>
 	</AddEntryFormSection>
+
+	{#if aiAvailable}
+		<section class="card space-y-3">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">{t('incomingInvoices.bulkTitle')}</h2>
+			<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('incomingInvoices.bulkHint')}</p>
+			<FileUpload bind:files={bulkFiles} multiple disabled={bulkBusy} label={t('incomingInvoices.bulkUpload')} accept=".pdf,.png,.jpg,.jpeg,.webp" />
+			{#if bulkStatus}
+				<p class="text-sm text-zinc-600 dark:text-zinc-300">{bulkStatus}</p>
+			{/if}
+			{#if uploadError && bulkStatus}
+				<p class="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
+			{/if}
+			<div class="flex justify-end">
+				<button type="button" class="btn-primary" onclick={bulkCapture} disabled={bulkBusy || !bulkFiles?.length}>
+					{t('incomingInvoices.bulkButton')}
+				</button>
+			</div>
+		</section>
+	{/if}
 
 	<div class="card shadow-sm">
 		<div class="mb-4 flex flex-wrap items-end justify-between gap-3">
