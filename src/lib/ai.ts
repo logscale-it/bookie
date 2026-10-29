@@ -4,6 +4,7 @@
 // live in localStorage, so the feature works in local and cloud mode alike.
 
 import { invoke } from "@tauri-apps/api/core";
+import { api } from "./cloud";
 
 const KEY = "bookie.ai";
 
@@ -93,4 +94,11 @@ export async function extractInvoice(file: File, c: AiConfig): Promise<Extracted
     },
   );
   return parseExtraction(text);
+}
+
+/** Cloud mode: bookie-server reads the receipt (Mistral OCR), no own key or config needed. */
+export async function extractInvoiceCloud(file: File): Promise<Extracted> {
+  const x = await api<Record<string, unknown>>("/api/incoming-invoices/extract", "POST", file);
+  const euros = (c: unknown) => (typeof c === "number" ? c / 100 : null);
+  return parseExtraction(JSON.stringify({ ...x, net_amount: euros(x.net_cents), tax_amount: euros(x.tax_cents) }));
 }

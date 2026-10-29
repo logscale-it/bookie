@@ -98,13 +98,15 @@ async function request<T>(
   body?: unknown,
   token?: string,
 ): Promise<T> {
+  // A Blob/File goes as the raw body with its own type (e.g. a receipt), anything else as JSON.
+  const raw = body instanceof Blob;
   const res = await fetch(url + path, {
     method,
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(body === undefined ? {} : { "Content-Type": raw ? body.type : "application/json" }),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
   });
   const data = await res.json().catch(() => null);
   // Only "unauthorized" means the session is gone; a 401 invalid_credentials

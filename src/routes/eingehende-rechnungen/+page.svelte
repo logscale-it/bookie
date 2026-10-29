@@ -7,7 +7,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageFor, messageForUnknown, parseBookieError } from '$lib/shared/errors';
-	import { aiConfig, extractInvoice } from '$lib/ai';
+	import { aiConfig, extractInvoice, extractInvoiceCloud } from '$lib/ai';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
@@ -32,7 +32,7 @@
 	import { getS3Settings } from '$lib/db/settings';
 	import { uploadFile, downloadFile as s3DownloadFile, deleteFile as s3DeleteFile } from '$lib/s3/client';
 	import { createLogger } from '$lib/logger';
-	import { cloud } from '$lib/cloud';
+	import { cloud, CloudError } from '$lib/cloud';
 	import type { Customer } from '$lib/db/types';
 	import EInvoicePreview from '../../common/EInvoicePreview.svelte';
 	import type { EInvoice } from '$lib/einvoice';
@@ -409,17 +409,19 @@
 		}
 	}
 
-	// AI receipt extraction: prefill the form from an uploaded PDF/image when
-	// configured (Einstellungen → KI). XML e-invoices go through EInvoicePreview.
+	// AI receipt extraction: prefill the form from an uploaded PDF/image. Cloud:
+	// via bookie-server; local: when configured (Einstellungen → KI). XML
+	// e-invoices go through EInvoicePreview.
 	$effect(() => {
 		const file = uploadFiles?.[0];
 		const config = aiConfig();
+		const viaCloud = cloud() !== null;
 		aiStatus = '';
-		if (!file || !config || /\.xml$/i.test(file.name)) return;
+		if (!file || (!viaCloud && !config) || /\.xml$/i.test(file.name)) return;
 		let stale = false;
 		aiBusy = true;
 		aiStatus = t('incomingInvoices.aiReading');
-		extractInvoice(file, config)
+		(viaCloud ? extractInvoiceCloud(file) : extractInvoice(file, config!))
 			.then((x) => {
 				if (stale) return;
 				Object.assign(form, x);
@@ -427,6 +429,8 @@
 			})
 			.catch((e) => {
 				if (stale) return;
+				// Server without MISTRAL_API_KEY: no extraction offered, not an error.
+				if (e instanceof CloudError && e.code === 'ocr_not_configured') return void (aiStatus = '');
 				const err = parseBookieError(e);
 				aiStatus = `${t('incomingInvoices.aiError')}: ${err.kind === 'Unknown' ? err.message : messageFor(err)}`;
 			})

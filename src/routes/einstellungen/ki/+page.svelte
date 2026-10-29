@@ -3,6 +3,7 @@
 	import TextInput from '../../../common/TextInput.svelte';
 	import { aiConfig, saveAiConfig, hasAiKey, setAiKey, PROVIDERS, type AiProvider } from '$lib/ai';
 	import { messageForUnknown } from '$lib/shared/errors';
+	import { cloud } from '$lib/cloud';
 
 	const saved = aiConfig();
 	let enabled = $state(saved !== null);
@@ -69,6 +70,12 @@
 			Beim Hochladen einer Eingangsrechnung (PDF oder Bild) liest die KI Lieferant, Rechnungsnummer, Datum,
 			Netto und MwSt. aus und füllt das Formular vor. Gespeichert wird erst nach deiner Prüfung.
 		</p>
+		{#if cloud()}
+			<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+				Mit bookie Cloud liest der Server deine Belege (Mistral OCR, EU) – kein eigener API-Key nötig. Die
+				Einstellungen hier gelten nur im lokalen Modus.
+			</p>
+		{/if}
 	</div>
 
 	<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 dark:text-zinc-200">
