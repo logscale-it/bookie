@@ -3,8 +3,9 @@
 //! Pure; `ai_extract_invoice` in lib.rs does the keyring read and HTTP.
 //!
 //! Three request shapes cover all providers: Anthropic Messages, Gemini
-//! generateContent, and OpenAI-compatible chat completions (OpenAI, Mistral,
-//! Ollama via its `/v1` endpoint).
+//! generateContent, and OpenAI-compatible chat completions (`openai` covers
+//! any compatible API via its base URL: OpenAI, Z.AI, OpenRouter, …; plus
+//! Mistral and Ollama via its `/v1` endpoint).
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -15,7 +16,7 @@ JSON-Objekt ohne weiteren Text: {\"supplier_name\": string, \"invoice_number\": 
 \"currency\": string}. net_amount ist die Nettosumme, tax_amount die gesamte Umsatzsteuer. \
 Unbekannte Felder auf null setzen.";
 
-/// Returned when an OpenAI-compatible provider other than OpenAI gets a PDF.
+/// Returned when an OpenAI-compatible provider other than api.openai.com gets a PDF.
 pub const PDF_UNSUPPORTED: &str =
     "Dieser Anbieter kann keine PDFs lesen. Bitte den Beleg als Bild (PNG/JPG) hochladen.";
 
@@ -74,10 +75,10 @@ pub fn build_request(
         "openai" | "mistral" | "ollama" => {
             let file_part = if !is_pdf {
                 json!({"type": "image_url", "image_url": {"url": format!("data:{mime};base64,{data}")}})
-            } else if provider == "openai" {
+            } else if provider == "openai" && base_url.contains("api.openai.com") {
                 json!({"type": "file", "file": {"filename": "beleg.pdf", "file_data": format!("data:{mime};base64,{data}")}})
             } else {
-                // ponytail: Mistral/Ollama chat has no confirmed inline-PDF input;
+                // ponytail: only OpenAI itself has a confirmed inline-PDF chat input;
                 // render page 1 to an image in the frontend if PDFs are needed there.
                 return Err(PDF_UNSUPPORTED.into());
             };
@@ -163,6 +164,16 @@ mod tests {
         .unwrap();
         assert_eq!(r.body["messages"][0]["content"][0]["type"], "image_url");
         assert!(r.headers.is_empty());
+
+        let zai = build_request(
+            "openai",
+            "glm-4.5v",
+            "https://api.z.ai/api/paas/v4",
+            "application/pdf",
+            b"x",
+            Some("k"),
+        );
+        assert_eq!(zai.err().as_deref(), Some(PDF_UNSUPPORTED));
 
         assert_eq!(
             build_request(

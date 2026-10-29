@@ -15,7 +15,8 @@ export const PROVIDERS: Record<
   { label: string; model: string; baseUrl: string; needsKey: boolean }
 > = {
   anthropic: { label: "Anthropic (Claude)", model: "claude-haiku-5-5", baseUrl: "", needsKey: true },
-  openai: { label: "OpenAI", model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1", needsKey: true },
+  // Any OpenAI-compatible API via baseUrl; PDFs only on api.openai.com, images everywhere.
+  openai: { label: "OpenAI-kompatibel (OpenAI, Z.AI, OpenRouter …)", model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1", needsKey: true },
   gemini: { label: "Google Gemini", model: "gemini-2.5-flash", baseUrl: "", needsKey: true },
   mistral: { label: "Mistral AI", model: "mistral-medium-latest", baseUrl: "https://api.mistral.ai/v1", needsKey: true },
   ollama: { label: "Ollama (selbst gehostet)", model: "qwen2.5vl", baseUrl: "http://localhost:11434/v1", needsKey: false },
