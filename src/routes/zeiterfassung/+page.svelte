@@ -29,6 +29,8 @@
 	let formError = $state('');
 	let showEntryDialog = $state(false);
 	let editingTimeEntryId = $state<number | null>(null);
+	let filterCustomerId = $state('all');
+	let filterProjectId = $state('all');
 
 	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
 	const pageCount = $derived(totalPages(totalCount, pager.size));
@@ -51,6 +53,23 @@
 		...projects.map((project) => ({ value: String(project.id), label: project.name }))
 	]);
 
+	const filterCustomerOptions = $derived.by(() => [
+		{ value: 'all', label: t('timeTracking.allCustomers') },
+		...customers.map((customer) => ({ value: String(customer.id), label: customer.name }))
+	]);
+
+	const filterProjectOptions = $derived.by(() => [
+		{ value: 'all', label: t('timeTracking.allProjects') },
+		...projects
+			.filter((project) => filterCustomerId === 'all' || project.customer_id === Number(filterCustomerId))
+			.map((project) => ({ value: String(project.id), label: project.name }))
+	]);
+
+	$effect(() => {
+		// Drop a project selection that no longer belongs to the chosen customer.
+		if (!filterProjectOptions.some((option) => option.value === filterProjectId)) filterProjectId = 'all';
+	});
+
 	const startMinutes = $derived.by(() => parseTimeToMinutes(startTime));
 	const endMinutes = $derived.by(() => parseTimeToMinutes(endTime));
 
@@ -67,7 +86,9 @@
 	const dialogTitle = $derived.by(() => (editingTimeEntryId === null ? t('timeTracking.createEntry') : t('timeTracking.editEntry')));
 
 	$effect(() => {
-		// re-fetch when URL pager changes
+		// re-fetch when URL pager or filters change
+		void filterCustomerId;
+		void filterProjectId;
 		loadData(pager.page, pager.size);
 	});
 
@@ -90,15 +111,22 @@
 		});
 	}
 
+	let loadSeq = 0;
 	async function loadData(pageNum = pager.page, size = pager.size) {
+		const seq = ++loadSeq;
 		loading = true;
+		const filter = {
+			customerId: filterCustomerId !== 'all' ? Number(filterCustomerId) : null,
+			projectId: filterProjectId !== 'all' ? Number(filterProjectId) : null
+		};
 		const companyId = await ensureCompanyId();
 		const offset = (pageNum - 1) * size;
 		const [timeEntriesResult, customerRows, projectRows] = await Promise.all([
-			listTimeEntries(companyId, { limit: size, offset }),
+			listTimeEntries(companyId, { limit: size, offset, ...filter }),
 			listClients(companyId),
 			listProjects(companyId)
 		]);
+		if (seq !== loadSeq) return; // a newer filter/page change superseded this load
 		customers = customerRows;
 		projects = projectRows;
 
@@ -121,6 +149,10 @@
 		params.set('page', String(target));
 		params.set('size', String(pager.size));
 		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
+	}
+
+	function resetToFirstPage() {
+		if (pager.page > 1) gotoPage(1);
 	}
 
 	function resetForm() {
@@ -376,6 +408,12 @@
 			</div>
 		</div>
 	{/if}
+
+	<!-- change bubbles up from the selects, after bind:value has updated -->
+	<div class="grid gap-3 sm:grid-cols-2 lg:max-w-2xl" onchange={resetToFirstPage}>
+		<Select bind:value={filterCustomerId} label={t('timeTracking.customer')} options={filterCustomerOptions} />
+		<Select bind:value={filterProjectId} label={t('timeTracking.project')} options={filterProjectOptions} />
+	</div>
 
 	<div class="table-card">
 		<div class="table-scroll">

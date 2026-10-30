@@ -85,6 +85,25 @@ describe("time entries", () => {
     expect(await timeEntries.listTimesheetEntries(companyId, { from: "2025-01-28", to: "" })).toHaveLength(9);
   });
 
+  test("listTimeEntries filters by customer + project with matching total", async () => {
+    const { companyId, customerId, projectId } = await seed();
+    const otherProject = await projects.createProject({
+      company_id: companyId, customer_id: customerId, project_number: null,
+      name: "Other", description: null, status: "active",
+      hourly_rate: 100, starts_on: null, ends_on: null,
+    });
+    for (let i = 1; i <= 3; i++) {
+      await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, `2025-01-0${i}`, 1));
+    }
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, otherProject, "2025-01-09", 1));
+
+    const page = await timeEntries.listTimeEntries(companyId, { projectId, limit: 2 });
+    expect(page.rows.map((e) => e.entry_date)).toEqual(["2025-01-03", "2025-01-02"]);
+    expect(page.totalCount).toBe(3);
+    expect((await timeEntries.listTimeEntries(companyId, { customerId })).totalCount).toBe(4);
+    expect((await timeEntries.listTimeEntries(companyId, { projectId: otherProject })).totalCount).toBe(1);
+  });
+
   test("listTimesheetEntries filters by project", async () => {
     const { companyId, customerId, projectId } = await seed();
     const otherProject = await projects.createProject({
