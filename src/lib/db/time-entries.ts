@@ -47,14 +47,15 @@ export async function listTimeEntries(
 /** Unpaginated, filtered in SQL. entry_date is ISO `YYYY-MM-DD`, so string compare is a date compare. */
 export async function listTimesheetEntries(
   companyId: number,
-  filter: { from?: string; to?: string; customerId?: number | null } = {},
+  filter: { from?: string; to?: string; customerId?: number | null; projectId?: number | null } = {},
 ): Promise<TimeEntry[]> {
   if (cloud()) {
     return (await remote.list()).filter(
       (e) =>
         (!filter.from || e.entry_date >= filter.from) &&
         (!filter.to || e.entry_date <= filter.to) &&
-        (filter.customerId == null || e.customer_id === filter.customerId),
+        (filter.customerId == null || e.customer_id === filter.customerId) &&
+        (filter.projectId == null || e.project_id === filter.projectId),
     );
   }
   const db = await getDb();
@@ -64,12 +65,14 @@ export async function listTimesheetEntries(
        AND ($2 IS NULL OR entry_date >= $2)
        AND ($3 IS NULL OR entry_date <= $3)
        AND ($4 IS NULL OR customer_id = $4)
+       AND ($5 IS NULL OR project_id = $5)
      ORDER BY entry_date DESC`,
     [
       companyId,
       filter.from || null,
       filter.to || null,
       filter.customerId ?? null,
+      filter.projectId ?? null,
     ],
   );
 }

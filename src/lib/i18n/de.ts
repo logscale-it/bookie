@@ -435,6 +435,7 @@ export default {
     groupByDate: "Nach Kunde + Datum",
     groupByWeek: "Nach Kunde + Woche",
     allCustomers: "Alle Kunden",
+    allProjects: "Alle Projekte",
     hits: "Treffer",
     timeEntries: "Zeiteinträge",
     groups: "Gruppen",

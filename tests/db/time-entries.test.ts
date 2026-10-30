@@ -85,6 +85,21 @@ describe("time entries", () => {
     expect(await timeEntries.listTimesheetEntries(companyId, { from: "2025-01-28", to: "" })).toHaveLength(9);
   });
 
+  test("listTimesheetEntries filters by project", async () => {
+    const { companyId, customerId, projectId } = await seed();
+    const otherProject = await projects.createProject({
+      company_id: companyId, customer_id: customerId, project_number: null,
+      name: "Other", description: null, status: "active",
+      hourly_rate: 100, starts_on: null, ends_on: null,
+    });
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, "2025-01-01", 1));
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, "2025-01-02", 1));
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, otherProject, "2025-01-03", 1));
+
+    expect(await timeEntries.listTimesheetEntries(companyId, { projectId })).toHaveLength(2);
+    expect(await timeEntries.listTimesheetEntries(companyId, { customerId, projectId: otherProject })).toHaveLength(1);
+  });
+
   test("update changes whitelisted columns", async () => {
     const { companyId, customerId, projectId } = await seed();
     const id = await timeEntries.createTimeEntry(

@@ -4,8 +4,9 @@
 	import Select from '../../../common/Select.svelte';
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { listClients } from '$lib/db/customers';
+	import { listProjects } from '$lib/db/projects';
 	import { listTimesheetEntries } from '$lib/db/time-entries';
-	import type { Customer, TimeEntry } from '$lib/db/types';
+	import type { Customer, Project, TimeEntry } from '$lib/db/types';
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { save } from '@tauri-apps/plugin-dialog';
@@ -24,15 +25,22 @@
 	let rows = $state<TimeEntry[]>([]);
 	let companyId = $state<number | null>(null);
 	let customers = $state<Customer[]>([]);
+	let projects = $state<Project[]>([]);
 
 	let periodStart = $state('');
 	let periodEnd = $state('');
 	let selectedCustomerId = $state('all');
+	let selectedProjectId = $state('all');
 	let grouping = $state<GroupingMode>('customer-date');
 
 	const customerOptions = $derived.by(() => [
 		{ value: 'all', label: t('timeTracking.allCustomers') },
 		...customers.map((customer) => ({ value: String(customer.id), label: customer.name }))
+	]);
+
+	const projectOptions = $derived.by(() => [
+		{ value: 'all', label: t('timeTracking.allProjects') },
+		...projects.map((project) => ({ value: String(project.id), label: project.name }))
 	]);
 
 	const groupingOptions = $derived([
@@ -91,7 +99,8 @@
 		const filter = {
 			from: periodStart,
 			to: periodEnd,
-			customerId: selectedCustomerId !== 'all' ? Number(selectedCustomerId) : null
+			customerId: selectedCustomerId !== 'all' ? Number(selectedCustomerId) : null,
+			projectId: selectedProjectId !== 'all' ? Number(selectedProjectId) : null
 		};
 		if (companyId !== null) loadEntries(companyId, filter);
 	});
@@ -117,7 +126,7 @@
 
 	async function loadData() {
 		const id = await ensureCompanyId();
-		customers = await listClients(id);
+		[customers, projects] = await Promise.all([listClients(id), listProjects(id)]);
 		companyId = id;
 	}
 
@@ -169,6 +178,9 @@
 			selectedCustomerId === 'all'
 				? 'Kunde: alle'
 				: `Kunde: ${customers.find((customer) => customer.id === Number(selectedCustomerId))?.name ?? '—'}`,
+			selectedProjectId === 'all'
+				? 'Projekt: alle'
+				: `Projekt: ${projects.find((project) => project.id === Number(selectedProjectId))?.name ?? '—'}`,
 			grouping === 'customer-week' ? 'Gruppierung: Woche' : 'Gruppierung: Datum'
 		].join(' · ');
 
@@ -224,10 +236,11 @@
 		<div class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">{pdfError}</div>
 	{/if}
 
-	<div class="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-4 dark:border-zinc-700 dark:bg-zinc-800/40">
+	<div class="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-5 dark:border-zinc-700 dark:bg-zinc-800/40">
 		<DateInput bind:value={periodStart} label={t('timeTracking.periodFrom')} max={periodEnd || ''} />
 		<DateInput bind:value={periodEnd} label={t('timeTracking.periodTo')} min={periodStart || ''} />
 		<Select bind:value={selectedCustomerId} label={t('timeTracking.customer')} options={customerOptions} />
+		<Select bind:value={selectedProjectId} label={t('timeTracking.project')} options={projectOptions} />
 		<Select bind:value={grouping} label={t('timeTracking.grouping')} options={groupingOptions} />
 	</div>
 

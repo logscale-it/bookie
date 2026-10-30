@@ -432,6 +432,7 @@ export default {
     groupByDate: "By customer + date",
     groupByWeek: "By customer + week",
     allCustomers: "All customers",
+    allProjects: "All projects",
     hits: "Results",
     timeEntries: "Time entries",
     groups: "Groups",
