@@ -40,8 +40,15 @@
 
 	const projectOptions = $derived.by(() => [
 		{ value: 'all', label: t('timeTracking.allProjects') },
-		...projects.map((project) => ({ value: String(project.id), label: project.name }))
+		...projects
+			.filter((project) => selectedCustomerId === 'all' || project.customer_id === Number(selectedCustomerId))
+			.map((project) => ({ value: String(project.id), label: project.name }))
 	]);
+
+	$effect(() => {
+		// Drop a project selection that no longer belongs to the chosen customer.
+		if (!projectOptions.some((option) => option.value === selectedProjectId)) selectedProjectId = 'all';
+	});
 
 	const groupingOptions = $derived([
 		{ value: 'customer-date', label: t('timeTracking.groupByDate') },
