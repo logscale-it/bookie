@@ -26,7 +26,8 @@
 		type BootStatus
 	} from '$lib/diagnostics/boot';
 	import { createLogger } from '$lib/logger';
-	import { loadCloudToken } from '$lib/cloud';
+	import { api, loadCloudToken, logout } from '$lib/cloud';
+	import { can, initials, loadSession, session } from '$lib/session.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -95,6 +96,7 @@
 		// The cloud session token comes from the OS keyring; pages call cloud()
 		// synchronously once bootChecked renders them.
 		await loadCloudToken();
+		await loadSession();
 		// Run boot_check FIRST (before any side-effectful schedulers) so we
 		// never start auto-backup against a broken environment (e.g. a
 		// read-only app-data dir would just fail silently).
@@ -145,12 +147,14 @@
 			get label() { return t('nav.overview'); },
 			get shortLabel() { return t('nav.overview'); },
 			href: '/uebersicht',
+			show: () => can('reports'),
 			icon: 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'
 		},
 		{
 			get label() { return t('nav.invoices'); },
 			get shortLabel() { return t('nav.invoices'); },
 			href: '/rechnungen',
+			show: () => can('invoices'),
 			icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
 		},
 		{
@@ -186,6 +190,21 @@
 	];
 
 	const isActive = (href: string, pathname: string) => pathname === href || pathname.startsWith(`${href}/`);
+	// Cloud: hide areas the caller has no grant for (the server enforces it anyway).
+	const visibleNav = $derived(navItems.filter((i) => i.show?.() ?? true));
+
+	const ROLE_LABEL = { admin: 'Admin', member: 'Mitglied', subcontractor: 'Subunternehmer' } as const;
+	const company = $derived(session.company);
+
+	// Every page loads its data on mount, so a company switch reloads the app.
+	async function switchCompany(companyId: number) {
+		await api('/session/company', 'POST', { companyId });
+		location.href = '/';
+	}
+	async function signOut() {
+		await logout();
+		location.href = '/einstellungen/cloud';
+	}
 </script>
 
 {#if migrationError}
@@ -214,10 +233,46 @@
 		<UpdatePrompt />
 		<!-- Desktop sidebar -->
 		<aside class="hidden w-72 shrink-0 flex-col overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:flex dark:border-zinc-700 dark:bg-zinc-800/60">
-			<div class="mb-5 flex items-center gap-2.5">
-				<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg" />
-				<span class="text-base font-semibold tracking-tight">Bookie</span>
-			</div>
+			{#if company && session.me}
+				<!-- Cloud: the active company is the workspace; switch between companies here. -->
+				<details class="group relative mb-5" data-testid="org-switcher">
+					<summary class="flex cursor-pointer list-none items-center gap-2.5 rounded-md p-1 -m-1 hover:bg-zinc-200/70 dark:hover:bg-zinc-700">
+						{#if session.me.active?.logo}
+							<img src={session.me.active.logo} alt="" class="h-8 w-8 shrink-0 rounded-lg bg-white object-contain" />
+						{:else}
+							<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-semibold text-white">{initials(company.name)}</span>
+						{/if}
+						<span class="min-w-0 flex-1">
+							<span class="block truncate text-sm font-semibold tracking-tight">{company.name}</span>
+							<span class="block text-xs text-zinc-500 dark:text-zinc-400">
+								{ROLE_LABEL[company.role]}{session.me.active ? ` · ${session.me.active.seats} ${session.me.active.seats === 1 ? 'Person' : 'Personen'}` : ''}
+							</span>
+						</span>
+						<svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" /></svg>
+					</summary>
+					<div class="absolute left-0 right-0 z-20 mt-2 rounded-md border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
+						{#each session.me.companies as c (c.id)}
+							<button
+								type="button"
+								class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700"
+								disabled={c.id === company.id}
+								onclick={() => switchCompany(c.id)}
+							>
+								<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-200 text-[10px] font-semibold dark:bg-zinc-600">{initials(c.name)}</span>
+								<span class="min-w-0 flex-1 truncate">{c.name}</span>
+								<span class="text-[10px] text-zinc-500 dark:text-zinc-400">{c.paid ? ROLE_LABEL[c.role] : 'kein Abo'}</span>
+								{#if c.id === company.id}<span class="text-blue-600">✓</span>{/if}
+							</button>
+						{/each}
+						<a href="/einstellungen/cloud" class="mt-1 block rounded border-t border-zinc-200 px-2 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700">Firmen & Abo verwalten…</a>
+					</div>
+				</details>
+			{:else}
+				<div class="mb-5 flex items-center gap-2.5">
+					<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg" />
+					<span class="text-base font-semibold tracking-tight">Bookie</span>
+				</div>
+			{/if}
 			<button
 				type="button"
 				onclick={() => (commandPalette.open = true)}
@@ -228,7 +283,7 @@
 				<kbd class="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] font-medium dark:border-zinc-600">⌘K</kbd>
 			</button>
 			<nav class="flex flex-col gap-1">
-				{#each navItems as item}
+				{#each visibleNav as item}
 					<a
 						href={item.href}
 						class={`rounded-md px-3 py-2 text-sm font-medium transition ${isActive(item.href, page.url.pathname) ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}
@@ -238,10 +293,29 @@
 				{/each}
 			</nav>
 
+			{#if company && session.me}
+				<!-- Cloud: who is signed in, with account and team shortcuts. -->
+				<details class="relative mt-auto" data-testid="user-menu">
+					<summary class="flex cursor-pointer list-none items-center gap-2.5 rounded-md px-3 py-2 hover:bg-zinc-200/70 dark:hover:bg-zinc-700">
+						<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-300 text-[11px] font-semibold dark:bg-zinc-600">{initials(session.me.user.name)}</span>
+						<span class="min-w-0 flex-1">
+							<span class="block truncate text-xs font-medium">{session.me.user.name}</span>
+							<span class="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">{session.me.user.email}</span>
+						</span>
+					</summary>
+					<div class="absolute bottom-full left-0 right-0 z-20 mb-2 rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
+						<a href="/einstellungen/cloud" class="block rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700">Konto & Sicherheit</a>
+						{#if company.role === 'admin'}
+							<a href="/einstellungen/team" class="block rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700">Team verwalten</a>
+						{/if}
+						<button type="button" onclick={signOut} class="block w-full rounded px-2 py-1.5 text-left text-red-600 hover:bg-zinc-100 dark:hover:bg-zinc-700">Abmelden</button>
+					</div>
+				</details>
+			{/if}
 			<button
 				type="button"
 				onclick={() => theme.cycle()}
-				class="mt-auto flex items-center gap-2 rounded-md px-3 py-2 pt-2 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:bg-zinc-700"
+				class={`${company ? '' : 'mt-auto '}flex items-center gap-2 rounded-md px-3 py-2 pt-2 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:bg-zinc-700`}
 				aria-label={t('common.theme')}
 				title={t('common.theme')}
 			>
@@ -264,12 +338,26 @@
 					möglicherweise nicht. Prüfen Sie die S3-Einstellungen.
 				</div>
 			{/if}
+			{#if company && !company.paid}
+				<div
+					class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100"
+					role="status"
+					data-testid="cloud-unpaid"
+				>
+					{#if company.role === 'admin'}
+						Das Abo von {company.name} ist nicht aktiv: Daten sind gesperrt, nur der Export geht noch.
+						<a href="/einstellungen/cloud" class="font-medium underline">Abo abschließen</a>
+					{:else}
+						Das Abo von {company.name} ist nicht aktiv. Bitte wende dich an die Firma.
+					{/if}
+				</div>
+			{/if}
 			{@render children()}
 		</main>
 
 		<!-- Mobile bottom navigation -->
 		<nav class="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-zinc-200 bg-white md:hidden dark:border-zinc-700 dark:bg-zinc-800">
-			{#each navItems as item}
+			{#each visibleNav as item}
 				<a
 					href={item.href}
 					class={`flex flex-col items-center gap-0.5 px-1 py-1 text-center transition ${isActive(item.href, page.url.pathname) ? 'text-blue-600' : 'text-zinc-500 dark:text-zinc-400'}`}

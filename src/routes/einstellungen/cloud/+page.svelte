@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { refreshMe } from '$lib/session.svelte';
 	import { onMount } from 'svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import TextInput from '../../../common/TextInput.svelte';
@@ -51,7 +52,7 @@
 	});
 
 	const loadMe = async () => {
-		me = await api<Me>('/me');
+		me = await refreshMe();
 		const a = me.companies.find((c) => c.id === me?.activeCompanyId);
 		// Switching to the cloud moves the local data along: automatically into the first
 		// paid company this device administers (the button covers any further company).
@@ -108,7 +109,7 @@
 	const createCompany = () =>
 		run(async () => {
 			await api('/companies', 'POST', { name: companyName });
-			me = await api<Me>('/me');
+			me = await refreshMe();
 		});
 
 	// Every page loads its data on mount, so a company switch reloads the app.
@@ -270,7 +271,8 @@
 			{/if}
 			<p class="text-sm">
 				Firma: <strong>{active.name}</strong> ·
-				{active.paid ? 'Abo aktiv' : 'Kein aktives Abo'}
+				{active.paid ? 'Abo aktiv' : 'Kein aktives Abo'}{#if me.active}
+					· {me.active.seats} {me.active.seats === 1 ? 'Platz' : 'Plätze'} à 5 €/Monat{/if}
 			</p>
 			<div class="flex flex-wrap gap-3">
 				{#if active.role === 'admin'}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { refreshMe } from '$lib/session.svelte';
 	import { renderSVG } from 'uqr';
 	import TextInput from '../../../common/TextInput.svelte';
 	import { api, secondFactor, type Me } from '$lib/cloud';
@@ -19,7 +20,7 @@
 	const done = async (text: string) => {
 		password = newPassword = code = '';
 		notice = text;
-		me = await api<Me>('/me');
+		me = await refreshMe();
 	};
 
 	const changePassword = () =>

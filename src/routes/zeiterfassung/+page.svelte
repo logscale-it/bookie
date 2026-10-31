@@ -11,6 +11,8 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
+	import { cloud } from '$lib/cloud';
+	import { can, initials, memberName, session } from '$lib/session.svelte';
 
 	type TimeEntryRow = TimeEntry & {
 		customerName: string;
@@ -31,6 +33,13 @@
 	let editingTimeEntryId = $state<number | null>(null);
 	let filterCustomerId = $state('all');
 	let filterProjectId = $state('all');
+	let filterUserId = $state('all');
+	// Cloud with the team_time grant: other members' entries are listed too, so show and filter by author.
+	const teamView = cloud() && can('team_time') && (session.me?.active?.members.length ?? 0) > 1;
+	const filterUserOptions = [
+		{ value: 'all', label: 'Alle Mitarbeiter' },
+		...(session.me?.active?.members ?? []).map((m) => ({ value: String(m.id), label: m.name }))
+	];
 
 	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
 	const pageCount = $derived(totalPages(totalCount, pager.size));
@@ -89,6 +98,7 @@
 		// re-fetch when URL pager or filters change
 		void filterCustomerId;
 		void filterProjectId;
+		void filterUserId;
 		loadData(pager.page, pager.size);
 	});
 
@@ -117,7 +127,8 @@
 		loading = true;
 		const filter = {
 			customerId: filterCustomerId !== 'all' ? Number(filterCustomerId) : null,
-			projectId: filterProjectId !== 'all' ? Number(filterProjectId) : null
+			projectId: filterProjectId !== 'all' ? Number(filterProjectId) : null,
+			userId: filterUserId !== 'all' ? Number(filterUserId) : null
 		};
 		const companyId = await ensureCompanyId();
 		const offset = (pageNum - 1) * size;
@@ -410,9 +421,12 @@
 	{/if}
 
 	<!-- change bubbles up from the selects, after bind:value has updated -->
-	<div class="grid gap-3 sm:grid-cols-2 lg:max-w-2xl" onchange={resetToFirstPage}>
+	<div class={`grid gap-3 sm:grid-cols-2 ${teamView ? 'lg:max-w-4xl lg:grid-cols-3' : 'lg:max-w-2xl'}`} onchange={resetToFirstPage}>
 		<Select bind:value={filterCustomerId} label={t('timeTracking.customer')} options={filterCustomerOptions} />
 		<Select bind:value={filterProjectId} label={t('timeTracking.project')} options={filterProjectOptions} />
+		{#if teamView}
+			<Select bind:value={filterUserId} label="Mitarbeiter" options={filterUserOptions} />
+		{/if}
 	</div>
 
 	<div class="table-card">
@@ -435,7 +449,13 @@
 			<div class="max-h-[520px] overflow-y-auto">
 				{#each rows as row (row.id)}
 					<div class="grid items-center border-b border-zinc-100 text-sm text-zinc-700 last:border-0 dark:border-zinc-700/70 dark:text-zinc-200" style="grid-template-columns: 1.2fr 0.9fr 0.9fr 1.5fr 0.8fr 1.2fr; min-height: 44px">
-						<div class="truncate px-4 py-2">{row.description || '—'}</div>
+						<div class="flex items-center gap-2 truncate px-4 py-2">
+							{#if teamView && row.user_id}
+								{@const name = memberName(row.user_id)}
+								<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold dark:bg-zinc-600" title={name || 'ehemaliges Mitglied'}>{initials(name)}</span>
+							{/if}
+							<span class="truncate">{row.description || '—'}</span>
+						</div>
 						<div class="truncate px-4 py-2">{row.customerName}</div>
 						<div class="truncate px-4 py-2">{row.projectName}</div>
 						<div class="truncate px-4 py-2">{row.timeFrameLabel}</div>

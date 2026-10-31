@@ -133,6 +133,8 @@ export interface TimeEntry {
   billable: number;
   /** Cloud: set = read-only copy of the caller's hours at a client. */
   source_entry_id?: number | null;
+  /** Cloud: who booked it (others' entries are visible with the team_time grant). */
+  user_id?: number;
   created_at: string;
   updated_at: string;
 }

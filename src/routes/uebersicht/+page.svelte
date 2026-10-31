@@ -13,6 +13,9 @@
 	import { saveCsvFile, saveDatevFile, savePdfFile } from '$lib/csv/csv-writer';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { t, tp, translations } from '$lib/i18n';
+	import { cloud } from '$lib/cloud';
+	import { can } from '$lib/session.svelte';
+	import { pendingApprovals, type PendingRow } from '$lib/team';
 
 	let loading = $state(true);
 	let year = $state(new Date().getFullYear());
@@ -132,6 +135,12 @@
 	});
 
 	// Action items and backup status don't depend on year/grouping: load once.
+	// Cloud: months with hours still waiting for the caller's approval.
+	let pending = $state<PendingRow[]>([]);
+	onMount(() => {
+		if (cloud() && can('team_time', 'edit')) pendingApprovals().then((r) => (pending = r), () => {});
+	});
+
 	onMount(async () => {
 		actions = await getActionItems(await getCompanyId());
 		await loadBackupStatus();
@@ -332,6 +341,24 @@
 				</p>
 			{/if}
 		</div>
+	{/if}
+
+	{#if pending.length}
+		{@const people = new Set(pending.map((p) => p.user_id)).size}
+		<a
+			href="/einstellungen/team"
+			class="card flex items-center justify-between gap-3 transition hover:border-blue-500"
+			data-testid="dashboard-pending-approvals"
+		>
+			<span class="text-sm">
+				<strong>{people} {people === 1 ? 'Person' : 'Personen'}</strong> mit offenen Stunden zur Freigabe
+				<span class="text-zinc-500 dark:text-zinc-400">
+					({Math.round(pending.reduce((n, p) => n + p.minutes, 0) / 60)} h, {pending.length}
+					{pending.length === 1 ? 'Monat' : 'Monate'})</span
+				>
+			</span>
+			<span class="text-sm font-medium text-blue-600 dark:text-blue-400">Freigeben →</span>
+		</a>
 	{/if}
 
 	<!-- Cockpit: actionable to-dos that need attention -->

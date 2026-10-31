@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import InvoiceForm, { type SaveData } from '../../../common/InvoiceForm.svelte';
+	import InvoiceHistory from '../../../common/InvoiceHistory.svelte';
 	import { getInvoiceById, updateInvoice, deleteInvoice, syncInvoiceItems, cancelInvoice } from '$lib/db/invoices';
 	import { listByInvoice } from '$lib/db/invoice-items';
 	import { listByInvoice as listPayments, createPayment, deletePayment } from '$lib/db/payments';
@@ -333,6 +334,10 @@
 					</div>
 				{/if}
 			</div>
+		{/if}
+		{#if cloud()}
+			<!-- keyed: every reload of the invoice (save, payment) refetches the trail -->
+			{#key invoice}<InvoiceHistory invoiceId={invoice.id} />{/key}
 		{/if}
 	{/if}
 </section>

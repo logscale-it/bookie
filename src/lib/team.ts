@@ -17,6 +17,23 @@ export const AREAS = [
 export type Area = (typeof AREAS)[number];
 export type Grant = { area: Area; level: "view" | "edit" };
 
+/** Grant presets for invites; the admin can still change grants per member later. */
+export const PRESETS: Record<string, { label: string; grants: Grant[] }> = {
+  member: { label: "Mitarbeiter (nur eigene Zeiten und Belege)", grants: [] },
+  bookkeeper: {
+    label: "Buchhaltung",
+    grants: (["invoices", "incoming_invoices", "reports", "recurring"] as const).map((area) => ({ area, level: "edit" })),
+  },
+  advisor: {
+    label: "Steuerberater (nur lesen)",
+    grants: (["invoices", "incoming_invoices", "reports"] as const).map((area) => ({ area, level: "view" })),
+  },
+  lead: {
+    label: "Teamleitung (Zeiten freigeben)",
+    grants: [{ area: "team_time", level: "edit" }, { area: "reports", level: "view" }],
+  },
+};
+
 export type TeamMember = {
   user_id: number;
   name: string;
@@ -33,9 +50,19 @@ export type Invitation = {
   email: string;
   role: "member" | "subcontractor";
   cost_rate_cents: number | null;
+  grants: Grant[];
   expires_at: string;
   accepted_at: string | null;
   status: "pending" | "accepted" | "expired";
+};
+
+/** A member's month with unapproved hours (GET /api/time-entries/pending). */
+export type PendingRow = {
+  user_id: number;
+  user_name: string;
+  month: string;
+  minutes: number;
+  entries: number;
 };
 
 /** The caller's own hours (GET /api/me/hours). */
@@ -79,11 +106,13 @@ export const invite = (
   email: string,
   role: "member" | "subcontractor",
   costRateEur: string | number | null = null,
+  grants: Grant[] = [],
 ) =>
   api<{ id: number }>("/api/invitations", "POST", {
     email,
     role,
     cost_rate_cents: role === "subcontractor" ? toCents(costRateEur) : null,
+    grants: role === "member" ? grants : [],
   });
 
 export const listInvitations = () => api<Invitation[]>("/api/invitations");
@@ -111,6 +140,10 @@ export const setRole = (userId: number, role: "member" | "subcontractor") =>
 export const setGrants = (userId: number, grants: Grant[]) =>
   api(`/api/members/${userId}/grants`, "PUT", { grants });
 
+/** Hands the admin role to a plain member; the caller stays a member with edit on every area. */
+export const makeAdmin = (userId: number) =>
+  api(`/api/members/${userId}/admin`, "POST");
+
 export const removeMember = (userId: number) =>
   api(`/api/members/${userId}`, "DELETE");
 
@@ -135,6 +168,9 @@ export const unapproveMonth = (userId: number, month: string) =>
     user_id: userId,
     month,
   });
+
+/** Months with unapproved hours per member (needs team_time edit). */
+export const pendingApprovals = () => api<PendingRow[]>("/api/time-entries/pending");
 
 export const subcontractorReport = (month: string) =>
   api<SubcontractorRow[]>(

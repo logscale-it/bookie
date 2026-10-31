@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { refreshMe, session } from '$lib/session.svelte';
 	// Cloud mode, invited members/subcontractors: whose company the hours go to
 	// and the caller's own hours per project for one month.
 	import { onMount } from 'svelte';
 	import TextInput from './TextInput.svelte';
-	import { api, cloud, type Me } from '$lib/cloud';
+	import { cloud, type Me } from '$lib/cloud';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import * as team from '$lib/team';
 
@@ -22,7 +23,7 @@
 	onMount(async () => {
 		if (!cloud()) return;
 		try {
-			me = await api<Me>('/me');
+			me = session.me ?? (await refreshMe());
 		} catch (e) {
 			error = messageForUnknown(e);
 		}

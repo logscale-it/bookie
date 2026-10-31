@@ -7,6 +7,7 @@
 // (loadCloudToken() fills `token` before the first cloud() call).
 
 import { invoke } from "@tauri-apps/api/core";
+import type { Area } from "$lib/team";
 
 const KEY = "bookie.cloud";
 
@@ -195,6 +196,14 @@ export async function logout(): Promise<void> {
 export type Me = {
   user: { id: number; email: string; name: string; totpEnabled: boolean };
   activeCompanyId: number | null;
+  /** The active company as the shell needs it; null without one. */
+  active: {
+    grants: Partial<Record<Area, "view" | "edit">>;
+    logo: string | null;
+    seats: number;
+    /** Every member's name for labels; empty for subcontractors. */
+    members: { id: number; name: string; role: "admin" | "member" | "subcontractor" }[];
+  } | null;
   companies: {
     id: number;
     name: string;

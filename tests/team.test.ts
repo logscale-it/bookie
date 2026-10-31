@@ -31,7 +31,7 @@ test("toCents parses German and plain euro input", () => {
 
 test("wrappers send the server's request shapes", async () => {
   await team.invite("a@b.de", "subcontractor", "50");
-  await team.invite("c@b.de", "member", "50");
+  await team.invite("c@b.de", "member", "50", team.PRESETS.advisor.grants);
   await team.acceptInvitation("http://x/invite?token=abc");
   await team.setCostRate(7, "60,25");
   await team.setCostRate(7, "");
@@ -49,16 +49,27 @@ test("wrappers send the server's request shapes", async () => {
   await team.myAssignments();
   await team.linkProject(3, 9);
   await team.unlinkProject(3);
+  await team.makeAdmin(7);
+  await team.pendingApprovals();
   expect(calls).toEqual([
     {
       path: "/api/invitations",
       method: "POST",
-      body: { email: "a@b.de", role: "subcontractor", cost_rate_cents: 5000 },
+      body: { email: "a@b.de", role: "subcontractor", cost_rate_cents: 5000, grants: [] },
     },
     {
       path: "/api/invitations",
       method: "POST",
-      body: { email: "c@b.de", role: "member", cost_rate_cents: null },
+      body: {
+        email: "c@b.de",
+        role: "member",
+        cost_rate_cents: null,
+        grants: [
+          { area: "invoices", level: "view" },
+          { area: "incoming_invoices", level: "view" },
+          { area: "reports", level: "view" },
+        ],
+      },
     },
     { path: "/api/invitations/accept", method: "POST", body: { token: "abc" } },
     {
@@ -117,6 +128,8 @@ test("wrappers send the server's request shapes", async () => {
       body: { source_project_id: 3, project_id: 9 },
     },
     { path: "/api/project-links/3", method: "DELETE", body: undefined },
+    { path: "/api/members/7/admin", method: "POST", body: undefined },
+    { path: "/api/time-entries/pending", method: "GET", body: undefined },
   ]);
 });
 

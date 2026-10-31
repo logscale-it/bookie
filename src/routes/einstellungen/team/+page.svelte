@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { can, refreshMe } from '$lib/session.svelte';
 	import { onMount } from 'svelte';
 	import TextInput from '../../../common/TextInput.svelte';
 	import CloudWorkContext from '../../../common/CloudWorkContext.svelte';
-	import { api, cloud, CloudError, type Me } from '$lib/cloud';
+	import { cloud, CloudError, type Me } from '$lib/cloud';
 	import { listProjects } from '$lib/db/projects';
 	import type { Project } from '$lib/db/types';
 	import { formatCents } from '$lib/shared/money';
@@ -17,7 +18,8 @@
 		too_many_requests: 'Zu viele Einladungen heute, bitte später erneut probieren.',
 		rejected: 'Zuweisung nicht möglich.',
 		not_found: 'Nicht gefunden.',
-		no_grants_for_role: 'Admin und Subunternehmer erhalten keine Bereichsrechte.'
+		no_grants_for_role: 'Admin und Subunternehmer erhalten keine Bereichsrechte.',
+		not_a_member: 'Nur Mitglieder (keine Subunternehmer) können Admin werden.'
 	};
 	const message = (e: unknown) =>
 		(e instanceof CloudError && MESSAGES[e.code]) || messageForUnknown(e);
@@ -55,6 +57,8 @@
 	let inviteEmail = $state('');
 	let inviteRole = $state<'member' | 'subcontractor'>('member');
 	let inviteRate = $state('');
+	let invitePreset = $state('member');
+	let pendingMonths = $state<team.PendingRow[]>([]);
 	let token = $state('');
 	let approveUser = $state<number | null>(null);
 	let month = $state(new Date().toISOString().slice(0, 7));
@@ -65,6 +69,8 @@
 
 	const active = $derived(me?.companies.find((c) => c.id === me?.activeCompanyId));
 	const admin = $derived(active?.role === 'admin');
+	// Admins and members with team_time edit (e.g. the "Teamleitung" preset).
+	const canApprove = $derived(!!active && can('team_time', 'edit'));
 	const pending = $derived(invitations.filter((i) => i.status === 'pending').length);
 	const subs = $derived(members.filter((m) => m.role === 'subcontractor'));
 	const projectName = (id: number) => projects.find((p) => p.id === id)?.name ?? `#${id}`;
@@ -102,8 +108,9 @@
 	onMount(() => session && run(load));
 
 	async function load() {
-		me = await api<Me>('/me');
+		me = await refreshMe();
 		if (active?.role === 'member') report = await team.subcontractorReport(month).catch(() => null);
+		if (canApprove) pendingMonths = await team.pendingApprovals();
 		if (active?.role !== 'admin') return;
 		members = await team.listMembers();
 		invitations = await team.listInvitations();
@@ -135,7 +142,7 @@
 
 	const sendInvite = () =>
 		run(async () => {
-			await team.invite(inviteEmail.trim(), inviteRole, inviteRate);
+			await team.invite(inviteEmail.trim(), inviteRole, inviteRate, team.PRESETS[invitePreset].grants);
 			inviteEmail = inviteRate = '';
 			invitations = await team.listInvitations();
 		}, 'Einladung gesendet.');
@@ -187,6 +194,15 @@
 		}, 'Rolle geändert.');
 	};
 
+	// Admin moves to the other member; this page then shows the member view.
+	const handOver = (m: team.TeamMember) => {
+		if (!confirm(`${m.name} wird Admin von ${active?.name} (Abo, Team, alle Bereiche). Du bleibst Mitglied mit Bearbeitungsrechten in allen Bereichen. Fortfahren?`)) return;
+		run(async () => {
+			await team.makeAdmin(m.user_id);
+			location.reload();
+		});
+	};
+
 	const remove = (m: team.TeamMember) => {
 		if (!confirm(`${m.name} aus der Firma entfernen?`)) return;
 		run(async () => {
@@ -201,13 +217,14 @@
 			members = await team.listMembers();
 		});
 
-	const approve = (on: boolean, userId = approveUser) =>
+	const approve = (on: boolean, userId = approveUser, m = month) =>
 		run(async () => {
 			if (userId == null) return;
 			const n = on
-				? (await team.approveMonth(userId, month)).approved
-				: (await team.unapproveMonth(userId, month)).unapproved;
-			report = await team.subcontractorReport(month);
+				? (await team.approveMonth(userId, m)).approved
+				: (await team.unapproveMonth(userId, m)).unapproved;
+			report = await team.subcontractorReport(month).catch(() => null); // needs reports view
+			pendingMonths = await team.pendingApprovals();
 			notice = `${n} Einträge ${on ? 'freigegeben' : 'zurückgenommen'}.`;
 		}, '');
 
@@ -243,7 +260,7 @@
 					Jedes Mitglied, auch jeder Subunternehmer, ist ein bezahlter Platz in deinem Abo. Nimmt
 					jemand eine Einladung an oder wird entfernt, passt bookie die Anzahl automatisch an und
 					rechnet anteilig ab. Offene Einladungen ({pending}) kosten nichts. Abo und Rechnungen:
-					<a class="underline" href="/einstellungen/cloud">Einstellungen → Cloud</a>.
+					<a class="underline" href="/einstellungen/cloud">Einstellungen → Konto & Abo</a>.
 				</p>
 			</section>
 		{/if}
@@ -395,6 +412,30 @@
 			</section>
 		{/if}
 
+		{#if canApprove}
+			<section class="card space-y-3">
+				<h2 class="text-base font-semibold">Offene Freigaben</h2>
+				{#if pendingMonths.length}
+					<ul class="divide-y divide-zinc-200 dark:divide-zinc-700" data-testid="pending-approvals">
+						{#each pendingMonths as p (`${p.user_id}|${p.month}`)}
+							<li class="flex items-center justify-between gap-3 py-2 text-sm">
+								<span>
+									<strong>{p.user_name}</strong> ·
+									{new Date(`${p.month}-01`).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}
+									<span class="text-zinc-500">· {hours(p.minutes)} h in {p.entries} Einträgen</span>
+								</span>
+								<button class="btn-primary" disabled={busy} onclick={() => approve(true, p.user_id, p.month)}
+									>Freigeben</button
+								>
+							</li>
+						{/each}
+					</ul>
+				{:else}
+					<p class="text-sm text-green-700 dark:text-green-400">Keine offenen Stunden.</p>
+				{/if}
+			</section>
+		{/if}
+
 		{#if admin}
 			<section class="card space-y-4">
 				<h2 class="text-base font-semibold">Mitglieder</h2>
@@ -448,6 +489,11 @@
 										{/if}
 									</td>
 									<td class="px-3 py-2 text-right">
+										{#if m.role === 'member'}
+											<button class="btn-secondary" disabled={busy} onclick={() => handOver(m)}
+												>Zum Admin machen</button
+											>
+										{/if}
 										{#if m.role !== 'admin'}
 											<button class="btn-danger" disabled={busy} onclick={() => remove(m)}
 												>Entfernen</button
@@ -503,6 +549,15 @@
 					</div>
 					{#if inviteRole === 'subcontractor'}
 						<TextInput bind:value={inviteRate} label="Kostensatz (€/h)" placeholder="z. B. 55,00" />
+					{:else}
+						<div class="flex flex-col gap-1">
+							<label for="invite-preset" class="label">Rechte</label>
+							<select id="invite-preset" class="input-base input-valid" bind:value={invitePreset}>
+								{#each Object.entries(team.PRESETS) as [key, p] (key)}
+									<option value={key}>{p.label}</option>
+								{/each}
+							</select>
+						</div>
 					{/if}
 				</div>
 				<button class="btn-primary" disabled={busy || !inviteEmail.trim()} onclick={sendInvite}
@@ -525,7 +580,11 @@
 									<tr class="data-row">
 										<td class="px-3 py-2">{i.email}</td>
 										<td class="px-3 py-2">
-											{ROLES[i.role]}{#if i.cost_rate_cents != null}
+											{ROLES[i.role]}{#if i.grants.length}
+												<span class="text-zinc-500">
+													· {i.grants.map((g) => `${AREA_LABELS[g.area]}${g.level === 'view' ? ' (lesen)' : ''}`).join(', ')}</span
+												>
+											{/if}{#if i.cost_rate_cents != null}
 												<span class="text-zinc-500"> · {formatCents(i.cost_rate_cents)}/h</span>
 											{/if}
 										</td>
@@ -559,6 +618,7 @@
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">
 					Freigegebene Zeiteinträge sind gesperrt; der Kostensatz wird festgeschrieben.
 				</p>
+
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div class="flex flex-col gap-1">
 						<label for="approve-user" class="label">Mitglied</label>

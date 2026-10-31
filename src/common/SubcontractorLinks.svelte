@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { refreshMe, session } from '$lib/session.svelte';
 	// Cloud mode, own company (admin): client projects the caller works on as a
 	// subcontractor elsewhere. Linking one to an own project mirrors those hours
 	// here, read-only, invoiceable once the client approved them.
 	import { onMount } from 'svelte';
-	import { api, cloud, type Me } from '$lib/cloud';
+	import { cloud, type Me } from '$lib/cloud';
 	import type { Project } from '$lib/db/types';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import * as team from '$lib/team';
@@ -25,7 +26,7 @@
 	onMount(async () => {
 		if (!cloud()) return;
 		try {
-			me = await api<Me>('/me');
+			me = session.me ?? (await refreshMe());
 			if (me.companies.find((c) => c.id === me?.activeCompanyId)?.role === 'admin') await load();
 		} catch (e) {
 			error = messageForUnknown(e);

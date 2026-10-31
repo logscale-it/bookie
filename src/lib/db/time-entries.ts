@@ -31,6 +31,8 @@ export async function listTimeEntries(
     offset?: number;
     customerId?: number | null;
     projectId?: number | null;
+    /** Cloud only: entries of one member. */
+    userId?: number | null;
   },
 ): Promise<PageResult<TimeEntry>> {
   // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
@@ -38,14 +40,16 @@ export async function listTimeEntries(
   const offset = opts?.offset ?? 0;
   const customerId = opts?.customerId ?? null;
   const projectId = opts?.projectId ?? null;
+  const userId = opts?.userId ?? null;
   if (cloud()) {
-    if (customerId == null && projectId == null) return remote.page(limit, offset);
+    if (customerId == null && projectId == null && userId == null) return remote.page(limit, offset);
     // ponytail: filters client-side over the full list; move to server query params if lists get big.
     const all = (await remote.list())
       .filter(
         (e) =>
           (customerId == null || e.customer_id === customerId) &&
-          (projectId == null || e.project_id === projectId),
+          (projectId == null || e.project_id === projectId) &&
+          (userId == null || e.user_id === userId),
       )
       .sort((a, b) => b.entry_date.localeCompare(a.entry_date));
     return { rows: all.slice(offset, offset + limit), totalCount: all.length };

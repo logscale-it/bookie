@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { cloud } from '$lib/cloud';
+	import { can } from '$lib/session.svelte';
 
 	const links = [
-		{ href: '/einstellungen/organisation', label: 'Organisation' },
-		{ href: '/einstellungen/rechnung', label: 'Rechnung' },
-		{ href: '/einstellungen/mwst', label: 'MwSt.-Steuern' },
-		...(cloud() ? [] : [{ href: '/einstellungen/backup', label: 'Backup & Wiederherstellung' }]),
+		...(can('settings') ? [
+			{ href: '/einstellungen/organisation', label: 'Organisation' },
+			{ href: '/einstellungen/rechnung', label: 'Rechnung' },
+			{ href: '/einstellungen/mwst', label: 'MwSt.-Steuern' }
+		] : []),
+		...(cloud() ? [{ href: '/einstellungen/cloud', label: 'Konto & Abo' }] : [{ href: '/einstellungen/backup', label: 'Backup & Wiederherstellung' }]),
 		{ href: '/einstellungen/diagnose', label: 'Diagnose' },
 		{ href: '/einstellungen/updates', label: 'Updates' }
 	];
