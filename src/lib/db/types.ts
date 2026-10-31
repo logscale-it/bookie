@@ -46,6 +46,9 @@ export interface Project {
   hourly_rate: number | null;
   /** Cloud: the server omitted the rate (no invoices/reports grant). */
   hourly_rate_hidden?: boolean;
+  /** Cloud only: planned effort. budget_cents is omitted like the rate without a finance grant. */
+  budget_minutes?: number | null;
+  budget_cents?: number | null;
   starts_on: string | null;
   ends_on: string | null;
   created_at: string;
@@ -133,6 +136,8 @@ export interface TimeEntry {
   billable: number;
   /** Cloud: set = read-only copy of the caller's hours at a client. */
   source_entry_id?: number | null;
+  /** Cloud: set = month approved; the server refuses edits until it is taken back. */
+  approved_at?: string | null;
   /** Cloud: who booked it (others' entries are visible with the team_time grant). */
   user_id?: number;
   created_at: string;

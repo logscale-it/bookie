@@ -11,6 +11,7 @@ export default {
     companiesShort: "Companies",
     timeTracking: "Time Tracking",
     timeTrackingShort: "Time",
+    team: "Team",
     settings: "Settings",
     settingsShort: "Settings",
   },

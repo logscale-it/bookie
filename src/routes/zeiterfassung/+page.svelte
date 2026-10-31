@@ -463,6 +463,8 @@
 						<div class="flex items-center justify-end gap-2 px-4 py-2">
 							{#if row.source_entry_id != null}
 								<span class="rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title="Beim Auftraggeber gebucht; ändern nur dort">vom Auftraggeber</span>
+							{:else if row.approved_at}
+								<span class="badge badge-green" title="Monat freigegeben; ändern erst nach Zurücknahme der Freigabe">freigegeben</span>
 							{:else}
 							<button type="button" onclick={() => openEditDialog(row)} class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-600">{t('common.edit')}</button>
 							<button type="button" onclick={() => handleDelete(row)} disabled={deletingId === row.id} class="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-900/20">{deletingId === row.id ? t('common.deleting') : t('common.delete')}</button>

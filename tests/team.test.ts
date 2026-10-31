@@ -42,7 +42,7 @@ test("wrappers send the server's request shapes", async () => {
   await team.unassign(3, 7);
   await team.approveMonth(7, "2026-09");
   await team.unapproveMonth(7, "2026-09");
-  await team.subcontractorReport("2026-09");
+  await team.teamReport("2026-09");
   await team.listInvitations();
   await team.revokeInvitation(4);
   await team.myHours("2026-09");
@@ -51,6 +51,10 @@ test("wrappers send the server's request shapes", async () => {
   await team.unlinkProject(3);
   await team.makeAdmin(7);
   await team.pendingApprovals();
+  await team.rejectMonth(7, "2026-09", "Projekt fehlt");
+  await team.projectProgress();
+  await team.activity();
+  await team.activity(40);
   expect(calls).toEqual([
     {
       path: "/api/invitations",
@@ -114,7 +118,7 @@ test("wrappers send the server's request shapes", async () => {
       body: { user_id: 7, month: "2026-09" },
     },
     {
-      path: "/api/reports/subcontractors?month=2026-09",
+      path: "/api/reports/team?month=2026-09",
       method: "GET",
       body: undefined,
     },
@@ -130,17 +134,27 @@ test("wrappers send the server's request shapes", async () => {
     { path: "/api/project-links/3", method: "DELETE", body: undefined },
     { path: "/api/members/7/admin", method: "POST", body: undefined },
     { path: "/api/time-entries/pending", method: "GET", body: undefined },
+    {
+      path: "/api/time-entries/reject",
+      method: "POST",
+      body: { user_id: 7, month: "2026-09", reason: "Projekt fehlt" },
+    },
+    { path: "/api/projects/progress", method: "GET", body: undefined },
+    { path: "/api/activity", method: "GET", body: undefined },
+    { path: "/api/activity?before=40", method: "GET", body: undefined },
   ]);
 });
 
-test("summarize folds project rows into one total per subcontractor", () => {
+test("summarize folds project rows into one total per person", () => {
   const row = (user_id: number, project_id: number, minutes: number) => ({
     user_id,
     user_name: `U${user_id}`,
+    role: "member" as const,
     project_id,
     project_name: `P${project_id}`,
     minutes,
     approved_minutes: minutes / 2,
+    invoiced_minutes: 0,
     cost_cents: minutes * 10,
     revenue_cents: minutes * 20,
   });
@@ -158,4 +172,24 @@ test("summarize folds project rows into one total per subcontractor", () => {
     [1, 90, 45, 900, 1800, 2],
     [2, 120, 60, 1200, 2400, 1],
   ]);
+});
+
+test("describe turns feed rows into German sentences", () => {
+  const a = (action: string, data: Record<string, any> = {}): team.Activity => ({
+    id: 1, action, actor_id: 1, actor_name: "Anna", subject_user_id: 2, subject_name: "Ben", data, created_at: "",
+  });
+  expect(team.describe(a("month.approve", { month: "2026-03" }))).toBe("Anna hat März 2026 von Ben freigegeben");
+  expect(team.describe(a("month.reject", { month: "2026-03", reason: "Projekt fehlt" }))).toBe(
+    "Anna hat März 2026 an Ben zurückgegeben: „Projekt fehlt“",
+  );
+  expect(team.describe(a("member.grants", { grants: [{ area: "reports", level: "view" }] }))).toBe(
+    "Anna hat die Rechte von Ben gesetzt: Berichte (lesen)",
+  );
+  expect(team.describe(a("assign.add", { project_id: 3 }), () => "Website")).toBe(
+    "Anna hat Ben dem Projekt Website zugewiesen",
+  );
+  expect(team.describe(a("invite.create", { email: "x@y.de", role: "subcontractor" }))).toBe(
+    "Anna hat x@y.de als Subunternehmer eingeladen",
+  );
+  expect(team.describe(a("something.new"))).toBe("Anna: something.new");
 });

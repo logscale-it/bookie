@@ -572,3 +572,106 @@ test.skipIf(!has)(
     }
   },
 );
+
+test.skipIf(!has)(
+  "team overview: reject reaches the member, approval locks entries, report and project burn",
+  async () => {
+    const team = await import("$lib/team");
+    const te = await import("$lib/db/time-entries");
+    const pj = await import("$lib/db/projects");
+    const { outbox } = await load("src/mail.ts");
+    delete Bun.env.MAIL_API_KEY; // .env may carry the real key
+    const sdb = await testDb();
+    const server = startServer(sdb, 0);
+    const one = async (q: Promise<any[]>) => Number((await q)[0].id);
+    const c = await one(
+      sdb.sql`INSERT INTO companies (name, subscription_status) VALUES ('Firma', 'active') RETURNING id`,
+    );
+    const user = (mail: string, name: string) =>
+      one(
+        sdb.sql`INSERT INTO users (email, name, password_hash) VALUES (${mail}, ${name}, 'x') RETURNING id`,
+      );
+    const boss = await user("boss@x.de", "Chefin");
+    const ben = await user("ben@x.de", "Ben");
+    await sdb.sql`INSERT INTO company_members (company_id, user_id, role) VALUES (${c}, ${boss}, 'admin'), (${c}, ${ben}, 'member')`;
+    const bossToken = await createSession(sdb, boss);
+    const benToken = await createSession(sdb, ben);
+    await sdb.sql`UPDATE sessions SET company_id = ${c}`;
+    let token = bossToken;
+    (globalThis as any).localStorage = {
+      getItem: () =>
+        JSON.stringify({ url: server.url.origin, token, email: "e" }),
+      removeItem() {},
+    };
+    try {
+      const p = await pj.createProject({
+        company_id: 0,
+        customer_id: null,
+        project_number: null,
+        name: "Relaunch",
+        description: null,
+        status: "active",
+        hourly_rate: 100,
+        starts_on: null,
+        ends_on: null,
+        budget_minutes: 240,
+        budget_cents: 50000,
+      });
+      expect(await pj.getProjectById(p)).toMatchObject({
+        budget_minutes: 240,
+        budget_cents: 50000,
+      });
+
+      token = benToken;
+      const id = await te.createTimeEntry({
+        company_id: 0,
+        customer_id: null,
+        project_id: p,
+        entry_date: "2026-10-05",
+        started_at: null,
+        ended_at: null,
+        duration_minutes: 120,
+        description: "Design",
+        billable: 1,
+      });
+
+      token = bossToken;
+      await team.rejectMonth(ben, "2026-10", "Beschreibung fehlt");
+      expect(outbox.at(-1)).toMatchObject({ to: "ben@x.de" });
+      token = benToken;
+      expect((await team.myHours("2026-10")).rejection).toMatchObject({
+        reason: "Beschreibung fehlt",
+        by: "Chefin",
+      });
+
+      token = bossToken;
+      await team.approveMonth(ben, "2026-10");
+      const [row] = (await te.listTimeEntries(0)).rows;
+      expect(row?.approved_at).toBeTruthy();
+      const [r] = team.summarize(await team.teamReport("2026-10"));
+      expect(r).toMatchObject({
+        user_name: "Ben",
+        role: "member",
+        minutes: 120,
+        approved_minutes: 120,
+        revenue_cents: 20000,
+      });
+      expect(await team.projectProgress()).toEqual([
+        { project_id: p, minutes: 120, approved_minutes: 120, invoiced_minutes: 0 },
+      ]);
+      const feed = await team.activity();
+      expect(feed.map((a) => team.describe(a))).toEqual([
+        "Chefin hat Oktober 2026 von Ben freigegeben",
+        "Chefin hat Oktober 2026 an Ben zurückgegeben: „Beschreibung fehlt“",
+      ]);
+
+      token = benToken;
+      expect((await team.myHours("2026-10")).rejection).toBeNull();
+      await expect(
+        te.updateTimeEntry(id, { duration_minutes: 1 }),
+      ).rejects.toMatchObject({ code: "locked" });
+    } finally {
+      server.stop(true);
+    }
+  },
+);

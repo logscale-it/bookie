@@ -14,6 +14,7 @@
 	let me = $state<Me | null>(null);
 	let month = $state(new Date().toISOString().slice(0, 7));
 	let rows = $state<team.HoursRow[]>([]);
+	let rejection = $state<team.Rejection | null>(null);
 	let error = $state('');
 
 	const active = $derived(me?.companies.find((c) => c.id === me?.activeCompanyId));
@@ -33,7 +34,7 @@
 		if (!active || active.role === 'admin' || !/^\d{4}-\d{2}$/.test(month)) return;
 		team
 			.myHours(month)
-			.then((r) => ((rows = r), (error = '')))
+			.then((r) => ((rows = r.projects), (rejection = r.rejection), (error = '')))
 			.catch((e) => (error = messageForUnknown(e)));
 	});
 </script>
@@ -57,6 +58,11 @@
 				{hours(total)} h, davon {hours(approved)} h freigegeben
 			</p>
 		</div>
+		{#if rejection}
+			<p class="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300" data-testid="month-rejected">
+				{rejection.by} hat {team.monthLabel(month)} zurückgegeben: „{rejection.reason}“. Bitte korrigiere die Einträge.
+			</p>
+		{/if}
 		{#if error}<p class="text-sm text-red-600">{error}</p>{/if}
 		{#if rows.length > 0}
 			<div class="table-scroll">

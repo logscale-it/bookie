@@ -72,6 +72,9 @@ export type HoursRow = {
   minutes: number;
   approved_minutes: number;
 };
+/** A month sent back by a team lead; null once approved again. */
+export type Rejection = { reason: string; at: string; by: string };
+export type MyHours = { projects: HoursRow[]; rejection: Rejection | null };
 
 /** A client project the caller works on as a subcontractor (GET /api/me/assignments). */
 export type Assignment = {
@@ -83,15 +86,38 @@ export type Assignment = {
   linked_project_id: number | null;
 };
 
-export type SubcontractorRow = {
+/** One person × project in a month (GET /api/reports/team). Money only with the reports grant. */
+export type TeamRow = {
   user_id: number;
   user_name: string;
+  role: Role | null; // null = no longer a member
   project_id: number | null;
   project_name: string | null;
   minutes: number;
   approved_minutes: number;
-  cost_cents: number;
-  revenue_cents: number;
+  invoiced_minutes: number;
+  cost_cents?: number;
+  revenue_cents?: number;
+};
+
+/** All-time hours of a project (GET /api/projects/progress). */
+export type ProjectProgress = {
+  project_id: number;
+  minutes: number;
+  approved_minutes: number;
+  invoiced_minutes: number;
+};
+
+/** One team action (GET /api/activity). */
+export type Activity = {
+  id: number;
+  action: string;
+  actor_id: number;
+  actor_name: string;
+  subject_user_id: number | null;
+  subject_name: string | null;
+  data: Record<string, any>;
+  created_at: string;
 };
 
 /** Euro input ("12,50", 12.5; empty = none) -> whole cents. */
@@ -172,14 +198,23 @@ export const unapproveMonth = (userId: number, month: string) =>
 /** Months with unapproved hours per member (needs team_time edit). */
 export const pendingApprovals = () => api<PendingRow[]>("/api/time-entries/pending");
 
-export const subcontractorReport = (month: string) =>
-  api<SubcontractorRow[]>(
-    `/api/reports/subcontractors?month=${encodeURIComponent(month)}`,
-  );
+/** Sends an unapproved month back to the member with a reason (mailed to them). */
+export const rejectMonth = (userId: number, month: string, reason: string) =>
+  api("/api/time-entries/reject", "POST", { user_id: userId, month, reason });
+
+/** Needs team_time or reports view. */
+export const teamReport = (month: string) =>
+  api<TeamRow[]>(`/api/reports/team?month=${encodeURIComponent(month)}`);
+
+export const projectProgress = () => api<ProjectProgress[]>("/api/projects/progress");
+
+/** Newest first; pass the last id to page back. */
+export const activity = (before?: number) =>
+  api<Activity[]>(`/api/activity${before ? `?before=${before}` : ""}`);
 
 /** month = "YYYY-MM"; the caller's own hours per project in the active company. */
 export const myHours = (month: string) =>
-  api<HoursRow[]>(`/api/me/hours?month=${encodeURIComponent(month)}`);
+  api<MyHours>(`/api/me/hours?month=${encodeURIComponent(month)}`);
 
 /** Client projects across all companies, with the own project their hours mirror into. */
 export const myAssignments = () => api<Assignment[]>("/api/me/assignments");
@@ -195,19 +230,21 @@ export const linkProject = (sourceProjectId: number, projectId: number) =>
 export const unlinkProject = (sourceProjectId: number) =>
   api(`/api/project-links/${sourceProjectId}`, "DELETE");
 
-export type SubcontractorSummary = {
+export type TeamSummary = {
   user_id: number;
   user_name: string;
+  role: Role | null;
   minutes: number;
   approved_minutes: number;
+  invoiced_minutes: number;
   cost_cents: number;
   revenue_cents: number;
-  projects: SubcontractorRow[];
+  projects: TeamRow[];
 };
 
-/** Report rows (one per subcontractor × project) -> one summary per subcontractor, report order kept. */
-export function summarize(rows: SubcontractorRow[]): SubcontractorSummary[] {
-  const by = new Map<number, SubcontractorSummary>();
+/** Report rows (one per person × project) -> one summary per person, report order kept. */
+export function summarize(rows: TeamRow[]): TeamSummary[] {
+  const by = new Map<number, TeamSummary>();
   for (const r of rows) {
     const s =
       by.get(r.user_id) ??
@@ -215,8 +252,10 @@ export function summarize(rows: SubcontractorRow[]): SubcontractorSummary[] {
         .set(r.user_id, {
           user_id: r.user_id,
           user_name: r.user_name,
+          role: r.role,
           minutes: 0,
           approved_minutes: 0,
+          invoiced_minutes: 0,
           cost_cents: 0,
           revenue_cents: 0,
           projects: [],
@@ -224,9 +263,51 @@ export function summarize(rows: SubcontractorRow[]): SubcontractorSummary[] {
         .get(r.user_id)!;
     s.minutes += r.minutes;
     s.approved_minutes += r.approved_minutes;
-    s.cost_cents += r.cost_cents;
-    s.revenue_cents += r.revenue_cents;
+    s.invoiced_minutes += r.invoiced_minutes;
+    s.cost_cents += r.cost_cents ?? 0;
+    s.revenue_cents += r.revenue_cents ?? 0;
     s.projects.push(r);
   }
   return [...by.values()];
+}
+
+export const monthLabel = (month: string) =>
+  new Date(`${month}-01T00:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+
+const AREA_NAMES: Record<Area, string> = {
+  invoices: "Rechnungen",
+  incoming_invoices: "Eingangsrechnungen",
+  reports: "Berichte",
+  recurring: "Wiederkehrend",
+  team_time: "Team-Zeiten",
+  settings: "Einstellungen",
+};
+const ROLE_NAMES: Record<Role, string> = { admin: "Admin", member: "Mitglied", subcontractor: "Subunternehmer" };
+
+/** One feed row as a German sentence; projectName resolves assignment rows. */
+export function describe(a: Activity, projectName: (id: number) => string = (id) => `#${id}`): string {
+  const who = a.actor_name;
+  const whom = a.subject_name ?? "jemand";
+  const d = a.data;
+  switch (a.action) {
+    case "invite.create": return `${who} hat ${d.email} als ${ROLE_NAMES[d.role as Role] ?? d.role} eingeladen`;
+    case "invite.revoke": return `${who} hat die Einladung an ${d.email} widerrufen`;
+    case "invite.accept": return `${who} ist als ${ROLE_NAMES[d.role as Role] ?? d.role} beigetreten`;
+    case "member.role": return `${who} hat ${whom} zum ${ROLE_NAMES[d.role as Role] ?? d.role} gemacht`;
+    case "member.rate": return `${who} hat den Kostensatz von ${whom} geändert`;
+    case "member.remove": return `${who} hat ${whom} entfernt`;
+    case "member.grants": {
+      const list = (d.grants as Grant[] | undefined) ?? [];
+      return `${who} hat die Rechte von ${whom} gesetzt: ${
+        list.length ? list.map((g) => `${AREA_NAMES[g.area]}${g.level === "view" ? " (lesen)" : ""}`).join(", ") : "keine"
+      }`;
+    }
+    case "member.admin": return `${who} hat die Admin-Rolle an ${whom} übergeben`;
+    case "assign.add": return `${who} hat ${whom} dem Projekt ${projectName(d.project_id)} zugewiesen`;
+    case "assign.remove": return `${who} hat ${whom} vom Projekt ${projectName(d.project_id)} abgezogen`;
+    case "month.approve": return `${who} hat ${monthLabel(d.month)} von ${whom} freigegeben`;
+    case "month.unapprove": return `${who} hat die Freigabe ${monthLabel(d.month)} von ${whom} zurückgenommen`;
+    case "month.reject": return `${who} hat ${monthLabel(d.month)} an ${whom} zurückgegeben: „${d.reason}“`;
+    default: return `${who}: ${a.action}`;
+  }
 }

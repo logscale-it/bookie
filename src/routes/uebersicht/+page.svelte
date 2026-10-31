@@ -346,7 +346,7 @@
 	{#if pending.length}
 		{@const people = new Set(pending.map((p) => p.user_id)).size}
 		<a
-			href="/einstellungen/team"
+			href="/team"
 			class="card flex items-center justify-between gap-3 transition hover:border-blue-500"
 			data-testid="dashboard-pending-approvals"
 		>
