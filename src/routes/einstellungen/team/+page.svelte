@@ -7,6 +7,9 @@
 	import { formatCents } from '$lib/shared/money';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import * as team from '$lib/team';
+	import Dialog from '../../../common/Dialog.svelte';
+	import SectionHead from '../SectionHead.svelte';
+	import { deferDelete } from '$lib/ui/undo';
 
 	const MESSAGES: Record<string, string> = {
 		invalid_input: 'Eingabe ungültig.',
@@ -57,6 +60,12 @@
 	let busy = $state(false);
 	let error = $state('');
 	let notice = $state('');
+	// Consequential team changes (billing, rights, admin handover) confirm in a dialog.
+	let ask = $state<{ title: string; body: string; label: string; danger?: boolean; ok: () => void; cancel?: () => void } | null>(null);
+	const closeAsk = () => {
+		ask?.cancel?.();
+		ask = null;
+	};
 
 	const active = $derived(me?.companies.find((c) => c.id === me?.activeCompanyId));
 	const admin = $derived(active?.role === 'admin');
@@ -102,11 +111,14 @@
 		}, 'Einladung gesendet.');
 
 	const revoke = (i: team.Invitation) => {
-		if (!confirm(`Einladung an ${i.email} widerrufen?`)) return;
-		run(async () => {
-			await team.revokeInvitation(i.id);
-			invitations = await team.listInvitations();
-		}, 'Einladung widerrufen.');
+		const before = invitations;
+		deferDelete({
+			message: `Einladung an ${i.email} ${i.status === 'pending' ? 'widerrufen' : 'entfernt'}`,
+			hide: () => (invitations = invitations.filter((x) => x.id !== i.id)),
+			restore: () => (invitations = before),
+			run: () => team.revokeInvitation(i.id),
+			onDone: () => team.listInvitations().then((r) => (invitations = r))
+		});
 	};
 
 	// The server switches the session to the new company: reload like a company switch.
@@ -134,35 +146,50 @@
 
 	const changeRole = (m: team.TeamMember, select: HTMLSelectElement) => {
 		const role = select.value as 'member' | 'subcontractor';
-		if (
-			role === 'subcontractor' &&
-			m.grants.length > 0 &&
-			!confirm(`${m.name} wird Subunternehmer und verliert alle Bereichsrechte. Fortfahren?`)
-		) {
-			select.value = m.role;
+		const go = () =>
+			run(async () => {
+				await team.setRole(m.user_id, role);
+				await load();
+			}, 'Rolle geändert.');
+		if (role === 'subcontractor' && m.grants.length > 0) {
+			ask = {
+				title: 'Rolle ändern',
+				body: `${m.name} wird Subunternehmer und verliert alle Bereichsrechte.`,
+				label: 'Rolle ändern',
+				ok: go,
+				cancel: () => (select.value = m.role)
+			};
 			return;
 		}
-		run(async () => {
-			await team.setRole(m.user_id, role);
-			await load();
-		}, 'Rolle geändert.');
+		go();
 	};
 
 	// Admin moves to the other member; this page then shows the member view.
 	const handOver = (m: team.TeamMember) => {
-		if (!confirm(`${m.name} wird Admin von ${active?.name} (Abo, Team, alle Bereiche). Du bleibst Mitglied mit Bearbeitungsrechten in allen Bereichen. Fortfahren?`)) return;
-		run(async () => {
-			await team.makeAdmin(m.user_id);
-			location.reload();
-		});
+		ask = {
+			title: 'Admin übergeben',
+			body: `${m.name} wird Admin von ${active?.name} (Abo, Team, alle Bereiche). Du bleibst Mitglied mit Bearbeitungsrechten in allen Bereichen.`,
+			label: 'Zum Admin machen',
+			ok: () =>
+				run(async () => {
+					await team.makeAdmin(m.user_id);
+					location.reload();
+				})
+		};
 	};
 
 	const remove = (m: team.TeamMember) => {
-		if (!confirm(`${m.name} aus der Firma entfernen?`)) return;
-		run(async () => {
-			await team.removeMember(m.user_id);
-			await load();
-		}, 'Mitglied entfernt.');
+		ask = {
+			title: 'Mitglied entfernen',
+			body: `${m.name} aus der Firma entfernen? Der Platz wird anteilig aus deinem Abo genommen.`,
+			label: 'Entfernen',
+			danger: true,
+			ok: () =>
+				run(async () => {
+					await team.removeMember(m.user_id);
+					await load();
+				}, 'Mitglied entfernt.')
+		};
 	};
 
 </script>
@@ -173,16 +200,16 @@
 	</section>
 {:else}
 	<div class="space-y-6">
-		{#if error}<p class="text-sm text-red-600">{error}</p>{/if}
-		{#if notice}<p class="text-sm text-green-700 dark:text-green-400">{notice}</p>{/if}
+		{#if error}<p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-600/10 dark:bg-red-950/40 dark:text-red-300">{error}</p>{/if}
+		{#if notice}<p class="animate-pop rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 ring-1 ring-emerald-600/10 dark:bg-emerald-950/40 dark:text-emerald-300">{notice}</p>{/if}
 
 		{#if active && !admin}
 			<CloudWorkContext />
 		{/if}
 
 		{#if admin}
-			<section class="card space-y-2" data-testid="team-seats">
-				<h2 class="text-base font-semibold">Lizenzen</h2>
+			<section class="card space-y-3 p-5" data-testid="team-seats">
+				<SectionHead eyebrow="Abo" title="Lizenzen" />
 				<p class="text-sm">
 					<strong>{members.length} {members.length === 1 ? 'Platz' : 'Plätze'}</strong> im Abo von
 					{active?.name}: {members.filter((m) => m.role === 'admin').length} Admin,
@@ -192,28 +219,28 @@
 					Jedes Mitglied, auch jeder Subunternehmer, ist ein bezahlter Platz in deinem Abo. Nimmt
 					jemand eine Einladung an oder wird entfernt, passt bookie die Anzahl automatisch an und
 					rechnet anteilig ab. Offene Einladungen ({pending}) kosten nichts. Abo und Rechnungen:
-					<a class="underline" href="/einstellungen/cloud">Einstellungen → Konto & Abo</a>.
+					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/einstellungen/cloud">Einstellungen → Konto & Abo</a>.
 				</p>
 			</section>
 		{/if}
 
 		{#if active && active.role !== 'subcontractor'}
-			<section class="card space-y-2">
-				<h2 class="text-base font-semibold">Stunden & Freigaben</h2>
+			<section class="card space-y-3 p-5">
+				<SectionHead eyebrow="Zeiten" title="Stunden & Freigaben" />
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">
 					Stunden je Person, Monatsfreigaben und die Team-Aktivität stehen unter
-					<a class="underline" href="/team">Team</a>. Wer an welchem Projekt arbeitet, legst du unter
-					<a class="underline" href="/projekte">Projekte</a> fest (Subunternehmer sehen nur ihre Projekte).
+					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/team">Team</a>. Wer an welchem Projekt arbeitet, legst du unter
+					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/projekte">Projekte</a> fest (Subunternehmer sehen nur ihre Projekte).
 				</p>
 			</section>
 		{/if}
 
 		{#if admin}
-			<section class="card space-y-4">
-				<h2 class="text-base font-semibold">Mitglieder</h2>
-				<div class="table-scroll">
+			<section class="card space-y-4 p-5">
+				<SectionHead eyebrow="Team" title="Mitglieder" desc="Rollen, Kostensätze und Bereichsrechte je Person." />
+				<div class="table-scroll overflow-hidden rounded-lg ring-1 ring-zinc-900/5 dark:ring-white/10">
 					<table class="w-full text-sm">
-						<thead class="table-head">
+						<thead class="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
 							<tr>
 								<th class="px-3 py-2 text-left">Name</th>
 								<th class="px-3 py-2 text-left">E-Mail</th>
@@ -224,15 +251,15 @@
 						</thead>
 						<tbody>
 							{#each members as m (m.user_id)}
-								<tr class="data-row">
-									<td class="px-3 py-2">{m.name}</td>
+								<tr class="border-b border-zinc-100 text-zinc-700 transition duration-200 ease-spring hover:bg-zinc-50/70 dark:border-zinc-700/70 dark:text-zinc-200 dark:hover:bg-white/[0.02]">
+									<td class="px-3 py-2 font-medium text-zinc-900 dark:text-zinc-100">{m.name}</td>
 									<td class="px-3 py-2">{m.email}</td>
 									<td class="px-3 py-2">
 										{#if m.role === 'admin'}
 											<span class="badge badge-zinc">{ROLES[m.role]}</span>
 										{:else}
 											<select
-												class="input-base input-valid"
+												class="input-base input-valid rounded-lg py-1.5"
 												aria-label="Rolle"
 												disabled={busy}
 												value={m.role}
@@ -247,44 +274,44 @@
 										{#if m.role === 'subcontractor'}
 											<div class="flex gap-2">
 												<input
-													class="input-base input-valid w-28"
+													class="input-base input-valid w-28 rounded-lg py-1.5 tabular-nums"
 													inputmode="decimal"
 													aria-label="Kostensatz"
 													bind:value={rates[m.user_id]}
 												/>
 												<button
-													class="btn-secondary"
+													class="btn-secondary px-3 py-1.5 text-xs"
 													disabled={busy}
 													onclick={() => saveRate(m.user_id)}>Speichern</button
 												>
 											</div>
 										{/if}
 									</td>
-									<td class="px-3 py-2 text-right">
+									<td class="whitespace-nowrap px-3 py-2 text-right">
 										{#if m.role === 'member'}
-											<button class="btn-secondary" disabled={busy} onclick={() => handOver(m)}
+											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => handOver(m)}
 												>Zum Admin machen</button
 											>
 										{/if}
 										{#if m.role !== 'admin'}
-											<button class="btn-danger" disabled={busy} onclick={() => remove(m)}
-												>Entfernen</button
-											>
+											<button class="icon-btn icon-btn-danger" disabled={busy} onclick={() => remove(m)} title="Entfernen" aria-label="{m.name} entfernen">
+												<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
+											</button>
 										{/if}
 									</td>
 								</tr>
 								{#if m.role === 'member' && grants[m.user_id]}
-									<tr>
-										<td colspan="5" class="px-3 pb-3">
+									<tr class="border-b border-zinc-100 bg-zinc-50/50 dark:border-zinc-700/70 dark:bg-white/[0.015]">
+										<td colspan="5" class="px-3 py-3">
 											<div class="flex flex-wrap items-end gap-3">
 												{#each team.AREAS as area (area)}
-													<div class="flex flex-col gap-1">
+													<div class="flex flex-col gap-1.5">
 														<label for={`grant-${m.user_id}-${area}`} class="label"
 															>{AREA_LABELS[area]}</label
 														>
 														<select
 															id={`grant-${m.user_id}-${area}`}
-															class="input-base input-valid"
+															class="input-base input-valid rounded-lg py-1.5"
 															bind:value={grants[m.user_id][area]}
 														>
 															<option value="">Kein Zugriff</option>
@@ -294,7 +321,7 @@
 													</div>
 												{/each}
 												<button
-													class="btn-secondary"
+													class="btn-secondary px-3 py-1.5 text-xs"
 													disabled={busy}
 													onclick={() => saveGrants(m.user_id)}>Rechte speichern</button
 												>
@@ -308,13 +335,13 @@
 				</div>
 			</section>
 
-			<section class="card space-y-4">
-				<h2 class="text-base font-semibold">Einladen</h2>
+			<section class="card space-y-4 p-5">
+				<SectionHead eyebrow="Zugang" title="Einladen" desc="Die Einladung geht per E-Mail an die Person." />
 				<div class="grid gap-3 sm:grid-cols-3">
 					<TextInput bind:value={inviteEmail} label="E-Mail" type="email" />
-					<div class="flex flex-col gap-1">
+					<div class="flex flex-col gap-1.5">
 						<label for="invite-role" class="label">Rolle</label>
-						<select id="invite-role" class="input-base input-valid" bind:value={inviteRole}>
+						<select id="invite-role" class="input-base input-valid rounded-lg py-1.5" bind:value={inviteRole}>
 							<option value="member">Mitglied</option>
 							<option value="subcontractor">Subunternehmer</option>
 						</select>
@@ -322,9 +349,9 @@
 					{#if inviteRole === 'subcontractor'}
 						<TextInput bind:value={inviteRate} label="Kostensatz (€/h)" placeholder="z. B. 55,00" />
 					{:else}
-						<div class="flex flex-col gap-1">
+						<div class="flex flex-col gap-1.5">
 							<label for="invite-preset" class="label">Rechte</label>
-							<select id="invite-preset" class="input-base input-valid" bind:value={invitePreset}>
+							<select id="invite-preset" class="input-base input-valid rounded-lg py-1.5" bind:value={invitePreset}>
 								{#each Object.entries(team.PRESETS) as [key, p] (key)}
 									<option value={key}>{p.label}</option>
 								{/each}
@@ -336,9 +363,9 @@
 					>Einladung senden</button
 				>
 				{#if invitations.length > 0}
-					<div class="table-scroll">
+					<div class="table-scroll overflow-hidden rounded-lg ring-1 ring-zinc-900/5 dark:ring-white/10">
 						<table class="w-full text-sm">
-							<thead class="table-head">
+							<thead class="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
 								<tr>
 									<th class="px-3 py-2 text-left">E-Mail</th>
 									<th class="px-3 py-2 text-left">Rolle</th>
@@ -349,7 +376,7 @@
 							</thead>
 							<tbody>
 								{#each invitations as i (i.id)}
-									<tr class="data-row">
+									<tr class="border-b border-zinc-100 text-zinc-700 transition duration-200 ease-spring hover:bg-zinc-50/70 dark:border-zinc-700/70 dark:text-zinc-200 dark:hover:bg-white/[0.02]">
 										<td class="px-3 py-2">{i.email}</td>
 										<td class="px-3 py-2">
 											{ROLES[i.role]}{#if i.grants.length}
@@ -365,16 +392,16 @@
 												>{INVITE_STATUS[i.status][0]}</span
 											>
 										</td>
-										<td class="px-3 py-2">
+										<td class="px-3 py-2 tabular-nums">
 											{i.status === 'accepted' && i.accepted_at
 												? `angenommen ${day(i.accepted_at)}`
 												: day(i.expires_at)}
 										</td>
 										<td class="px-3 py-2 text-right">
 											{#if i.status !== 'accepted'}
-												<button class="btn-secondary" disabled={busy} onclick={() => revoke(i)}
-													>{i.status === 'pending' ? 'Widerrufen' : 'Entfernen'}</button
-												>
+												<button class="icon-btn icon-btn-danger" disabled={busy} onclick={() => revoke(i)} title={i.status === 'pending' ? 'Widerrufen' : 'Entfernen'} aria-label={i.status === 'pending' ? 'Widerrufen' : 'Entfernen'}>
+													<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+												</button>
 											{/if}
 										</td>
 									</tr>
@@ -387,13 +414,26 @@
 
 		{/if}
 
-		<section class="card space-y-4">
-			<h2 class="text-base font-semibold">Einladung annehmen</h2>
-			<p class="text-sm text-zinc-500 dark:text-zinc-400">
-				Füge den Einladungslink aus der E-Mail (oder nur den Code) ein.
-			</p>
+		<section class="card space-y-4 p-5">
+			<SectionHead eyebrow="Beitreten" title="Einladung annehmen" desc="Füge den Einladungslink aus der E-Mail (oder nur den Code) ein." />
 			<TextInput bind:value={token} label="Einladungslink oder Code" />
 			<button class="btn-primary" disabled={busy || !token.trim()} onclick={accept}>Annehmen</button>
 		</section>
 	</div>
 {/if}
+
+<Dialog open={ask !== null} title={ask?.title} size="sm" onclose={closeAsk}>
+	<p class="text-sm text-zinc-600 dark:text-zinc-300">{ask?.body}</p>
+	{#snippet footer()}
+		<button type="button" class="btn-secondary" onclick={closeAsk}>Abbrechen</button>
+		<button
+			type="button"
+			class={ask?.danger ? 'btn-danger' : 'btn-primary'}
+			onclick={() => {
+				const ok = ask?.ok;
+				ask = null;
+				ok?.();
+			}}>{ask?.label}</button
+		>
+	{/snippet}
+</Dialog>

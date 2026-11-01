@@ -5,6 +5,9 @@
 	import type { RecurringEntry } from '$lib/db/types';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { getLocaleFormatting, t, tp } from '$lib/i18n';
+	import { deferDelete } from '$lib/ui/undo';
+	import SectionHead from '../SectionHead.svelte';
+	import EmptyState from '../../../common/EmptyState.svelte';
 
 	// Schedules are created from an invoice / incoming invoice ("monatlich");
 	// here they are listed, edited, paused and deleted.
@@ -66,66 +69,84 @@
 	}
 
 	function remove(r: RecurringEntry) {
-		if (!confirm(tp('recurring.deleteNamedConfirm', { name: r.label || t(KINDS[r.kind]) }))) return;
-		return run(() => deleteRecurring(r.id), t('recurring.deleted'));
+		error = notice = '';
+		const before = entries;
+		deferDelete({
+			message: `„${r.label || t(KINDS[r.kind])}“ ${t('recurring.deleted').toLowerCase()}`,
+			hide: () => (entries = entries.filter((x) => x.id !== r.id)),
+			restore: () => (entries = before),
+			run: () => deleteRecurring(r.id),
+			onDone: load
+		});
 	}
 </script>
 
-<section class="card space-y-4">
-	<div>
-		<h2 class="text-base font-semibold">{t('recurring.title')}</h2>
-		<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-			{t('recurring.manageHint')}
-		</p>
+<section class="space-y-4">
+	<div class="card p-5">
+		<SectionHead eyebrow="Automatisierung" title={t('recurring.title')} desc={t('recurring.manageHint')} />
 	</div>
 
 	{#if loading}
-		<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('common.loading')}</p>
+		<div class="card space-y-3 p-5" aria-busy="true">
+			<div class="skeleton h-3 w-32"></div>
+			<div class="grid gap-3 md:grid-cols-5">
+				{#each Array(5) as _}<div class="skeleton h-9 rounded-lg"></div>{/each}
+			</div>
+		</div>
 	{:else if entries.length === 0 && !error}
-		<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('recurring.empty')}</p>
+		<div class="card p-0">
+			<EmptyState
+				icon="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+				title={t('recurring.empty')}
+				hint="Markiere eine Rechnung oder Eingangsrechnung als „monatlich“, um sie hier zu verwalten."
+			/>
+		</div>
 	{:else}
-		<div class="space-y-3">
-			{#each entries as r (r.id)}
-				<div class="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-700">
-					<div class="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-						<span class="font-medium text-zinc-700 dark:text-zinc-200">{t(KINDS[r.kind])}</span>
-						<span>{tp('recurring.lastGenerated', { date: day(r.last_run_date) })}</span>
+		{#each entries as r (r.id)}
+			<div class="card space-y-4 p-5 transition-opacity duration-200 ease-spring {r.active ? '' : 'opacity-70'}">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<div class="flex items-center gap-2">
+						<span class="badge {r.kind === 'invoice' ? 'badge-blue' : 'badge-amber'}">{t(KINDS[r.kind])}</span>
+						{#if !r.active}<span class="badge badge-zinc">pausiert</span>{/if}
 					</div>
-					<div class="grid gap-3 md:grid-cols-[1fr_160px_100px_160px_160px]">
-						<TextInput bind:value={r.label} label={t('recurring.label')} />
-						<div class="mt-1 flex flex-col gap-1">
-							<label for="freq-{r.id}" class="label">{t('recurring.frequency')}</label>
-							<select id="freq-{r.id}" bind:value={r.frequency} class="input-base">
-								{#each FREQUENCIES as value}
-									<option {value}>{t(`recurring.${value}`)}</option>
-								{/each}
-							</select>
-						</div>
-						<div class="mt-1 flex flex-col gap-1">
-							<label for="interval-{r.id}" class="label">{t('recurring.every')}</label>
-							<input id="interval-{r.id}" type="number" min="1" step="1" bind:value={r.interval_count} class="input-base" />
-						</div>
-						<div class="mt-1 flex flex-col gap-1">
-							<label for="next-{r.id}" class="label">{t('recurring.nextRun')}</label>
-							<input id="next-{r.id}" type="date" bind:value={r.next_run_date} class="input-base" />
-						</div>
-						<div class="mt-1 flex flex-col gap-1">
-							<label for="end-{r.id}" class="label">{t('recurring.endDate')}</label>
-							<input id="end-{r.id}" type="date" bind:value={r.end_date} class="input-base" />
-						</div>
+					<span class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{tp('recurring.lastGenerated', { date: day(r.last_run_date) })}</span>
+				</div>
+				<div class="grid gap-3 md:grid-cols-[1fr_160px_100px_160px_160px]">
+					<TextInput bind:value={r.label} label={t('recurring.label')} />
+					<div class="flex flex-col gap-1.5">
+						<label for="freq-{r.id}" class="label">{t('recurring.frequency')}</label>
+						<select id="freq-{r.id}" bind:value={r.frequency} class="input-base input-valid rounded-lg cursor-pointer">
+							{#each FREQUENCIES as value}
+								<option {value}>{t(`recurring.${value}`)}</option>
+							{/each}
+						</select>
 					</div>
-					<div class="flex flex-wrap items-center gap-3">
-						<label class="flex items-center gap-2 text-sm">
-							<input type="checkbox" checked={!!r.active} onchange={(e) => (r.active = e.currentTarget.checked ? 1 : 0)} />
-							{t('recurring.statusActive')}
-						</label>
-						<button type="button" onclick={() => save(r)} class="btn-primary">{t('common.save')}</button>
-						<button type="button" onclick={() => remove(r)} class="btn-secondary">{t('common.delete')}</button>
+					<div class="flex flex-col gap-1.5">
+						<label for="interval-{r.id}" class="label">{t('recurring.every')}</label>
+						<input id="interval-{r.id}" type="number" min="1" step="1" bind:value={r.interval_count} class="input-base input-valid rounded-lg tabular-nums" />
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<label for="next-{r.id}" class="label">{t('recurring.nextRun')}</label>
+						<input id="next-{r.id}" type="date" bind:value={r.next_run_date} class="input-base input-valid rounded-lg" />
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<label for="end-{r.id}" class="label">{t('recurring.endDate')}</label>
+						<input id="end-{r.id}" type="date" bind:value={r.end_date} class="input-base input-valid rounded-lg" />
 					</div>
 				</div>
-			{/each}
-		</div>
+				<div class="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-700/70">
+					<label class="flex cursor-pointer items-center gap-2 text-sm">
+						<input type="checkbox" class="h-4 w-4 accent-accent-600" checked={!!r.active} onchange={(e) => (r.active = e.currentTarget.checked ? 1 : 0)} />
+						{t('recurring.statusActive')}
+					</label>
+					<div class="flex gap-2">
+						<button type="button" onclick={() => remove(r)} class="btn-secondary text-red-600 dark:text-red-400">{t('common.delete')}</button>
+						<button type="button" onclick={() => save(r)} class="btn-primary">{t('common.save')}</button>
+					</div>
+				</div>
+			</div>
+		{/each}
 	{/if}
-	{#if error}<p class="text-xs text-red-600">{error}</p>{/if}
-	{#if notice}<p class="text-xs text-emerald-600">{notice}</p>{/if}
+	{#if error}<p class="text-xs text-red-600 dark:text-red-400">{error}</p>{/if}
+	{#if notice}<p class="text-xs text-emerald-600 dark:text-emerald-400">{notice}</p>{/if}
 </section>

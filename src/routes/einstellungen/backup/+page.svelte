@@ -7,11 +7,14 @@
 	import { t } from '$lib/i18n';
 	import { cloud } from '$lib/cloud';
 	import { saveCloudExport } from '$lib/cloud-export';
+	import Dialog from '../../../common/Dialog.svelte';
+	import SectionHead from '../SectionHead.svelte';
 
 	const SQLITE_FILTERS = [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }];
 
 	let loading = $state(false);
 	let feedback = $state('');
+	let pendingRestore = $state<string | null>(null);
 
 	let s3 = $state<UpsertS3Settings | null>(null);
 	let s3BackupLoading = $state(false);
@@ -82,7 +85,14 @@
 		feedback = '';
 		const sourcePath = await open({ multiple: false, filters: SQLITE_FILTERS });
 		if (!sourcePath) return;
-		if (!confirm(t('settings.restoreConfirm'))) return;
+		// Overwrites the live DB: confirm in a dialog (irreversible, no undo).
+		pendingRestore = sourcePath;
+	}
+
+	async function confirmRestore() {
+		const sourcePath = pendingRestore;
+		pendingRestore = null;
+		if (!sourcePath) return;
 		loading = true;
 		try {
 			await invoke('restore_database', { sourcePath });
@@ -139,120 +149,94 @@
 	}
 </script>
 
+{#snippet note(text: string, failed: boolean)}
+	<p class="flex items-center gap-1.5 text-xs {failed ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}">
+		<span class="h-1.5 w-1.5 rounded-full {failed ? 'bg-red-500' : 'bg-emerald-500'}"></span>{text}
+	</p>
+{/snippet}
+
 <div class="space-y-6">
-	<section class="card space-y-4">
-		<h2 class="text-base font-semibold">{t('settings.backupTitle')}</h2>
-		<p class="text-sm text-zinc-500 dark:text-zinc-400">
-			{t('settings.backupDesc')}
-		</p>
-		<div class="flex flex-wrap gap-3">
-			<button
-				type="button"
-				onclick={handleBackupDownload}
-				disabled={loading}
-				class="btn-primary"
-			>
+	<section class="card space-y-4 p-5">
+		<SectionHead eyebrow="Lokal" title={t('settings.backupTitle')} desc={t('settings.backupDesc')} />
+		<div class="flex flex-wrap gap-2">
+			<button type="button" onclick={handleBackupDownload} disabled={loading} class="btn-primary">
 				{t('settings.downloadDb')}
 			</button>
+			<button type="button" onclick={handleRestore} disabled={loading} class="btn-secondary">
+				{t('settings.restore')}
+			</button>
 		</div>
-		<button type="button" onclick={handleRestore} disabled={loading} class="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300">
-			{t('settings.restore')}
-		</button>
-		{#if feedback}<p class="text-xs text-emerald-600">{feedback}</p>{/if}
+		{#if feedback}{@render note(feedback, feedback.startsWith(t('common.error')))}{/if}
 	</section>
 
 	{#if cloud()}
-		<section class="card space-y-4">
-			<h2 class="text-base font-semibold">{t('settings.cloudExportTitle')}</h2>
-			<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('settings.cloudExportDesc')}</p>
+		<section class="card space-y-4 p-5">
+			<SectionHead eyebrow="Cloud" title={t('settings.cloudExportTitle')} desc={t('settings.cloudExportDesc')} />
 			<button type="button" onclick={handleCloudExport} disabled={cloudExportLoading} class="btn-primary">
 				{cloudExportLoading ? t('settings.gobdExporting') : t('settings.cloudExport')}
 			</button>
-			{#if cloudExportFeedback}
-				<p class="text-xs {cloudExportFailed ? 'text-red-600' : 'text-emerald-600'}">{cloudExportFeedback}</p>
-			{/if}
+			{#if cloudExportFeedback}{@render note(cloudExportFeedback, cloudExportFailed)}{/if}
 		</section>
 	{/if}
 
-	<section class="card space-y-4">
-		<h2 class="text-base font-semibold">{t('settings.gobdTitle')}</h2>
-		<p class="text-sm text-zinc-500 dark:text-zinc-400">
-			{t('settings.gobdDesc')}
-		</p>
+	<section class="card space-y-4 p-5">
+		<SectionHead eyebrow="Betriebsprüfung" title={t('settings.gobdTitle')} desc={t('settings.gobdDesc')} />
 		<div class="flex flex-wrap items-end gap-3">
-			<label class="flex flex-col gap-1 text-sm">
-				<span class="font-medium">{t('settings.gobdFromYear')}</span>
-				<input
-					type="number"
-					bind:value={gobdFromYear}
-					min="2000"
-					max="2100"
-					step="1"
-					class="input-base w-28"
-				/>
+			<label class="flex flex-col gap-1.5">
+				<span class="label">{t('settings.gobdFromYear')}</span>
+				<input type="number" bind:value={gobdFromYear} min="2000" max="2100" step="1" class="input-base input-valid w-28 rounded-lg tabular-nums" />
 			</label>
-			<label class="flex flex-col gap-1 text-sm">
-				<span class="font-medium">{t('settings.gobdToYear')}</span>
-				<input
-					type="number"
-					bind:value={gobdToYear}
-					min="2000"
-					max="2100"
-					step="1"
-					class="input-base w-28"
-				/>
+			<label class="flex flex-col gap-1.5">
+				<span class="label">{t('settings.gobdToYear')}</span>
+				<input type="number" bind:value={gobdToYear} min="2000" max="2100" step="1" class="input-base input-valid w-28 rounded-lg tabular-nums" />
 			</label>
-			<button
-				type="button"
-				onclick={handleGobdExport}
-				disabled={gobdLoading}
-				class="btn-primary"
-			>
+			<button type="button" onclick={handleGobdExport} disabled={gobdLoading} class="btn-primary">
 				{gobdLoading ? t('settings.gobdExporting') : t('settings.gobdExport')}
 			</button>
 		</div>
 		{#if gobdFeedback}
-			<p class="text-xs {gobdFeedback.startsWith('Fehler') || gobdFeedback.startsWith('Error') || gobdFeedback === t('settings.gobdInvalidRange') ? 'text-red-600' : 'text-emerald-600'}">{gobdFeedback}</p>
+			{@render note(gobdFeedback, gobdFeedback.startsWith('Fehler') || gobdFeedback.startsWith('Error') || gobdFeedback === t('settings.gobdInvalidRange'))}
 		{/if}
 	</section>
 
-	<section class="card space-y-4">
-		<h2 class="text-base font-semibold">{t('settings.autoBackup')}</h2>
+	<section class="card space-y-4 p-5">
+		<SectionHead eyebrow="S3" title={t('settings.autoBackup')} desc={s3 && s3.enabled ? t('settings.autoBackupDesc') : undefined} />
 		{#if s3 && s3.enabled}
-			<p class="text-sm text-zinc-500 dark:text-zinc-400">
-				{t('settings.autoBackupDesc')}
-			</p>
-			<label class="flex items-center gap-3">
+			<label class="flex w-fit cursor-pointer items-center gap-3">
 				<input
 					type="checkbox"
 					checked={!!s3.auto_backup_enabled}
 					onchange={toggleAutoBackup}
-					class="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+					class="h-4 w-4 rounded border-zinc-300 accent-accent-600"
 				/>
 				<span class="text-sm font-medium">{t('settings.dailyBackup')}</span>
 			</label>
-			<p class="text-xs text-zinc-500 dark:text-zinc-400">
+			<p class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
 				{#if lastBackupFormatted}
 					{t('settings.lastBackup')}: {lastBackupFormatted} Uhr
 				{:else}
 					{t('settings.noBackupYet')}
 				{/if}
 			</p>
-			<button
-				type="button"
-				onclick={handleS3Backup}
-				disabled={s3BackupLoading}
-				class="btn-primary"
-			>
+			<button type="button" onclick={handleS3Backup} disabled={s3BackupLoading} class="btn-primary">
 				{s3BackupLoading ? t('settings.backingUp') : t('settings.backupNow')}
 			</button>
-			{#if s3Feedback}
-				<p class="text-xs {s3Feedback.startsWith('Fehler') ? 'text-red-600' : 'text-emerald-600'}">{s3Feedback}</p>
-			{/if}
-		{:else}
+			{#if s3Feedback}{@render note(s3Feedback, s3Feedback.startsWith('Fehler'))}{/if}
+		{:else if s3}
 			<p class="text-sm text-zinc-500 dark:text-zinc-400">
-				<a href="/einstellungen/s3" class="text-blue-600 hover:underline">{t('settings.enableS3')}</a>{t('settings.enableS3Hint')}
+				<a href="/einstellungen/s3" class="font-medium text-accent-600 hover:underline dark:text-accent-400">{t('settings.enableS3')}</a>{t('settings.enableS3Hint')}
 			</p>
+		{:else}
+			<div class="skeleton h-4 w-2/3"></div>
 		{/if}
 	</section>
 </div>
+
+<Dialog open={pendingRestore !== null} title={t('settings.restore')} size="sm" onclose={() => (pendingRestore = null)}>
+	<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('settings.restoreConfirm')}</p>
+	<p class="mt-2 break-all font-mono text-xs text-zinc-500 dark:text-zinc-400">{pendingRestore}</p>
+	{#snippet footer()}
+		<button type="button" class="btn-secondary" onclick={() => (pendingRestore = null)}>{t('common.cancel')}</button>
+		<button type="button" class="btn-danger" onclick={confirmRestore}>{t('settings.restore')}</button>
+	{/snippet}
+</Dialog>

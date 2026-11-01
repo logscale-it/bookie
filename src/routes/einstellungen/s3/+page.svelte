@@ -6,6 +6,9 @@
 	import { testConnection } from '$lib/s3/client';
 	import { t } from '$lib/i18n';
 	import { messageForUnknown } from '$lib/shared/errors';
+	import SectionHead from '../SectionHead.svelte';
+	import SaveBar from '../SaveBar.svelte';
+	import FormSkeleton from '../FormSkeleton.svelte';
 
 	let form = $state({
 		enabled: 0,
@@ -70,46 +73,43 @@
 	}
 </script>
 
-<section class="card space-y-4">
-	<h2 class="text-base font-semibold">{t('settings.s3Title')}</h2>
-	<p class="text-sm text-zinc-500 dark:text-zinc-400">
-		{t('settings.s3Desc')}
+{#snippet note(text: string, failed: boolean)}
+	<p class="flex items-center gap-1.5 text-xs {failed ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}">
+		<span class="h-1.5 w-1.5 shrink-0 rounded-full {failed ? 'bg-red-500' : 'bg-emerald-500'}"></span>{text}
 	</p>
+{/snippet}
+
+<section class="card space-y-5 p-5">
 	{#if loading}
-		<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('settings.loadingSettings')}</p>
+		<FormSkeleton fields={6} />
 	{:else}
-		<label class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-			<input
-				type="checkbox"
-				checked={form.enabled === 1}
-				onchange={(e) => (form.enabled = e.currentTarget.checked ? 1 : 0)}
-				class="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-			/>
-			{t('settings.s3Enable')}
-		</label>
+		<div class="flex flex-wrap items-start justify-between gap-4">
+			<SectionHead eyebrow="Speicher" title={t('settings.s3Title')} desc={t('settings.s3Desc')} />
+			<label class="flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+				<input
+					type="checkbox"
+					checked={form.enabled === 1}
+					onchange={(e) => (form.enabled = e.currentTarget.checked ? 1 : 0)}
+					class="h-4 w-4 rounded border-zinc-300 accent-accent-600"
+				/>
+				{t('settings.s3Enable')}
+			</label>
+		</div>
 
 		{#if credentialWarning}
-			<p class="text-xs text-amber-600 dark:text-amber-400">{credentialWarning}</p>
+			<p class="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-400/20">{credentialWarning}</p>
 		{/if}
 
-		<div class="grid gap-3 md:grid-cols-2">
+		<div class="grid gap-3 transition-opacity duration-200 ease-spring md:grid-cols-2 {form.enabled === 1 ? '' : 'opacity-60'}">
 			<TextInput bind:value={form.endpoint_url} label={t('settings.endpointUrl')} placeholder={t('settings.endpointPlaceholder')} />
 			<TextInput bind:value={form.region} label={t('settings.region')} placeholder="eu-central-1" />
 			<TextInput bind:value={form.bucket_name} label={t('settings.bucketName')} />
+			<TextInput bind:value={form.path_prefix} label={t('settings.pathPrefix')} placeholder="rechnungen" />
 			<TextInput bind:value={form.access_key_id} label={t('settings.accessKey')} />
 			<TextInput bind:value={form.secret_access_key} label={t('settings.secretKey')} type="password" />
-			<TextInput bind:value={form.path_prefix} label={t('settings.pathPrefix')} placeholder="rechnungen" />
 		</div>
 
-		<div class="flex flex-wrap items-center gap-3">
-			<button
-				type="button"
-				onclick={handleSave}
-				disabled={saving}
-				class="btn-primary"
-			>
-				{saving ? t('common.saving') : t('common.saveChanges')}
-			</button>
+		<SaveBar {saving} onsave={handleSave}>
 			<button
 				type="button"
 				onclick={handleTestConnection}
@@ -118,10 +118,8 @@
 			>
 				{testing ? t('settings.testing') : t('settings.testConnection')}
 			</button>
-			{#if feedback}<p class={`text-xs ${saveError ? 'text-red-600' : 'text-emerald-600'}`}>{feedback}</p>{/if}
-			{#if testFeedback}
-				<p class={`text-xs ${testError ? 'text-red-600' : 'text-emerald-600'}`}>{testFeedback}</p>
-			{/if}
-		</div>
+		</SaveBar>
+		{#if feedback}{@render note(feedback, saveError)}{/if}
+		{#if testFeedback}{@render note(testFeedback, testError)}{/if}
 	{/if}
 </section>

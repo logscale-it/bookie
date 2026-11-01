@@ -24,6 +24,7 @@
 	import { buildInvoiceXmlData } from '$lib/einvoice/build';
 	import { describeIssue } from '$lib/einvoice/format';
 	import { hasErrors, validateInvoiceXmlData, type EInvoiceIssue } from '$lib/einvoice/validate';
+	import { isSaveKey } from '$lib/ui/shortcut';
 
 	type LineItem = {
 		id?: number;
@@ -498,24 +499,41 @@
 		}
 	}
 
+	// Line-item cells: quiet until hovered/focused, so the grid reads as a table.
+	const cell =
+		'w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-sm text-zinc-900 outline-none transition duration-200 ease-spring hover:border-zinc-200 focus:border-accent-500 focus:bg-white focus:ring-4 focus:ring-accent-500/15 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-transparent dark:text-zinc-100 dark:hover:border-zinc-600 dark:focus:bg-zinc-700';
+	const canSave = $derived(isEditable && !saving && !!customerId && !!invoiceNumber.trim());
+
+	function onWindowKey(e: KeyboardEvent) {
+		if (!isSaveKey(e) || !isEditable) return;
+		e.preventDefault();
+		if (canSave) handleSave();
+	}
+
 	function formatAmount(amount: number): string {
 		return new Intl.NumberFormat('de-DE', { style: 'currency', currency }).format(amount);
 	}
 </script>
 
+<svelte:window onkeydown={onWindowKey} />
+
 <div class="flex gap-6" class:flex-col={!showPreview}>
 	{#if loading}
-		<div class="py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">{t('invoiceForm.loadingData')}</div>
+		<div class="space-y-4" aria-busy="true" aria-label={t('invoiceForm.loadingData')}>
+			<div class="skeleton h-40 w-full rounded-xl"></div>
+			<div class="skeleton h-32 w-full rounded-xl"></div>
+		</div>
 	{:else}
 		<!-- Form -->
 		<div class="min-w-0 flex-1 space-y-6">
 			{#if noCompanyWarning}
-				<div class="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+				<div class="rounded-xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
 					{t('invoiceForm.createCompanyFirst')} <a href="/einstellungen" class="underline">{t('invoiceForm.settingsLink')}</a>.
 				</div>
 			{/if}
 
-			<div class="card shadow-sm">
+			<div class="card space-y-3 p-5">
+				<h2 class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{t('invoiceForm.sectionDetails')}</h2>
 				<!-- Row 1: Customer, Invoice Number, Currency -->
 				<div class="grid gap-3 md:grid-cols-3">
 					<Select
@@ -530,7 +548,7 @@
 				</div>
 
 				<!-- Row 2: Dates + Surcharge -->
-				<div class="mt-3 grid gap-3 md:grid-cols-4">
+				<div class="grid gap-3 md:grid-cols-4">
 					<DateInput bind:value={issueDate} label={t('invoiceForm.issueDate')} disabled={!isEditable} />
 					<DateInput bind:value={dueDate} label={t('invoiceForm.dueDate')} disabled={!isEditable} />
 					<DateInput bind:value={deliveryDate} label={t('invoiceForm.deliveryDate')} disabled={!isEditable} />
@@ -541,7 +559,7 @@
 				</div>
 
 				<!-- Row 3: Service period + Language/Legal -->
-				<div class="mt-3 grid gap-3 md:grid-cols-4">
+				<div class="grid gap-3 md:grid-cols-4">
 					<DateInput bind:value={servicePeriodStart} label={t('invoiceForm.servicePeriodFrom')} disabled={!isEditable} />
 					<DateInput bind:value={servicePeriodEnd} label={t('invoiceForm.servicePeriodTo')} disabled={!isEditable} />
 					<Select bind:value={language} label={t('invoiceForm.language')} options={localeOptions} disabled={!isEditable} />
@@ -549,29 +567,33 @@
 				</div>
 
 				<!-- Row 4: E-invoice buyer reference (BT-10) -->
-				<div class="mt-3 grid gap-3 md:grid-cols-4">
+				<div class="grid gap-3 md:grid-cols-4">
 					<TextInput bind:value={buyerReference} label={t('invoiceForm.buyerReference')} placeholder="04011000-12345-34" disabled={!isEditable} />
 				</div>
 			</div>
 
 			<!-- Line items -->
-			<div class="rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40">
+			<div class="table-card">
+				<div class="flex items-center justify-between px-5 pb-2 pt-4">
+					<h2 class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{t('invoiceForm.sectionItems')}</h2>
+					<span class="text-xs tabular-nums text-zinc-400">{items.length}</span>
+				</div>
 				<div
-					class="grid border-b border-zinc-200 bg-zinc-50 text-xs font-semibold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-					style="grid-template-columns: 1fr 100px 100px 140px 100px 40px"
+					class="grid border-y border-zinc-200/80 bg-zinc-50 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+					style="grid-template-columns: minmax(0,1fr) 100px 120px 140px 120px 40px"
 				>
-					<div class="px-3 py-2">{t('invoiceForm.description')}</div>
-					<div class="px-3 py-2">{t('invoiceForm.quantity')}</div>
-					<div class="px-3 py-2">{t('invoiceForm.unitPrice')}</div>
+					<div class="px-4 py-2">{t('invoiceForm.description')}</div>
+					<div class="px-3 py-2 text-right">{t('invoiceForm.quantity')}</div>
+					<div class="px-3 py-2 text-right">{t('invoiceForm.unitPrice')}</div>
 					<div class="px-3 py-2">{t('invoiceForm.taxPercent')}</div>
-					<div class="px-3 py-2 text-right">{t('invoiceForm.total')}</div>
+					<div class="px-4 py-2 text-right">{t('invoiceForm.total')}</div>
 					<div class="px-3 py-2"></div>
 				</div>
 
 				{#each items as item, i}
 					<div
-						class="grid items-center border-b border-zinc-100 dark:border-zinc-700/70"
-						style="grid-template-columns: 1fr 100px 100px 140px 100px 40px"
+						class="group grid items-center border-b border-zinc-100 transition-colors duration-200 ease-spring hover:bg-zinc-50/60 dark:border-zinc-700/70 dark:hover:bg-zinc-700/20"
+						style="grid-template-columns: minmax(0,1fr) 100px 120px 140px 120px 40px"
 					>
 						<div class="px-2 py-1.5">
 							<input
@@ -579,7 +601,7 @@
 								bind:value={item.description}
 								placeholder="{t('invoiceForm.description')}…"
 								disabled={!isEditable}
-								class="w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+								class={cell}
 							/>
 						</div>
 						<div class="px-2 py-1.5">
@@ -589,7 +611,7 @@
 								min="0"
 								step="1"
 								disabled={!isEditable}
-								class="w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+								class="{cell} text-right tabular-nums"
 							/>
 						</div>
 						<div class="px-2 py-1.5">
@@ -600,7 +622,7 @@
 								step="0.01"
 								placeholder="0,00"
 								disabled={!isEditable}
-								class="w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+								class="{cell} text-right tabular-nums"
 							/>
 						</div>
 						<div class="px-2 py-1.5">
@@ -608,7 +630,7 @@
 								<select
 									bind:value={item.tax_rate}
 									disabled={!isEditable}
-									class="w-full cursor-pointer rounded border border-zinc-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+									class="{cell} cursor-pointer dark:[&>option]:bg-zinc-800"
 								>
 									{#each vatOptions as opt}
 										<option value={opt.value}>{opt.label}</option>
@@ -622,35 +644,38 @@
 									step="1"
 									placeholder="19"
 									disabled={!isEditable}
-									class="w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+									class="{cell} tabular-nums"
 								/>
 							{/if}
 						</div>
-						<div class="px-3 py-1.5 text-right text-sm text-zinc-700 dark:text-zinc-200">
+						<div class="px-4 py-1.5 text-right text-sm font-medium tabular-nums text-zinc-800 dark:text-zinc-100">
 							{formatAmount(lineTotal(item))}
 						</div>
 						<div class="px-1 py-1.5 text-center">
 							{#if isEditable}
-								<button
-									type="button"
-									onclick={() => removeItem(i)}
-									disabled={items.length <= 1}
-									class="text-zinc-400 transition hover:text-red-500 disabled:opacity-30"
-									title={t('invoiceForm.removeItem')}
-								>
-									&#x2715;
-								</button>
+								<span class="row-actions justify-center">
+									<button
+										type="button"
+										onclick={() => removeItem(i)}
+										disabled={items.length <= 1}
+										class="icon-btn icon-btn-danger h-7 w-7"
+										title={t('invoiceForm.removeItem')}
+										aria-label={t('invoiceForm.removeItem')}
+									>
+										<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+									</button>
+								</span>
 							{/if}
 						</div>
 					</div>
 				{/each}
 
 				{#if isEditable}
-					<div class="p-3">
+					<div class="px-3 py-2">
 						<button
 							type="button"
 							onclick={addItem}
-							class="btn-secondary"
+							class="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-accent-600 transition duration-200 ease-spring hover:bg-accent-50 active:scale-[0.98] dark:text-accent-400 dark:hover:bg-accent-900/30"
 						>
 							{t('invoiceForm.addItem')}
 						</button>
@@ -659,32 +684,34 @@
 			</div>
 
 			<!-- Notes + Summary -->
-			<div class="flex gap-6">
-				<div class="flex-1">
-					<label class="label mb-1 block">
+			<div class="flex flex-wrap items-start gap-6">
+				<div class="card min-w-64 flex-1 p-5">
+					<label class="block text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
 						{t('invoiceForm.customerNote')}
 						<textarea
 							bind:value={notes}
 							rows="4"
 							disabled={!isEditable}
-							class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100"
+							class="input-base input-valid mt-2 normal-case tracking-normal"
 						></textarea>
 					</label>
 				</div>
-				<div class="w-64 space-y-1 pt-5 text-sm">
-					<div class="flex justify-between">
-						<span class="text-zinc-500 dark:text-zinc-400">{t('invoiceForm.subtotal')}:</span>
-						<span>{formatAmount(subtotal)}</span>
-					</div>
-					{#each taxGroups as g}
-						<div class="flex justify-between">
-							<span class="text-zinc-500 dark:text-zinc-400">{g.label}:</span>
-							<span>{formatAmount(g.amount)}</span>
+				<div class="bezel w-72">
+					<div class="bezel-core space-y-1.5 text-sm">
+						<div class="flex justify-between gap-4">
+							<span class="text-zinc-500 dark:text-zinc-400">{t('invoiceForm.subtotal')}</span>
+							<span class="tabular-nums">{formatAmount(subtotal)}</span>
 						</div>
-					{/each}
-					<div class="flex justify-between border-t border-zinc-200 pt-1 font-semibold dark:border-zinc-700">
-						<span>{t('invoiceForm.grossTotal')}:</span>
-						<span>{formatAmount(grossTotal)}</span>
+						{#each taxGroups as g}
+							<div class="flex justify-between gap-4">
+								<span class="text-zinc-500 dark:text-zinc-400">{g.label}</span>
+								<span class="tabular-nums">{formatAmount(g.amount)}</span>
+							</div>
+						{/each}
+						<div class="mt-2 flex items-baseline justify-between gap-4 border-t border-zinc-200/80 pt-2.5 dark:border-zinc-700">
+							<span class="font-medium">{t('invoiceForm.grossTotal')}</span>
+							<span class="text-lg font-semibold tracking-tight tabular-nums">{formatAmount(grossTotal)}</span>
+						</div>
 					</div>
 				</div>
 			</div>
@@ -697,7 +724,7 @@
 			{/if}
 
 			<!-- Action buttons -->
-			<div class="flex gap-3">
+			<div class="flex flex-wrap items-center gap-3">
 				<button
 					type="button"
 					onclick={togglePreview}
@@ -728,9 +755,11 @@
 						type="button"
 						onclick={handleSave}
 						disabled={saving || !customerId || !invoiceNumber.trim()}
-						class="btn-primary"
+						class="btn-primary ml-auto"
+						title="⌘S"
 					>
 						{saving ? t('common.saving') : mode === 'create' ? t('invoiceForm.createInvoice') : t('common.saveChanges')}
+						<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">⌘S</kbd>
 					</button>
 				{/if}
 			</div>
@@ -739,15 +768,17 @@
 		<!-- PDF Preview -->
 		{#if showPreview}
 			<div class="w-[520px] shrink-0">
-				<div class="sticky top-4 rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40">
+				<div class="sticky top-4 overflow-hidden rounded-xl border border-zinc-200/80 bg-white shadow-soft dark:border-zinc-700/70 dark:bg-zinc-800/40">
 					<div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-700">
 						<span class="label">{t('invoiceForm.pdfPreview')}</span>
 						<button
 							type="button"
 							onclick={() => (showPreview = false)}
-							class="text-xs text-zinc-400 hover:text-zinc-600"
+							class="icon-btn h-7 w-7"
+							aria-label={t('common.close')}
+							title={t('common.close')}
 						>
-							{t('common.close')}
+							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
 						</button>
 					</div>
 					<div class="overflow-hidden" style="height: 735px;">

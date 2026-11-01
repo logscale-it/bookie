@@ -4,6 +4,9 @@
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
 	import SubcontractorLinks from '../../common/SubcontractorLinks.svelte';
+	import SkeletonRows from '../../common/SkeletonRows.svelte';
+	import EmptyState from '../../common/EmptyState.svelte';
+	import { isPlainKey } from '$lib/ui/shortcut';
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { listCustomers } from '$lib/db/customers';
 	import { createProject, hourlyRatePatch, listProjects, updateProject } from '$lib/db/projects';
@@ -34,7 +37,7 @@
 	let members = $state<team.TeamMember[]>([]);
 	const isCloud = cloud();
 	const isAdmin = $derived(session.company?.role === 'admin');
-	const gridCols = $derived(isCloud ? '1.2fr 1fr 1fr 0.7fr 1fr 0.8fr' : '1.2fr 1fr 1fr 0.7fr 0.8fr');
+	const gridCols = $derived(isCloud ? 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,1fr) minmax(0,0.8fr)' : 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,0.8fr)');
 
 	let name = $state('');
 	let customerId = $state('');
@@ -180,6 +183,13 @@
 		await loadData();
 	}
 
+	function onKeydown(e: KeyboardEvent) {
+		if (isPlainKey(e, 'n') && !showAddProjectForm) {
+			e.preventDefault();
+			showAddProjectForm = true;
+		}
+	}
+
 	function formatTimeframe(project: ProjectRow): string {
 		if (!project.starts_on && !project.ends_on) return '—';
 		if (project.starts_on && project.ends_on) return `${project.starts_on} ${t('projects.until')} ${project.ends_on}`;
@@ -187,10 +197,19 @@
 	}
 </script>
 
+<svelte:window onkeydown={onKeydown} />
+
 <section class="space-y-6">
-	<header>
-		<h1 class="page-header">{t('projects.title')}</h1>
-		<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('projects.subtitle')}</p>
+	<header class="flex flex-wrap items-start justify-between gap-3">
+		<div>
+			<h1 class="page-header">{t('projects.title')}</h1>
+			<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('projects.subtitle')}</p>
+		</div>
+		<button type="button" class="btn-primary shrink-0" onclick={() => (showAddProjectForm = true)}>
+			<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+			{t('projects.addButton')}
+			<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
+		</button>
 	</header>
 
 	<SubcontractorLinks {projects} />
@@ -230,10 +249,7 @@
 	<div class="table-card">
 		<div class="table-scroll">
 		<div class="min-w-[760px]">
-		<div
-			class="grid border-b border-zinc-200 bg-zinc-100 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-			style="grid-template-columns: {gridCols}"
-		>
+		<div class="table-head" style="grid-template-columns: {gridCols}">
 			<div class="px-4 py-3">{t('common.name')}</div>
 			<div class="px-4 py-3">{t('projects.customer')}</div>
 			<div class="px-4 py-3">{t('projects.timeframe')}</div>
@@ -243,70 +259,78 @@
 		</div>
 
 		{#if loading}
-			<div class="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">{t('projects.loading')}</div>
+			<SkeletonRows rows={5} cols={isCloud ? 6 : 5} />
 		{:else if projects.length === 0}
-			<div class="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">{t('projects.empty')}</div>
+			<EmptyState
+				icon="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
+				title={t('projects.empty')}
+				hint="Lege dein erstes Projekt an, um Zeiten darauf zu buchen."
+				actionLabel={t('projects.addButton')}
+				onaction={() => (showAddProjectForm = true)}
+			/>
 		{:else}
-			<div class="max-h-[520px] overflow-y-auto">
+			<div>
 				{#each projects as project (project.id)}
 					<div
-						class="grid items-center border-b border-zinc-100 text-sm text-zinc-700 last:border-0 dark:border-zinc-700/70 dark:text-zinc-200"
-					style="grid-template-columns: {gridCols}; min-height: 44px"
-				>
+						class="data-row group {editingProjectId === project.id ? 'bg-accent-50/40 dark:bg-accent-900/10' : ''}"
+						style="grid-template-columns: {gridCols}; min-height: 48px"
+					>
 						{#if editingProjectId === project.id}
 							<div class="px-4 py-2">
-								<input bind:value={editingName} class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" />
+								<input bind:value={editingName} class="input-base input-valid rounded-lg px-2 py-1" />
 							</div>
 							<div class="px-4 py-2">
-								<select bind:value={editingCustomerId} class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900">
+								<select bind:value={editingCustomerId} class="input-base input-valid rounded-lg px-2 py-1">
 									{#each customerOptions as option}
 										<option value={option.value}>{option.label}</option>
 									{/each}
 								</select>
 							</div>
 							<div class="grid gap-2 px-4 py-2">
-								<input type="date" bind:value={editingStartDate} class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" />
-								<input type="date" bind:value={editingEndDate} class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" />
+								<input type="date" bind:value={editingStartDate} class="input-base input-valid rounded-lg px-2 py-1" />
+								<input type="date" bind:value={editingEndDate} class="input-base input-valid rounded-lg px-2 py-1" />
 							</div>
 							<div class="px-4 py-2">
 								{#if project.hourly_rate_hidden}
 									<div class="text-right text-zinc-400" title="Stundensätze sind nur mit Berechtigung für Rechnungen oder Berichte sichtbar">verborgen</div>
 								{:else}
-									<input bind:value={editingRate} inputmode="decimal" placeholder="€/h" aria-label="Stundensatz" class="w-full rounded border border-zinc-300 px-2 py-1 text-right dark:border-zinc-600 dark:bg-zinc-900" />
+									<input bind:value={editingRate} inputmode="decimal" placeholder="€/h" aria-label="Stundensatz" class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" />
 								{/if}
 							</div>
 							{#if isCloud}
 								<div class="grid gap-2 px-4 py-2">
-									<input bind:value={editingBudgetHours} inputmode="decimal" placeholder="Stunden" aria-label="Budget Stunden" class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" />
+									<input bind:value={editingBudgetHours} inputmode="decimal" placeholder="Stunden" aria-label="Budget Stunden" class="input-base input-valid rounded-lg px-2 py-1" />
 									{#if project.budget_cents !== undefined}
-										<input bind:value={editingBudgetEur} inputmode="decimal" placeholder="€" aria-label="Budget Euro" class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" />
+										<input bind:value={editingBudgetEur} inputmode="decimal" placeholder="€" aria-label="Budget Euro" class="input-base input-valid rounded-lg px-2 py-1" />
 									{/if}
 								</div>
 							{/if}
 							<div class="flex items-center justify-end gap-2 px-4 py-2 text-xs">
-								<button type="button" onclick={saveEdit} class="rounded bg-blue-600 px-2 py-1 text-white" disabled={saving || !editingName.trim()}>{t('common.save')}</button>
-								<button type="button" onclick={cancelEdit} class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600">{t('common.cancel')}</button>
+								<button type="button" onclick={saveEdit} class="btn-primary px-2.5 py-1 text-xs" disabled={saving || !editingName.trim()}>{t('common.save')}</button>
+								<button type="button" onclick={cancelEdit} class="btn-secondary px-2.5 py-1 text-xs">{t('common.cancel')}</button>
 							</div>
 						{:else}
-							<div class="truncate px-4 py-2">{project.name}</div>
+							<div class="truncate px-4 py-2 font-medium text-zinc-900 dark:text-zinc-100">{project.name}</div>
 							<div class="truncate px-4 py-2">{project.customerName}</div>
 							<div class="truncate px-4 py-2">{formatTimeframe(project)}</div>
-							<div class="truncate px-4 py-2 text-right {project.hourly_rate_hidden ? 'text-zinc-400' : ''}">{formatRate(project)}</div>
+							<div class="truncate px-4 py-2 text-right tabular-nums {project.hourly_rate_hidden ? 'text-zinc-400' : ''}">{formatRate(project)}</div>
 							{#if isCloud}
 								{@const b = burn(project)}
 								<div class="px-4 py-2" data-testid="project-burn">
 									{#if b}
-										<div class="h-1.5 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
-											<div class="h-full {b.pct > 100 ? 'bg-red-500' : b.pct >= 80 ? 'bg-amber-500' : 'bg-blue-500'}" style="width: {Math.min(100, b.pct)}%"></div>
+										<div class="h-1.5 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-700">
+											<div class="h-full origin-left rounded-full transition-[width] duration-500 ease-out-expo {b.pct > 100 ? 'bg-red-500' : b.pct >= 80 ? 'bg-amber-500' : 'bg-accent-500'}" style="width: {Math.min(100, b.pct)}%"></div>
 										</div>
-										<div class="mt-0.5 text-xs {b.pct > 100 ? 'text-red-600' : 'text-zinc-500'}">{b.label}</div>
+										<div class="mt-1 text-xs tabular-nums {b.pct > 100 ? 'text-red-600 dark:text-red-400' : 'text-zinc-500'}">{b.label}</div>
 									{:else}
 										<span class="text-zinc-400">—</span>
 									{/if}
 								</div>
 							{/if}
-							<div class="px-4 py-2 text-right">
-								<button type="button" onclick={() => startEdit(project)} class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-600">{t('common.edit')}</button>
+							<div class="row-actions px-4 py-2">
+								<button type="button" onclick={() => startEdit(project)} class="icon-btn icon-btn-blue" title={t('common.edit')} aria-label={t('common.edit')}>
+									<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+								</button>
 							</div>
 						{/if}
 					</div>

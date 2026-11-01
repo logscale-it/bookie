@@ -38,22 +38,22 @@
 	<p class="text-sm text-red-600 dark:text-red-400">{error}</p>
 {:else if inv}
 	<div class="card space-y-2 text-sm">
-		<h3 class="font-semibold">{t('incomingInvoices.einvoiceTitle')}</h3>
+		<h3 class="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{t('incomingInvoices.einvoiceTitle')}</h3>
 		<dl class="grid gap-x-4 gap-y-1 md:grid-cols-2">
 			<div>{t('incomingInvoices.einvoiceSyntax')}: {inv.syntax === 'ubl' ? 'UBL' : 'CII'}{inv.profile ? ` (${inv.profile})` : ''}</div>
-			<div>{t('incomingInvoices.invoiceNumber')}: {inv.number}</div>
+			<div>{t('incomingInvoices.invoiceNumber')}: <span class="tabular-nums">{inv.number}</span></div>
 			<div>{t('incomingInvoices.supplier')}: {inv.seller.name}{inv.seller.vatId ? ` (${inv.seller.vatId})` : ''}</div>
 			<div>{t('incomingInvoices.invoiceDate')}: {date(inv.issueDate)}</div>
-			<div>{t('incomingInvoices.net')}: {money(inv.totals.netCents, inv.currency)}</div>
-			<div>{t('incomingInvoices.vat')}: {money(inv.totals.taxCents, inv.currency)}</div>
-			<div class="font-medium">{t('incomingInvoices.gross')}: {money(inv.totals.grossCents, inv.currency)}</div>
+			<div>{t('incomingInvoices.net')}: <span class="tabular-nums">{money(inv.totals.netCents, inv.currency)}</span></div>
+			<div>{t('incomingInvoices.vat')}: <span class="tabular-nums">{money(inv.totals.taxCents, inv.currency)}</span></div>
+			<div class="font-medium">{t('incomingInvoices.gross')}: <span class="tabular-nums">{money(inv.totals.grossCents, inv.currency)}</span></div>
 		</dl>
 		{#if inv.lines.length}
 			<div>
 				<div class="font-medium">{t('incomingInvoices.einvoiceLines')}</div>
 				<ul class="list-disc pl-5">
 					{#each inv.lines as l}
-						<li>{l.quantity} {l.unit ?? ''} {l.name} – {money(l.netCents, inv.currency)}</li>
+						<li>{l.quantity} {l.unit ?? ''} {l.name} – <span class="tabular-nums">{money(l.netCents, inv.currency)}</span></li>
 					{/each}
 				</ul>
 			</div>

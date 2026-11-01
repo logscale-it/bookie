@@ -52,8 +52,8 @@
 		});
 </script>
 
-<div class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
-	<h3 class="text-sm font-semibold">Passwort ändern</h3>
+<div class="space-y-3 border-t border-zinc-100 pt-5 dark:border-zinc-700/70">
+	<h3 class="text-sm font-semibold tracking-tight">Passwort ändern</h3>
 	<div class="grid gap-3 md:grid-cols-2">
 		<TextInput bind:value={password} label="Aktuelles Passwort" type="password" />
 		<TextInput bind:value={newPassword} label="Neues Passwort (mind. 12 Zeichen)" type="password" />
@@ -67,20 +67,20 @@
 	</button>
 </div>
 
-<div class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-700">
-	<h3 class="text-sm font-semibold">Zwei-Faktor-Authentifizierung</h3>
+<div class="space-y-3 border-t border-zinc-100 pt-5 dark:border-zinc-700/70">
+	<h3 class="text-sm font-semibold tracking-tight">Zwei-Faktor-Authentifizierung</h3>
 
 	{#if recoveryCodes}
-		<p class="text-sm">
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">
 			Wiederherstellungscodes – jetzt sicher aufbewahren, sie werden nur dieses eine Mal angezeigt.
 			Jeder Code funktioniert einmal, falls die Authenticator-App fehlt.
 		</p>
-		<pre class="card select-all font-mono text-sm">{recoveryCodes.join('\n')}</pre>
+		<pre class="select-all rounded-xl bg-zinc-50 p-4 text-sm leading-relaxed tabular-nums ring-1 ring-zinc-900/5 dark:bg-zinc-900/60 dark:ring-white/10">{recoveryCodes.join('\n')}</pre>
 		<button class="btn-secondary" onclick={() => (recoveryCodes = null)}>
 			Ich habe die Codes gespeichert
 		</button>
 	{:else if me.user.totpEnabled}
-		<p class="text-sm">2FA ist aktiv. Zum Deaktivieren Passwort und Code eingeben.</p>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">2FA ist aktiv. Zum Deaktivieren Passwort und Code eingeben.</p>
 		<div class="grid gap-3 md:grid-cols-2">
 			<TextInput bind:value={password} label="Passwort" type="password" />
 			<TextInput bind:value={code} label="2FA-Code oder Wiederherstellungscode" />
@@ -89,11 +89,11 @@
 			2FA deaktivieren
 		</button>
 	{:else if setup}
-		<p class="text-sm">
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">
 			Scanne den QR-Code mit deiner Authenticator-App oder gib den Schlüssel manuell ein.
 		</p>
-		<div class="w-40">{@html renderSVG(setup.uri)}</div>
-		<p class="text-sm">Schlüssel: <code class="select-all">{setup.secret}</code></p>
+		<div class="w-40 rounded-xl bg-white p-2 ring-1 ring-zinc-900/10">{@html renderSVG(setup.uri)}</div>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">Schlüssel: <code class="select-all rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">{setup.secret}</code></p>
 		<p class="text-xs break-all text-zinc-500 dark:text-zinc-400">
 			<code class="select-all">{setup.uri}</code>
 		</p>
@@ -104,9 +104,9 @@
 			</button>
 		</div>
 	{:else}
-		<p class="text-sm">Schützt dein Konto zusätzlich mit einem Code aus einer Authenticator-App.</p>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">Schützt dein Konto zusätzlich mit einem Code aus einer Authenticator-App.</p>
 		<button class="btn-secondary" onclick={startSetup} disabled={busy}>2FA einrichten</button>
 	{/if}
 </div>
 
-{#if notice}<p class="text-xs text-green-600 dark:text-green-400">{notice}</p>{/if}
+{#if notice}<p class="animate-pop text-xs text-emerald-600 dark:text-emerald-400">{notice}</p>{/if}
