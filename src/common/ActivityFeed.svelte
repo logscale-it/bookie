@@ -1,13 +1,19 @@
 <script lang="ts">
 	// Self-loading "Aktivität" card: the latest invoice moves (and in the cloud
-	// month approvals, with who did it) as a vertical timeline.
+	// all team actions, with who did it) as a vertical timeline. Dashboard and
+	// Team page share it; `paged` adds "Mehr".
 	import { cloud } from '$lib/cloud';
 	import { listActivity, type ActivityItem, type ActivityKind } from '$lib/db/activity';
-	import { initials } from '$lib/session.svelte';
+	import { describe } from '$lib/team';
+	import Avatar from './Avatar.svelte';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import EmptyState from './EmptyState.svelte';
 
-	let { limit = 8 }: { limit?: number } = $props();
+	let {
+		limit = 8,
+		paged = false,
+		projectName
+	}: { limit?: number; paged?: boolean; projectName?: (id: number) => string } = $props();
 
 	const KIND: Record<ActivityKind, { text: string; dot: string }> = {
 		created: { text: 'Rechnungsentwurf angelegt', dot: 'bg-zinc-400 dark:bg-zinc-500' },
@@ -18,18 +24,37 @@
 		cancelled: { text: 'Rechnung storniert', dot: 'bg-red-500' },
 		approved: { text: 'Stunden freigegeben', dot: 'bg-emerald-500' },
 		unapproved: { text: 'Freigabe zurückgenommen', dot: 'bg-amber-500' },
-		rejected: { text: 'Stunden zurückgegeben', dot: 'bg-red-500' }
+		rejected: { text: 'Stunden zurückgegeben', dot: 'bg-red-500' },
+		team: { text: '', dot: 'bg-sky-500' }
 	};
 
 	let items = $state<ActivityItem[] | null>(null);
 	let error = $state('');
+	let more = $state(false);
+	let loading = $state(false);
 	const showActors = !!cloud();
 
 	$effect(() => {
 		listActivity(limit)
-			.then((r) => ((items = r), (error = '')))
+			.then((r) => ((items = r), (more = paged && r.length === limit), (error = '')))
 			.catch((e) => ((items = []), (error = messageForUnknown(e))));
 	});
+
+	async function loadMore() {
+		loading = true;
+		try {
+			const page = await listActivity(limit, items?.at(-1)?.at);
+			items = [...(items ?? []), ...page.filter((p) => !items?.some((i) => i.id === p.id))];
+			more = page.length === limit;
+		} catch (e) {
+			error = messageForUnknown(e);
+		} finally {
+			loading = false;
+		}
+	}
+
+	const text = (i: ActivityItem) =>
+		i.kind === 'team' ? describe({ action: i.action ?? '', actor_name: i.actor_name ?? '', subject_name: i.subject_name ?? null, data: i.data ?? {} }, projectName) : KIND[i.kind].text;
 
 	const rtf = new Intl.RelativeTimeFormat('de', { numeric: 'auto' });
 	const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -88,24 +113,19 @@
 					<span class="mt-1.5 h-2 w-2 shrink-0 rounded-full {KIND[i.kind].dot}"></span>
 					<div class="min-w-0 flex-1">
 						<p class="text-sm text-zinc-800 dark:text-zinc-100">
-							{KIND[i.kind].text}
+							{text(i)}
 						</p>
-						<p class="truncate text-xs text-zinc-500 dark:text-zinc-400">
+						{#if i.kind !== 'team'}<p class="truncate text-xs text-zinc-500 dark:text-zinc-400">
 							{#if i.invoice_id != null}
 								<a href="/rechnungen/{i.invoice_id}" class="hover:text-accent-600 hover:underline dark:hover:text-accent-400">{subject(i)}</a>
 							{:else}
 								{subject(i)}
 							{/if}
-						</p>
+						</p>{/if}
 					</div>
 					<div class="flex shrink-0 items-center gap-2">
 						{#if showActors && i.actor_name}
-							<span
-								title={i.actor_name}
-								class="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-100 text-[10px] font-semibold text-zinc-600 ring-1 ring-zinc-900/5 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-white/10"
-							>
-								{initials(i.actor_name)}
-							</span>
+							<Avatar id={i.actor_id} name={i.actor_name} size="sm" />
 						{/if}
 						<time datetime={i.at} title={new Date(i.at).toLocaleString('de-DE')} class="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
 							{ago(i.at)}
@@ -114,5 +134,8 @@
 				</li>
 			{/each}
 		</ol>
+		{#if more}
+			<button class="btn-secondary" disabled={loading} onclick={loadMore}>Mehr</button>
+		{/if}
 	{/if}
 </section>

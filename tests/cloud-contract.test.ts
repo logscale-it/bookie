@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { createTestDb } from "./db/harness";
 import { __setDbForTesting } from "$lib/db/connection";
 import { getActionItems, getDashboardData } from "$lib/db/dashboard";
+import { listActivity } from "$lib/db/activity";
 import { getEuerData, getEuerReport, getUstvaData } from "$lib/db/tax-reports";
 import { getDatevBookingRows } from "$lib/db/datev";
 import * as inc from "$lib/db/incoming-invoices";
@@ -659,8 +660,8 @@ test.skipIf(!has)(
       expect(await team.projectProgress()).toEqual([
         { project_id: p, minutes: 120, approved_minutes: 120, invoiced_minutes: 0 },
       ]);
-      const feed = await team.activity();
-      expect(feed.map((a) => team.describe(a))).toEqual([
+      const feed = (await listActivity(10)).filter((i) => i.action);
+      expect(feed.map((i) => team.describe({ action: i.action!, actor_name: i.actor_name!, subject_name: i.subject_name ?? null, data: i.data! }))).toEqual([
         "Chefin hat Oktober 2026 von Ben freigegeben",
         "Chefin hat Oktober 2026 an Ben zurückgegeben: „Beschreibung fehlt“",
       ]);

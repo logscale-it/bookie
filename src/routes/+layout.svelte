@@ -33,6 +33,7 @@
 	import { api, cloud, loadCloudToken, logout } from '$lib/cloud';
 	import { can, initials, loadSession, session } from '$lib/session.svelte';
 	import Presence from '../common/Presence.svelte';
+	import { presence } from '$lib/presence.svelte';
 	import TimerWidget from '../common/TimerWidget.svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -505,7 +506,7 @@
 			{/if}
 			<div class="p-4 md:p-6">
 				<!-- Cloud: who else is online; collapses when alone or local. -->
-				<div class="mb-3 flex justify-end empty:hidden"><Presence /></div>
+				<Presence />
 				{#if hasS3Warning(bootStatus)}
 					<!-- OPS-1.b: S3 failure is a warning, not blocking. Surface a
 					     non-modal banner so the user knows auto-backup is broken
@@ -532,7 +533,10 @@
 						{/if}
 					</div>
 				{/if}
-				{@render children()}
+				<!-- Cloud: the "Neue Änderungen" pill bumps presence.reload; remounting reloads the page's data. -->
+				{#key presence.reload}
+					{@render children()}
+				{/key}
 			</div>
 		</main>
 

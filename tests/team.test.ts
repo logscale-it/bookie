@@ -53,8 +53,6 @@ test("wrappers send the server's request shapes", async () => {
   await team.pendingApprovals();
   await team.rejectMonth(7, "2026-09", "Projekt fehlt");
   await team.projectProgress();
-  await team.activity();
-  await team.activity(40);
   expect(calls).toEqual([
     {
       path: "/api/invitations",
@@ -140,8 +138,6 @@ test("wrappers send the server's request shapes", async () => {
       body: { user_id: 7, month: "2026-09", reason: "Projekt fehlt" },
     },
     { path: "/api/projects/progress", method: "GET", body: undefined },
-    { path: "/api/activity", method: "GET", body: undefined },
-    { path: "/api/activity?before=40", method: "GET", body: undefined },
   ]);
 });
 

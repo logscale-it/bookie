@@ -1,6 +1,6 @@
 // Recent company events for the dashboard feed (src/common/ActivityFeed.svelte).
-// Cloud: bookie-server GET /api/feed (invoice status moves + month approvals,
-// filtered by the caller's grants). Local: derived from the invoices and
+// Cloud: bookie-server GET /api/feed (invoice status moves + team actions,
+// filtered by the caller's grants; ?before pages back). Local: derived from the invoices and
 // their invoice_status_history (no actors: one user, one file).
 
 import { api, cloud } from "$lib/cloud";
@@ -16,7 +16,9 @@ export type ActivityKind =
   | "cancelled"
   | "approved"
   | "unapproved"
-  | "rejected";
+  | "rejected"
+  /** Any other team action (invites, members, grants, assignments): `action` + `data`. */
+  | "team";
 
 export type ActivityItem = {
   id: string;
@@ -31,6 +33,8 @@ export type ActivityItem = {
   /** Month approvals: whose month (YYYY-MM). */
   subject_name?: string | null;
   month?: string | null;
+  action?: string;
+  data?: Record<string, any>;
 };
 
 /** Status move -> kind; same mapping as bookie-server src/api/activity.ts. */
@@ -62,8 +66,10 @@ type LocalRow = {
   customer_name: string | null;
 };
 
-export async function listActivity(limit = 8): Promise<ActivityItem[]> {
-  if (cloud()) return api<ActivityItem[]>(`/api/feed?limit=${limit}`);
+/** `before` (ISO, cloud only): the page older than that item. */
+export async function listActivity(limit = 8, before?: string): Promise<ActivityItem[]> {
+  if (cloud()) return api<ActivityItem[]>(`/api/feed?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`);
+  if (before) return []; // local: one page is the whole story
   const companyId = (await listCompanies())[0]?.id;
   if (companyId == null) return [];
   const db = await getDb();

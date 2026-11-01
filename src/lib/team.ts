@@ -108,7 +108,7 @@ export type ProjectProgress = {
   invoiced_minutes: number;
 };
 
-/** One team action (GET /api/activity). */
+/** One team action (`action`/`data` of GET /api/feed rows, see describe()). */
 export type Activity = {
   id: number;
   action: string;
@@ -208,10 +208,6 @@ export const teamReport = (month: string) =>
 
 export const projectProgress = () => api<ProjectProgress[]>("/api/projects/progress");
 
-/** Newest first; pass the last id to page back. */
-export const activity = (before?: number) =>
-  api<Activity[]>(`/api/activity${before ? `?before=${before}` : ""}`);
-
 /** month = "YYYY-MM"; the caller's own hours per project in the active company. */
 export const myHours = (month: string) =>
   api<MyHours>(`/api/me/hours?month=${encodeURIComponent(month)}`);
@@ -285,7 +281,9 @@ const AREA_NAMES: Record<Area, string> = {
 const ROLE_NAMES: Record<Role, string> = { admin: "Admin", member: "Mitglied", subcontractor: "Subunternehmer" };
 
 /** One feed row as a German sentence; projectName resolves assignment rows. */
-export function describe(a: Activity, projectName: (id: number) => string = (id) => `#${id}`): string {
+export function describe(
+  a: Pick<Activity, "action" | "actor_name" | "subject_name" | "data">,
+  projectName: (id: number) => string = (id) => `#${id}`): string {
   const who = a.actor_name;
   const whom = a.subject_name ?? "jemand";
   const d = a.data;
