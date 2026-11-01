@@ -13,6 +13,7 @@
 	import { listClients } from '$lib/db/customers';
 	import { listProjects } from '$lib/db/projects';
 	import { createTimeEntry, deleteTimeEntry, listTimeEntries, updateTimeEntry } from '$lib/db/time-entries';
+	import { spanMinutes } from '$lib/timespan';
 	import type { Customer, Project, TimeEntry } from '$lib/db/types';
 	import { t, tp } from '$lib/i18n';
 	import { page } from '$app/state';
@@ -95,7 +96,7 @@
 
 	const durationHours = $derived.by(() => {
 		if (startMinutes === null || endMinutes === null) return 0;
-		const diffMinutes = endMinutes - startMinutes - pause;
+		const diffMinutes = spanMinutes(startMinutes, endMinutes, pause);
 		if (diffMinutes <= 0 || diffMinutes > 24 * 60) return 0;
 		return diffMinutes / 60;
 	});
@@ -207,7 +208,7 @@
 		const start = parseTimeToMinutes(startTime);
 		const end = parseTimeToMinutes(endTime);
 		pauseMinutes =
-			start !== null && end !== null && row.duration_minutes ? Math.max(0, end - start - row.duration_minutes) : 0;
+			start !== null && end !== null && row.duration_minutes ? Math.max(0, spanMinutes(start, end, row.duration_minutes)) : 0;
 		formError = '';
 		showEntryDialog = true;
 	}
@@ -274,9 +275,9 @@
 		if (!startTime) return;
 		const start = parseTimeToMinutes(startTime);
 		if (start === null) return;
-		// Quick buttons mean net working time, so the pause is added on top.
-		const next = Math.min(start + minutes + pause, 24 * 60);
-		endTime = formatMinutesToTimeValue(next);
+		// Quick buttons mean net working time, so the pause is added on top; wrapping past 24:00 becomes a next-day end.
+		const next = start + minutes + pause;
+		endTime = formatMinutesToTimeValue(next % (24 * 60));
 	}
 
 	async function saveEntry() {
@@ -289,8 +290,8 @@
 		saving = true;
 		try {
 			const start = composeDateTime(entryDate, startMinutes);
-			const end = composeDateTime(entryDate, endMinutes);
-			const minutes = endMinutes - startMinutes - pause;
+			const end = composeDateTime(entryDate, endMinutes < startMinutes ? endMinutes + 24 * 60 : endMinutes);
+			const minutes = spanMinutes(startMinutes, endMinutes, pause);
 
 			if (editingTimeEntryId === null) {
 				const companyId = await ensureCompanyId();
@@ -375,7 +376,9 @@
 		if (Number.isNaN(date.getTime())) return null;
 		const base = new Date(`${entryDateValue}T00:00:00`);
 		if (Number.isNaN(base.getTime())) return null;
-		const diffMinutes = Math.round((date.getTime() - base.getTime()) / (1000 * 60));
+		let diffMinutes = Math.round((date.getTime() - base.getTime()) / (1000 * 60));
+		// Overnight entries end on the next day: fold back to a clock time; the auto-detect re-adds the day on save.
+		if (diffMinutes >= 24 * 60 && diffMinutes <= 48 * 60) diffMinutes -= 24 * 60;
 		if (diffMinutes < 0 || diffMinutes > 24 * 60) return null;
 		return formatMinutesToTimeValue(diffMinutes);
 	}
