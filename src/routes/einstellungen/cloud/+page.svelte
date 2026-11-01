@@ -6,6 +6,7 @@
 	import Security from './Security.svelte';
 	import { api, cloud, CloudError, keyringError, login, logout, publicApi, savedAccount, type Me } from '$lib/cloud';
 	import { messageForUnknown } from '$lib/shared/errors';
+	import { acceptInvitation } from '$lib/team';
 	import { countsOf, pushImport, pushOrganization, pushReceipts, readLocalImport, SKIPPED, type ReceiptProgress } from '$lib/cloud-import';
 
 	const MESSAGES: Record<string, string> = {
@@ -19,6 +20,9 @@
 		admin_only: 'Nur Firmen-Admins können das Abo verwalten.',
 		no_subscription: 'Für diese Firma gibt es noch kein Abo.',
 		already_subscribed: 'Für diese Firma besteht bereits ein Abo.',
+		invalid_token: 'Einladung ungültig oder abgelaufen.',
+		wrong_account: 'Die Einladung gilt für eine andere E-Mail-Adresse.',
+		already_member: 'Du bist bereits Mitglied dieser Firma.',
 		totp_already_enabled: '2FA ist bereits aktiv.',
 		totp_not_enabled: '2FA ist nicht aktiv.',
 		company_not_empty:
@@ -40,6 +44,7 @@
 	let code = $state('');
 	let needsCode = $state(false);
 	let companyName = $state('');
+	let inviteToken = $state('');
 	let me = $state<Me | null>(null);
 	let busy = $state(false);
 	let error = $state(
@@ -111,6 +116,13 @@
 		run(async () => {
 			await api('/companies', 'POST', { name: companyName });
 			me = await refreshMe();
+		});
+
+	// The server switches the session to the invited company: reload like a company switch.
+	const acceptInvite = () =>
+		run(async () => {
+			await acceptInvitation(inviteToken);
+			location.reload();
 		});
 
 	// Every page loads its data on mount, so a company switch reloads the app.
@@ -257,6 +269,13 @@
 				<TextInput bind:value={companyName} label="Firma anlegen" />
 				<button class="btn-primary" onclick={createCompany} disabled={busy || !companyName.trim()}>
 					Anlegen
+				</button>
+			</div>
+			<p class="text-sm text-zinc-500 dark:text-zinc-400">Oder einer Firma beitreten, die dich eingeladen hat:</p>
+			<div class="flex flex-wrap items-end gap-3">
+				<TextInput bind:value={inviteToken} label="Einladungslink oder Code" />
+				<button class="btn-primary" onclick={acceptInvite} disabled={busy || !inviteToken.trim()}>
+					Annehmen
 				</button>
 			</div>
 		{:else if me && active}

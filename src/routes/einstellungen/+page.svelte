@@ -9,7 +9,10 @@
 			{ href: '/einstellungen/mwst', label: 'MwSt.-Steuern', hint: 'Steuersätze für Positionen' }
 		] : []),
 		...(cloud()
-			? [{ href: '/einstellungen/cloud', label: 'Konto & Abo', hint: 'Anmeldung, Sicherheit, Abo' }]
+			? [
+					{ href: '/einstellungen/cloud', label: 'Konto & Abo', hint: 'Anmeldung, Sicherheit, Abo' },
+					{ href: '/einstellungen/team', label: 'Team', hint: 'Mitglieder, Einladungen, Einladung annehmen' }
+				]
 			: [{ href: '/einstellungen/backup', label: 'Backup & Wiederherstellung', hint: 'Datenbank sichern, GoBD-Export' }]),
 		{ href: '/einstellungen/diagnose', label: 'Diagnose', hint: 'Protokoll für den Support' },
 		{ href: '/einstellungen/updates', label: 'Updates', hint: 'Neue Versionen installieren' }
