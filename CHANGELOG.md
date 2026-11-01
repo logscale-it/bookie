@@ -5,6 +5,25 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-01
+
+- Cloud team work: live presence avatars (one color per person), a hint when a teammate has the same record open, and a
+  "Neue Änderungen im Team" pill that reloads the page once others changed data. Needs bookie-server with migration
+  `0002_team_activity`.
+- Team page (Team → Stunden, Freigaben, Aktivität): hours per person and month with status bar (abgerechnet /
+  freigegeben / offen), approve or send back a month with a reason, open approvals of other months, online dot, and a
+  shared activity feed of every team action that pages back ("Mehr"). The dashboard shows the same feed.
+- Workspace shell for multi-user companies: company switcher, user menu, navigation follows the caller's rights, invite
+  presets (Buchhaltung, Steuerberater, Teamleitung), admin handover, invoice audit trail (Verlauf), time entries show
+  their author with a member filter.
+- Projects: hour and euro budget with burn bar, staffing per project.
+- Cloud: offline bar when the server is unreachable; saving a record someone else changed meanwhile shows a reload
+  prompt instead of overwriting. Registration asks to confirm the password. Server URL prefilled with
+  `https://bookie.logscale-it.com`.
+- New design system and polished pages: bundled Geist fonts, dialogs instead of browser prompts, undo for deletes,
+  skeletons and empty states, sidebar timer that survives reloads, ⌘S to save, keyboard shortcut `n` to create.
+- Time tracking and timesheet: filter by customer and project; project options follow the selected customer.
+
 ## [0.1.8] - 2026-10-26
 
 - Cloud mode (Einstellungen → Cloud): sign in to a bookie-server; account, 2FA, billing, team with roles, invitations,
