@@ -41,6 +41,7 @@
 	let invoices = $state.raw<InvoiceSearchItem[]>([]);
 	let inputEl = $state<HTMLInputElement | null>(null);
 	let listEl = $state<HTMLDivElement | null>(null);
+	const MOD = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl ';
 
 	function close(): void {
 		commandPalette.open = false;
@@ -199,32 +200,32 @@
 {#if commandPalette.open}
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div
-		class="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 p-4 pt-[12vh] backdrop-blur-sm"
+		class="palette-backdrop fixed inset-0 z-[100] flex items-start justify-center bg-zinc-950/30 p-4 pt-[12vh] backdrop-blur-[2px]"
 		onclick={close}
 		role="presentation"
 	>
 		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 		<div
-			class="w-full max-w-xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-800"
+			class="w-full max-w-xl animate-pop overflow-hidden rounded-2xl bg-white/85 shadow-float ring-1 ring-zinc-900/5 backdrop-blur-xl backdrop-saturate-150 dark:bg-zinc-800/85 dark:ring-white/10"
 			onclick={(e) => e.stopPropagation()}
 			role="dialog"
 			aria-modal="true"
 			aria-label={t('command.placeholder')}
 			tabindex="-1"
 		>
-			<div class="flex items-center gap-2 border-b border-zinc-200 px-4 dark:border-zinc-700">
-				<svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+			<div class="flex items-center gap-2.5 border-b border-zinc-900/5 px-4 dark:border-white/10">
+				<svg class="h-[18px] w-[18px] shrink-0 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
 				<!-- svelte-ignore a11y_autofocus -->
 				<input
 					bind:this={inputEl}
 					bind:value={query}
 					onkeydown={onInputKey}
 					placeholder={t('command.placeholder')}
-					class="w-full bg-transparent py-3.5 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
+					class="w-full bg-transparent py-4 text-[15px] text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
 					autocomplete="off"
 					spellcheck="false"
 				/>
-				<kbd class="hidden shrink-0 rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 sm:block dark:border-zinc-600">ESC</kbd>
+				<kbd class="kbd hidden shrink-0 sm:block">esc</kbd>
 			</div>
 
 			<div bind:this={listEl} class="max-h-[52vh] overflow-y-auto p-2">
@@ -232,7 +233,7 @@
 					<div class="px-3 py-8 text-center text-sm text-zinc-400">{t('command.empty')}</div>
 				{:else}
 					{#each groups as [groupName, items] (groupName)}
-						<div class="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">{groupName}</div>
+						<div class="px-2 pb-1 pt-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-400">{groupName}</div>
 						{#each items as cmd (cmd.id)}
 							{@const idx = filtered.indexOf(cmd)}
 							<button
@@ -240,12 +241,12 @@
 								data-idx={idx}
 								onclick={cmd.run}
 								onmousemove={() => (selected = idx)}
-								class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm transition {idx === selected ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700/50'}"
+								class="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm transition-colors duration-150 {idx === selected ? 'bg-zinc-900/[0.06] text-zinc-900 dark:bg-white/10 dark:text-white' : 'text-zinc-600 dark:text-zinc-300'}"
 							>
-								<svg class="h-4 w-4 shrink-0 {idx === selected ? 'text-white' : 'text-zinc-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d={cmd.icon} /></svg>
+								<svg class="h-4 w-4 shrink-0 {idx === selected ? 'text-accent-600 dark:text-accent-400' : 'text-zinc-400'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d={cmd.icon} /></svg>
 								<span class="min-w-0 flex-1 truncate font-medium">{cmd.label}</span>
 								{#if cmd.sublabel}
-									<span class="ml-2 shrink-0 truncate text-xs {idx === selected ? 'text-blue-100' : 'text-zinc-400'}">{cmd.sublabel}</span>
+									<span class="ml-2 shrink-0 truncate text-xs {idx === selected ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-400'}">{cmd.sublabel}</span>
 								{/if}
 							</button>
 						{/each}
@@ -253,11 +254,28 @@
 				{/if}
 			</div>
 
-			<div class="flex items-center gap-4 border-t border-zinc-200 px-4 py-2 text-[11px] text-zinc-400 dark:border-zinc-700">
-				<span class="flex items-center gap-1"><kbd class="rounded border border-zinc-200 px-1 dark:border-zinc-600">↑↓</kbd> {t('command.navigate')}</span>
-				<span class="flex items-center gap-1"><kbd class="rounded border border-zinc-200 px-1 dark:border-zinc-600">↵</kbd> {t('command.select')}</span>
-				<span class="flex items-center gap-1"><kbd class="rounded border border-zinc-200 px-1 dark:border-zinc-600">esc</kbd> {t('command.close')}</span>
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-zinc-900/5 bg-zinc-50/60 px-4 py-2 text-[11px] text-zinc-400 dark:border-white/10 dark:bg-zinc-900/30">
+				<span class="flex items-center gap-1"><kbd class="kbd">↑↓</kbd> {t('command.navigate')}</span>
+				<span class="flex items-center gap-1"><kbd class="kbd">↵</kbd> {t('command.select')}</span>
+				<span class="flex items-center gap-1"><kbd class="kbd">esc</kbd> {t('command.close')}</span>
+				<!-- Global shortcuts cheat sheet. -->
+				<span class="ml-auto hidden items-center gap-3 sm:flex">
+					<span class="flex items-center gap-1"><kbd class="kbd">{MOD}K</kbd> {t('shell.shortcutPalette')}</span>
+					<span class="flex items-center gap-1"><kbd class="kbd">N</kbd> {t('shell.shortcutNew')}</span>
+					<span class="flex items-center gap-1"><kbd class="kbd">{MOD}S</kbd> {t('shell.shortcutSave')}</span>
+				</span>
 			</div>
 		</div>
 	</div>
 {/if}
+
+<style>
+	.palette-backdrop {
+		animation: palette-fade 200ms cubic-bezier(0.32, 0.72, 0, 1);
+	}
+	@keyframes palette-fade {
+		from {
+			opacity: 0;
+		}
+	}
+</style>

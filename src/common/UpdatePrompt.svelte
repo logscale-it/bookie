@@ -3,6 +3,8 @@
 	import { check, type Update } from '@tauri-apps/plugin-updater';
 	import { relaunch } from '@tauri-apps/plugin-process';
 	import { createLogger } from '$lib/logger';
+	import { t, tp } from '$lib/i18n';
+	import Dialog from './Dialog.svelte';
 
 	const log = createLogger('updater');
 	const SKIP_KEY = 'bookie.update.skipped';
@@ -51,41 +53,41 @@
 			await relaunch();
 		} catch (e) {
 			log.error('Update install failed', e);
-			error = `Installation fehlgeschlagen: ${e}`;
+			error = tp('update.failed', { error: String(e) });
 			busy = false;
 		}
 	}
 </script>
 
 {#if update}
-	<div
-		class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="update-title"
-		data-testid="update-prompt"
-	>
-		<div class="card w-full max-w-md space-y-3">
-			<h2 id="update-title" class="text-base font-semibold">Update verfügbar</h2>
-			<p class="text-sm">
-				Bookie {update.version} ist verfügbar. Nicht gespeicherte Eingaben gehen beim Neustart
-				verloren.
+	<!-- Esc / backdrop = "Später"; blocked while the download runs. -->
+	<Dialog open title={t('update.title')} size="sm" dismissible={!busy} onclose={later}>
+		<div class="space-y-3" data-testid="update-prompt">
+			<p class="text-sm text-zinc-600 dark:text-zinc-300">
+				{tp('update.body', { version: update.version })}
 			</p>
 			{#if update.body}
-				<p class="max-h-32 overflow-y-auto text-xs whitespace-pre-wrap text-zinc-500">
+				<p
+					class="max-h-32 overflow-y-auto rounded-lg bg-zinc-50 p-3 text-xs whitespace-pre-wrap text-zinc-500 ring-1 ring-zinc-900/5 dark:bg-zinc-900/40 dark:text-zinc-400 dark:ring-white/10"
+				>
 					{update.body}
 				</p>
 			{/if}
 			{#if busy}
-				<progress class="w-full" value={loaded} max={total || undefined}></progress>
+				<div class="h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700">
+					<div
+						class="h-full origin-left rounded-full bg-accent-600 transition-transform duration-300 ease-out-expo {total
+							? ''
+							: 'animate-pulse'}"
+						style="transform: scaleX({total ? Math.min(1, loaded / total) : 1})"
+					></div>
+				</div>
 			{/if}
-			{#if error}<p class="text-sm text-red-600">{error}</p>{/if}
-			<div class="flex justify-end gap-2">
-				<button class="btn-secondary" onclick={later} disabled={busy}>Später</button>
-				<button class="btn-primary" onclick={install} disabled={busy}>
-					Jetzt installieren
-				</button>
-			</div>
+			{#if error}<p class="text-sm text-red-600 dark:text-red-400">{error}</p>{/if}
 		</div>
-	</div>
+		{#snippet footer()}
+			<button class="btn-secondary" onclick={later} disabled={busy}>{t('update.later')}</button>
+			<button class="btn-primary" onclick={install} disabled={busy}>{t('update.install')}</button>
+		{/snippet}
+	</Dialog>
 {/if}

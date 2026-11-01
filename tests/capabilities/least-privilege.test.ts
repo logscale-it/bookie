@@ -31,6 +31,7 @@ const src = [...new Glob("src/**/*.{ts,svelte}").scanSync(REPO_ROOT)]
 const CALL_SITES: Record<string, RegExp> = {
   "core:default": /\binvoke\s*[<(]/,
   "core:window:allow-close": /getCurrentWindow\(\)\.close\(/,
+  "core:window:allow-set-theme": /getCurrentWindow\(\)\.setTheme\(/,
   "dialog:allow-open":
     /import\s*{[^}]*\bopen\b[^}]*}\s*from\s*["']@tauri-apps\/plugin-dialog/,
   "dialog:allow-save":

@@ -18,6 +18,15 @@ function apply(theme: Theme): void {
   if (typeof document === "undefined") return;
   const dark = theme === "dark" || (theme === "system" && systemPrefersDark());
   document.documentElement.classList.toggle("dark", dark);
+  // The macOS sidebar vibrancy material follows the *window* appearance, not
+  // our CSS: pin it to the chosen theme so light text never sits on a light
+  // material (null = follow the OS again).
+  if ("__TAURI_INTERNALS__" in window)
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) =>
+        getCurrentWindow().setTheme(theme === "system" ? null : theme),
+      )
+      .catch(() => {});
 }
 
 export const theme = {

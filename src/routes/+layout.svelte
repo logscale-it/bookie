@@ -6,8 +6,12 @@
 	import { startAutoBackupScheduler } from '$lib/s3/auto-backup';
 	import { listCompanies } from '$lib/db/companies';
 	import { runDueRecurring } from '$lib/db/recurring';
-	import { t, setLocale, type Locale } from '$lib/i18n';
-	import { getOrganizationSettings } from '$lib/db/settings';
+	import { t, tp, setLocale, getLocaleFormatting, type Locale } from '$lib/i18n';
+	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
+	import { fly, fade } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
+	import { net } from '$lib/net.svelte';
+	import { toasts } from '$lib/ui/toasts.svelte';
 	import {
 		runSchemaVersionCheck,
 		type MigrationOutOfDateError
@@ -28,6 +32,8 @@
 	import { createLogger } from '$lib/logger';
 	import { api, cloud, loadCloudToken, logout } from '$lib/cloud';
 	import { can, initials, loadSession, session } from '$lib/session.svelte';
+	import Presence from '../common/Presence.svelte';
+	import TimerWidget from '../common/TimerWidget.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -77,9 +83,20 @@
 				: { label: t('common.themeSystem'), icon: 'M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h13.5A2.25 2.25 0 0121 5.25z' }
 	);
 
+	// macOS only: the window is transparent with native `sidebar` vibrancy
+	// (tauri.conf.json), so the shell root is see-through and the sidebar only
+	// tints it. Elsewhere (Linux has no material, Windows 10 lacks mica) every
+	// surface stays opaque. In a plain browser there is no native window at all.
+	const vibrant =
+		typeof navigator !== 'undefined' &&
+		/Mac/.test(navigator.platform) &&
+		'__TAURI_INTERNALS__' in window;
+	const MOD = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl ';
+
 	onMount(() => {
 		// Apply the saved/OS theme as early as possible.
 		theme.init();
+		document.documentElement.classList.toggle('vibrancy', vibrant);
 	});
 
 	onMount(async () => {
@@ -201,19 +218,105 @@
 	// Cloud: hide areas the caller has no grant for (the server enforces it anyway).
 	const visibleNav = $derived(navItems.filter((i) => i.show?.() ?? true));
 
-	const ROLE_LABEL = { admin: 'Admin', member: 'Mitglied', subcontractor: 'Subunternehmer' } as const;
+	const ROLE_KEY = { admin: 'shell.roleAdmin', member: 'shell.roleMember', subcontractor: 'shell.roleSubcontractor' } as const;
+	const roleLabel = (role: keyof typeof ROLE_KEY) => t(ROLE_KEY[role]);
 	const company = $derived(session.company);
+	// cloud() reads localStorage (not reactive); session.me changes whenever
+	// the mode does, so it serves as the dependency.
+	const isCloud = $derived.by(() => {
+		void session.me;
+		return cloud() !== null;
+	});
+
+	// Sliding nav indicator: items are a fixed 36px + 2px gap, so the pill's
+	// offset is plain arithmetic (no DOM measuring).
+	const activeIndex = $derived(visibleNav.findIndex((i) => isActive(i.href, page.url.pathname)));
+
+	// ---- Status chip (sidebar footer) -----------------------------------
+	type Tone = 'ok' | 'warn' | 'bad' | 'none';
+	let backupStatus = $state<{ tone: Tone; label: string } | null>(null);
+	const shellReady = $derived(!migrationError && !!bootStatus && !hasBlockingFailure(bootStatus));
+
+	function ago(iso: string): string {
+		const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+		const rtf = new Intl.RelativeTimeFormat(getLocaleFormatting(), { style: 'short', numeric: 'auto' });
+		if (mins < 60) return rtf.format(-mins, 'minute');
+		if (mins < 1440) return rtf.format(-Math.round(mins / 60), 'hour');
+		return rtf.format(-Math.round(mins / 1440), 'day');
+	}
+
+	// Same source as the dashboard banner: settings_s3.last_auto_backup_*,
+	// written by performBackup() for both scheduled and manual backups.
+	async function loadBackupStatus(): Promise<void> {
+		if (cloud()) return;
+		try {
+			const s3 = await getS3Settings(false);
+			const at = s3.last_auto_backup_at;
+			if (!s3.enabled) backupStatus = { tone: 'none', label: t('shell.statusLocalOnly') };
+			else if (s3.last_auto_backup_status === 'failure')
+				backupStatus = { tone: 'bad', label: t('shell.statusLocalBackupFailed') };
+			else if (!at) backupStatus = { tone: 'warn', label: t('shell.statusLocalNoBackup') };
+			else
+				backupStatus = {
+					// Auto-backup runs daily; two missed days is worth a nudge.
+					tone: Date.now() - new Date(at).getTime() > 48 * 3600_000 ? 'warn' : 'ok',
+					label: tp('shell.statusLocalBackup', { ago: ago(at) })
+				};
+		} catch {
+			backupStatus = null;
+		}
+	}
+
+	$effect(() => {
+		void page.url.pathname; // refresh on navigation (e.g. after a manual backup)
+		if (!shellReady) return;
+		loadBackupStatus();
+		const id = setInterval(loadBackupStatus, 60_000);
+		return () => clearInterval(id);
+	});
+
+	const statusChip = $derived(
+		isCloud
+			? net.offline
+				? { tone: 'warn' as Tone, label: t('shell.statusOffline'), href: '/einstellungen/cloud' }
+				: { tone: 'ok' as Tone, label: t('shell.statusCloud'), href: '/einstellungen/cloud' }
+			: backupStatus && { ...backupStatus, href: '/einstellungen/backup' }
+	);
+	const DOT: Record<Tone, string> = {
+		ok: 'bg-emerald-500 shadow-[0_0_0_3px_rgb(16_185_129/0.15)]',
+		warn: 'bg-amber-500 shadow-[0_0_0_3px_rgb(245_158_11/0.18)]',
+		bad: 'bg-red-500 shadow-[0_0_0_3px_rgb(239_68_68/0.18)]',
+		none: 'bg-zinc-400 dark:bg-zinc-500'
+	};
 
 	// Every page loads its data on mount, so a company switch reloads the app.
-	async function switchCompany(companyId: number) {
-		await api('/session/company', 'POST', { companyId });
-		location.href = '/';
+	let switchingTo = $state<string | null>(null);
+	async function switchCompany(companyId: number, name: string) {
+		switchingTo = name;
+		try {
+			await api('/session/company', 'POST', { companyId });
+			location.href = '/';
+		} catch (e) {
+			switchingTo = null;
+			toasts.error(e instanceof Error ? e.message : String(e));
+		}
 	}
 	async function signOut() {
 		await logout();
 		location.href = '/einstellungen/cloud';
 	}
 </script>
+
+<!-- The org switcher / user menu are <details>: close them on outside click or Esc. -->
+<svelte:window
+	onpointerdown={(e) => {
+		for (const d of document.querySelectorAll<HTMLDetailsElement>('details[open]'))
+			if (!d.contains(e.target as Node)) d.open = false;
+	}}
+	onkeydown={(e) => {
+		if (e.key === 'Escape') for (const d of document.querySelectorAll<HTMLDetailsElement>('details[open]')) d.open = false;
+	}}
+/>
 
 {#if migrationError}
 	<!--
@@ -226,156 +329,272 @@
 {:else if !bootChecked || bootStatus === null}
 	<!-- Boot probe in flight: neutral splash, NO nav reachable yet. -->
 	<div
-		class="flex h-screen w-screen items-center justify-center bg-zinc-100 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+		class="flex h-screen w-screen flex-col items-center justify-center gap-5 bg-zinc-100 bg-[radial-gradient(ellipse_at_center,rgb(255_255_255/0.95),transparent_65%)] text-sm text-zinc-900 dark:bg-zinc-900 dark:bg-[radial-gradient(ellipse_at_center,rgb(255_255_255/0.05),transparent_65%)] dark:text-zinc-100"
 		data-testid="boot-loading"
 	>
-		<span>{t('common.loading')}</span>
+		<img src="/bookie.svg" alt="" class="breathe h-16 w-16 rounded-2xl shadow-float" />
+		<span class="text-xs tracking-wide text-zinc-400">{t('common.loading')}</span>
 	</div>
 {:else if hasBlockingFailure(bootStatus)}
 	<!-- Blocking failure: full-window diagnostics view, nav unreachable. -->
 	<BootDiagnostics status={bootStatus} onRetry={retry} />
 {:else}
-	<div class="flex h-screen overflow-hidden bg-zinc-100 text-sm text-zinc-900 antialiased dark:bg-zinc-900 dark:text-zinc-100">
+	<div
+		class="flex h-screen overflow-hidden text-sm text-zinc-900 antialiased dark:text-zinc-100 {vibrant
+			? 'bg-transparent'
+			: 'bg-zinc-200/70 dark:bg-zinc-950'}"
+	>
 		<CommandPalette />
 		<Toaster />
 		<UpdatePrompt />
-		<!-- Desktop sidebar -->
-		<aside class="hidden w-72 shrink-0 flex-col overflow-y-auto border-r border-zinc-200 bg-zinc-50 p-6 md:flex dark:border-zinc-700 dark:bg-zinc-800/60">
+		<!-- Desktop sidebar: translucent; on macOS the native vibrancy shows through. -->
+		<aside
+			class="hidden w-64 shrink-0 flex-col overflow-y-auto border-r border-zinc-900/[0.06] bg-zinc-50/60 p-4 md:flex dark:border-white/[0.06] dark:bg-zinc-900/50"
+		>
 			{#if company && session.me}
 				<!-- Cloud: the active company is the workspace; switch between companies here. -->
-				<details class="group relative mb-5" data-testid="org-switcher">
-					<summary class="flex cursor-pointer list-none items-center gap-2.5 rounded-md p-1 -m-1 hover:bg-zinc-200/70 dark:hover:bg-zinc-700">
+				<details class="group relative mb-4" data-testid="org-switcher">
+					<summary
+						class="-m-1 flex cursor-pointer list-none items-center gap-2.5 rounded-lg p-1.5 transition-colors duration-200 hover:bg-zinc-900/[0.04] dark:hover:bg-white/[0.06]"
+					>
 						{#if session.me.active?.logo}
-							<img src={session.me.active.logo} alt="" class="h-8 w-8 shrink-0 rounded-lg bg-white object-contain" />
+							<img src={session.me.active.logo} alt="" class="h-8 w-8 shrink-0 rounded-lg bg-white object-contain ring-1 ring-zinc-900/5" />
 						{:else}
-							<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-semibold text-white">{initials(company.name)}</span>
+							<span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-600 text-xs font-semibold text-white shadow-soft">{initials(company.name)}</span>
 						{/if}
 						<span class="min-w-0 flex-1">
 							<span class="block truncate text-sm font-semibold tracking-tight">{company.name}</span>
 							<span class="block text-xs text-zinc-500 dark:text-zinc-400">
-								{ROLE_LABEL[company.role]}{session.me.active ? ` · ${session.me.active.seats} ${session.me.active.seats === 1 ? 'Person' : 'Personen'}` : ''}
+								{roleLabel(company.role)}{session.me.active
+									? ` · ${session.me.active.seats} ${session.me.active.seats === 1 ? t('shell.person') : t('shell.persons')}`
+									: ''}
 							</span>
 						</span>
-						<svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" /></svg>
+						<svg class="h-4 w-4 shrink-0 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" /></svg>
 					</summary>
-					<div class="absolute left-0 right-0 z-20 mt-2 rounded-md border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
+					<div
+						class="absolute left-0 right-0 z-20 mt-2 origin-top animate-pop rounded-xl bg-white/95 p-1 shadow-float ring-1 ring-zinc-900/5 backdrop-blur-xl dark:bg-zinc-800/95 dark:ring-white/10"
+					>
 						{#each session.me.companies as c (c.id)}
 							<button
 								type="button"
-								class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700"
+								class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors duration-150 hover:bg-zinc-900/[0.04] disabled:cursor-default dark:hover:bg-white/[0.06]"
 								disabled={c.id === company.id}
-								onclick={() => switchCompany(c.id)}
+								onclick={() => switchCompany(c.id, c.name)}
 							>
-								<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-200 text-[10px] font-semibold dark:bg-zinc-600">{initials(c.name)}</span>
+								<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-[10px] font-semibold ring-1 ring-zinc-900/5 dark:bg-zinc-700 dark:ring-white/10">{initials(c.name)}</span>
 								<span class="min-w-0 flex-1 truncate">{c.name}</span>
-								<span class="text-[10px] text-zinc-500 dark:text-zinc-400">{c.paid ? ROLE_LABEL[c.role] : 'kein Abo'}</span>
-								{#if c.id === company.id}<span class="text-blue-600">✓</span>{/if}
+								<span class="text-[10px] text-zinc-500 dark:text-zinc-400">{c.paid ? roleLabel(c.role) : t('shell.noSubscription')}</span>
+								{#if c.id === company.id}
+									<svg class="h-4 w-4 text-accent-600 dark:text-accent-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+								{/if}
 							</button>
 						{/each}
-						<a href="/einstellungen/cloud" class="mt-1 block rounded border-t border-zinc-200 px-2 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700">Firmen & Abo verwalten…</a>
+						<div class="my-1 h-px bg-zinc-900/5 dark:bg-white/10"></div>
+						<a href="/einstellungen/cloud" class="block rounded-lg px-2 py-1.5 text-xs text-zinc-500 transition-colors duration-150 hover:bg-zinc-900/[0.04] dark:text-zinc-400 dark:hover:bg-white/[0.06]">{t('shell.manageCompanies')}</a>
 					</div>
 				</details>
 			{:else}
-				<div class="mb-5 flex items-center gap-2.5">
-					<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg" />
+				<div class="mb-4 flex items-center gap-2.5 px-1">
+					<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg shadow-soft" />
 					<span class="text-base font-semibold tracking-tight">Bookie</span>
 				</div>
 			{/if}
 			<button
 				type="button"
 				onclick={() => (commandPalette.open = true)}
-				class="mb-5 flex w-full items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm text-zinc-400 transition hover:border-zinc-300 hover:text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:border-zinc-600 dark:hover:text-zinc-300"
+				class="mb-4 flex w-full items-center gap-2 rounded-lg bg-white/70 px-2.5 py-1.5 text-left text-sm text-zinc-400 shadow-soft ring-1 ring-zinc-900/5 transition duration-200 ease-spring hover:bg-white hover:text-zinc-600 active:scale-[0.99] dark:bg-white/5 dark:shadow-none dark:ring-white/10 dark:hover:bg-white/10 dark:hover:text-zinc-300"
 			>
-				<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+				<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
 				<span class="flex-1">{t('common.search')}…</span>
-				<kbd class="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] font-medium dark:border-zinc-600">⌘K</kbd>
+				<kbd class="kbd">{MOD}K</kbd>
 			</button>
-			<nav class="flex flex-col gap-1">
-				{#each visibleNav as item}
+			<nav class="relative flex flex-col gap-0.5">
+				<!-- One indicator pill that slides to the active item. -->
+				<span
+					aria-hidden="true"
+					class="pointer-events-none absolute inset-x-0 top-0 h-9 rounded-lg bg-white shadow-soft ring-1 ring-zinc-900/5 transition-[transform,opacity] duration-[350ms] ease-spring dark:bg-white/10 dark:shadow-none dark:ring-white/10"
+					style="transform: translateY({Math.max(activeIndex, 0) * 38}px); opacity: {activeIndex < 0 ? 0 : 1}"
+				></span>
+				{#each visibleNav as item, i (item.href)}
 					<a
 						href={item.href}
-						class={`rounded-md px-3 py-2 text-sm font-medium transition ${isActive(item.href, page.url.pathname) ? 'bg-blue-600 text-white' : 'text-zinc-700 hover:bg-zinc-200/70 dark:text-zinc-200 dark:hover:bg-zinc-700'}`}
+						aria-current={i === activeIndex ? 'page' : undefined}
+						class="relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium transition-colors duration-200 {i ===
+						activeIndex
+							? 'text-zinc-900 dark:text-white'
+							: 'text-zinc-500 hover:bg-zinc-900/[0.03] hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/[0.04] dark:hover:text-zinc-200'}"
 					>
+						<svg
+							class="h-[18px] w-[18px] shrink-0 transition-colors duration-200 {i === activeIndex
+								? 'text-accent-600 dark:text-accent-400'
+								: 'text-zinc-400 dark:text-zinc-500'}"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d={item.icon} /></svg
+						>
 						{item.label}
 					</a>
 				{/each}
 			</nav>
 
-			{#if company && session.me}
-				<!-- Cloud: who is signed in, with account and team shortcuts. -->
-				<details class="relative mt-auto" data-testid="user-menu">
-					<summary class="flex cursor-pointer list-none items-center gap-2.5 rounded-md px-3 py-2 hover:bg-zinc-200/70 dark:hover:bg-zinc-700">
-						<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-300 text-[11px] font-semibold dark:bg-zinc-600">{initials(session.me.user.name)}</span>
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-xs font-medium">{session.me.user.name}</span>
-							<span class="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">{session.me.user.email}</span>
-						</span>
-					</summary>
-					<div class="absolute bottom-full left-0 right-0 z-20 mb-2 rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
-						<a href="/einstellungen/cloud" class="block rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700">Konto & Sicherheit</a>
-						{#if company.role === 'admin'}
-							<a href="/einstellungen/team" class="block rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700">Team verwalten</a>
-						{/if}
-						<button type="button" onclick={signOut} class="block w-full rounded px-2 py-1.5 text-left text-red-600 hover:bg-zinc-100 dark:hover:bg-zinc-700">Abmelden</button>
-					</div>
-				</details>
-			{/if}
-			<button
-				type="button"
-				onclick={() => theme.cycle()}
-				class={`${company ? '' : 'mt-auto '}flex items-center gap-2 rounded-md px-3 py-2 pt-2 text-xs font-medium text-zinc-500 transition hover:bg-zinc-200/70 dark:text-zinc-400 dark:hover:bg-zinc-700`}
-				aria-label={t('common.theme')}
-				title={t('common.theme')}
-			>
-				<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d={themeMeta.icon} /></svg>
-				<span>{themeMeta.label}</span>
-			</button>
+			<div class="mt-auto flex flex-col gap-1 pt-4">
+				<TimerWidget />
+
+				{#if statusChip}
+					<a
+						href={statusChip.href}
+						class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-zinc-500 transition-colors duration-200 hover:bg-zinc-900/[0.04] hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+						data-testid="status-chip"
+					>
+						<span class="h-1.5 w-1.5 shrink-0 rounded-full {DOT[statusChip.tone]}"></span>
+						<span class="truncate">{statusChip.label}</span>
+					</a>
+				{/if}
+
+				{#if company && session.me}
+					<!-- Cloud: who is signed in, with account and team shortcuts. -->
+					<details class="relative" data-testid="user-menu">
+						<summary
+							class="flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors duration-200 hover:bg-zinc-900/[0.04] dark:hover:bg-white/[0.06]"
+						>
+							<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[11px] font-semibold ring-1 ring-zinc-900/5 dark:bg-zinc-700 dark:ring-white/10">{initials(session.me.user.name)}</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-xs font-medium">{session.me.user.name}</span>
+								<span class="block truncate text-[11px] text-zinc-500 dark:text-zinc-400">{session.me.user.email}</span>
+							</span>
+						</summary>
+						<div
+							class="absolute bottom-full left-0 right-0 z-20 mb-2 origin-bottom animate-pop rounded-xl bg-white/95 p-1 text-sm shadow-float ring-1 ring-zinc-900/5 backdrop-blur-xl dark:bg-zinc-800/95 dark:ring-white/10"
+						>
+							<a href="/einstellungen/cloud" class="block rounded-lg px-2 py-1.5 transition-colors duration-150 hover:bg-zinc-900/[0.04] dark:hover:bg-white/[0.06]">{t('shell.account')}</a>
+							{#if company.role === 'admin'}
+								<a href="/einstellungen/team" class="block rounded-lg px-2 py-1.5 transition-colors duration-150 hover:bg-zinc-900/[0.04] dark:hover:bg-white/[0.06]">{t('shell.manageTeam')}</a>
+							{/if}
+							<div class="my-1 h-px bg-zinc-900/5 dark:bg-white/10"></div>
+							<button type="button" onclick={signOut} class="block w-full rounded-lg px-2 py-1.5 text-left text-red-600 transition-colors duration-150 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20">{t('shell.signOut')}</button>
+						</div>
+					</details>
+				{/if}
+				<button
+					type="button"
+					onclick={() => theme.cycle()}
+					class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition-colors duration-200 hover:bg-zinc-900/[0.04] dark:text-zinc-400 dark:hover:bg-white/[0.06]"
+					aria-label={t('common.theme')}
+					title={t('common.theme')}
+				>
+					<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d={themeMeta.icon} /></svg>
+					<span>{themeMeta.label}</span>
+				</button>
+			</div>
 		</aside>
 
-		<main class="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6">
-			{#if hasS3Warning(bootStatus)}
-				<!-- OPS-1.b: S3 failure is a warning, not blocking. Surface a
-				     non-modal banner so the user knows auto-backup is broken
-				     without locking them out of the app. -->
+		<!-- Main stays opaque so content never sits on the vibrancy material. -->
+		<main class="relative flex-1 overflow-y-auto bg-zinc-100 pb-20 md:pb-0 dark:bg-zinc-900">
+			{#if isCloud && net.offline}
 				<div
-					class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100"
+					class="sticky top-0 z-30 flex items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-50/90 px-4 py-1.5 text-xs font-medium text-amber-900 backdrop-blur-md dark:bg-amber-950/80 dark:text-amber-100"
 					role="status"
-					data-testid="boot-s3-warning"
+					data-testid="offline-bar"
+					transition:fly={{ y: -12, duration: 280, easing: cubicOut }}
 				>
-					S3-Speicher ist nicht erreichbar. Automatische Backups funktionieren
-					möglicherweise nicht. Prüfen Sie die S3-Einstellungen.
+					<span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+					{t('shell.offlineBar')}
 				</div>
 			{/if}
-			{#if company && !company.paid}
-				<div
-					class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100"
-					role="status"
-					data-testid="cloud-unpaid"
-				>
-					{#if company.role === 'admin'}
-						Das Abo von {company.name} ist nicht aktiv: Daten sind gesperrt, nur der Export geht noch.
-						<a href="/einstellungen/cloud" class="font-medium underline">Abo abschließen</a>
-					{:else}
-						Das Abo von {company.name} ist nicht aktiv. Bitte wende dich an die Firma.
-					{/if}
-				</div>
-			{/if}
-			{@render children()}
+			<div class="p-4 md:p-6">
+				<!-- Cloud: who else is online; collapses when alone or local. -->
+				<div class="mb-3 flex justify-end empty:hidden"><Presence /></div>
+				{#if hasS3Warning(bootStatus)}
+					<!-- OPS-1.b: S3 failure is a warning, not blocking. Surface a
+					     non-modal banner so the user knows auto-backup is broken
+					     without locking them out of the app. -->
+					<div
+						class="mb-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-600/15 dark:bg-amber-900/20 dark:text-amber-100 dark:ring-amber-400/20"
+						role="status"
+						data-testid="boot-s3-warning"
+					>
+						{t('shell.s3Warning')}
+					</div>
+				{/if}
+				{#if company && !company.paid}
+					<div
+						class="mb-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-600/15 dark:bg-amber-900/20 dark:text-amber-100 dark:ring-amber-400/20"
+						role="status"
+						data-testid="cloud-unpaid"
+					>
+						{#if company.role === 'admin'}
+							{tp('shell.unpaidAdmin', { name: company.name })}
+							<a href="/einstellungen/cloud" class="font-medium underline">{t('shell.unpaidSubscribe')}</a>
+						{:else}
+							{tp('shell.unpaidMember', { name: company.name })}
+						{/if}
+					</div>
+				{/if}
+				{@render children()}
+			</div>
 		</main>
 
-		<!-- Mobile bottom navigation -->
-		<nav class="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-zinc-200 bg-white md:hidden dark:border-zinc-700 dark:bg-zinc-800">
-			{#each visibleNav as item}
+		<!-- Mobile bottom navigation: frosted, fixed over content. -->
+		<nav
+			class="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-zinc-900/5 bg-white/75 backdrop-blur-xl backdrop-saturate-150 md:hidden dark:border-white/10 dark:bg-zinc-900/75"
+		>
+			{#each visibleNav as item, i (item.href)}
 				<a
 					href={item.href}
-					class={`flex flex-col items-center gap-0.5 px-1 py-1 text-center transition ${isActive(item.href, page.url.pathname) ? 'text-blue-600' : 'text-zinc-500 dark:text-zinc-400'}`}
+					aria-current={i === activeIndex ? 'page' : undefined}
+					class="relative flex flex-col items-center gap-0.5 px-1 py-1 text-center transition-colors duration-200 {i === activeIndex
+						? 'text-accent-600 dark:text-accent-400'
+						: 'text-zinc-500 dark:text-zinc-400'}"
 				>
 					<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
 						<path stroke-linecap="round" stroke-linejoin="round" d={item.icon} />
 					</svg>
 					<span class="text-[10px] leading-tight">{item.shortLabel}</span>
+					<span
+						class="absolute -bottom-1 h-1 w-1 rounded-full bg-current transition-[transform,opacity] duration-300 ease-spring {i === activeIndex
+							? 'scale-100 opacity-100'
+							: 'scale-0 opacity-0'}"
+					></span>
 				</a>
 			{/each}
 		</nav>
+
+		{#if switchingTo}
+			<!-- Company switch: frosted full-window overlay until the reload lands. -->
+			<div
+				class="fixed inset-0 z-[200] flex items-center justify-center bg-zinc-100/60 backdrop-blur-md dark:bg-zinc-950/60"
+				role="status"
+				aria-live="polite"
+				transition:fade={{ duration: 200 }}
+			>
+				<div class="flex animate-pop items-center gap-3 rounded-2xl bg-white/90 px-5 py-3.5 text-sm font-medium shadow-float ring-1 ring-zinc-900/5 dark:bg-zinc-800/90 dark:ring-white/10">
+					<svg class="h-4 w-4 animate-spin text-accent-600 dark:text-accent-400" fill="none" viewBox="0 0 24 24">
+						<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" class="opacity-20" />
+						<path d="M21 12a9 9 0 00-9-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+					</svg>
+					{tp('shell.switchingTo', { name: switchingTo })}
+				</div>
+			</div>
+		{/if}
 	</div>
 {/if}
+
+<style>
+	/* Boot splash: slow breathing logo (global reduced-motion rule stills it). */
+	.breathe {
+		animation: breathe 2.4s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+	}
+	@keyframes breathe {
+		0%,
+		100% {
+			transform: scale(1);
+			opacity: 0.85;
+		}
+		50% {
+			transform: scale(1.05);
+			opacity: 1;
+		}
+	}
+</style>
