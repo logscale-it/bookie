@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-11-01
+
+- Time tracking: entries may cross midnight; an end at exactly 24:00 is kept when editing.
+- Linux build fixed: `rfd` follows `tauri-plugin-dialog` to 0.17 with the gtk3 backend. v0.1.9 was never published
+  because its Linux build failed.
+
 ## [0.1.9] - 2026-11-01
 
 - Cloud team work: live presence avatars (one color per person), a hint when a teammate has the same record open, and a
