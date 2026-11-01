@@ -8,6 +8,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Area } from "$lib/team";
+import { net } from "$lib/net.svelte";
+import { toasts } from "$lib/ui/toasts.svelte";
 
 const KEY = "bookie.cloud";
 
@@ -86,9 +88,28 @@ export class CloudError extends Error {
       ? "Kein aktives bookie Cloud Abo für dieses Unternehmen"
       : status === 403
         ? "Keine Berechtigung für diesen Bereich"
-        : `Server: ${status} ${code}`,
+        : code === "conflict"
+          ? "Wurde zwischenzeitlich von jemand anderem geändert"
+          : `Server: ${status} ${code}`,
   ) {
     super(message);
+  }
+}
+
+// Optimistic concurrency: the updated_at of each row as last loaded, keyed by
+// its item path (/api/customers/5, /api/company). A PATCH to that path echoes
+// it as expected_updated_at; the server answers 409 conflict when someone else
+// wrote since. Keeps pages unaware of it.
+// ponytail: last load wins; a list refetched elsewhere while a form is open refreshes the stamp.
+const seen = new Map<string, string>();
+
+function remember(path: string, method: string, data: any) {
+  path = path.split("?")[0];
+  const rows = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : null;
+  if (rows) {
+    for (const r of rows) if (r?.updated_at && r.id != null) seen.set(`${path}/${r.id}`, r.updated_at);
+  } else if (data?.updated_at) {
+    seen.set(method === "POST" && data.id != null ? `${path}/${data.id}` : path, data.updated_at);
   }
 }
 
@@ -99,14 +120,28 @@ async function request<T>(
   body?: unknown,
   token?: string,
 ): Promise<T> {
-  const res = await fetch(url + path, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  // Session / company switch: stamps of the previous company must not leak into the next.
+  if (method !== "GET" && !path.startsWith("/api/")) seen.clear();
+  const expected = method === "PATCH" ? seen.get(path) : undefined;
+  if (expected && body && typeof body === "object")
+    body = { ...body, expected_updated_at: expected };
+  let res: Response;
+  try {
+    res = await fetch(url + path, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (e) {
+    // Network failure (offline, server down, DNS): the shell shows one global bar.
+    console.warn("[cloud]", e);
+    net.offline = true;
+    throw new CloudError(0, "offline", "Keine Verbindung zum bookie Server");
+  }
+  net.offline = false;
   const data = await res.json().catch(() => null);
   // Only "unauthorized" means the session is gone; a 401 invalid_credentials
   // (wrong current password on change / 2FA disable) must not sign out.
@@ -118,7 +153,16 @@ async function request<T>(
       "Sitzung abgelaufen, bitte neu anmelden",
     );
   }
+  if (res.status === 409 && data?.error === "conflict") {
+    const err = new CloudError(409, "conflict");
+    toasts.error(err.message, 0, {
+      label: "Neu laden",
+      run: () => location.reload(),
+    });
+    throw err;
+  }
   if (!res.ok) throw new CloudError(res.status, data?.error ?? res.statusText);
+  remember(path, method, data);
   return data as T;
 }
 
