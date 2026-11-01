@@ -25,7 +25,7 @@ serde_json = "1"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-dialog = "2"
 # Same rfd the dialog plugin uses; needed to show a dialog when the Tauri app failed to build.
-rfd = { version = "0.16", default-features = false }
+rfd = { version = "0.17", default-features = false }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 # REL-4.a: enforce single-instance lock at process start. Bookie's SQLite-WAL
