@@ -426,6 +426,7 @@ export default {
     endDate: "Enddatum",
     saveProject: "Projekt speichern",
     timeframe: "Zeitraum",
+    hours: "Stunden",
     loading: "Lade Projekte…",
     empty: "Keine Projekte vorhanden.",
     from: "ab",

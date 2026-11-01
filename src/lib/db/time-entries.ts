@@ -102,6 +102,22 @@ export async function listTimesheetEntries(
   );
 }
 
+/** Minutes per project (entries without a project are skipped), for the Projekte overview. */
+/** Local-mode minutes per project (entries without a project are skipped). Cloud uses the server's projectProgress. */
+export async function sumMinutesByProject(
+	companyId: number,
+): Promise<Map<number, number>> {
+	const db = await getDb();
+	const rows = await db.select<{ project_id: number; total: number }[]>(
+		`SELECT project_id, SUM(duration_minutes) AS total
+		 FROM time_entries
+		 WHERE company_id = $1 AND project_id IS NOT NULL
+		 GROUP BY project_id`,
+		[companyId],
+	);
+	return new Map(rows.map((r) => [r.project_id, r.total]));
+}
+
 export async function getTimeEntryById(
   id: number,
 ): Promise<TimeEntry | undefined> {
