@@ -35,6 +35,7 @@
 	let email = $state(saved?.email ?? '');
 	let name = $state('');
 	let password = $state('');
+	let password2 = $state('');
 	let notice = $state('');
 	let code = $state('');
 	let needsCode = $state(false);
@@ -88,7 +89,7 @@
 	const register = () =>
 		run(async () => {
 			await publicApi(url, '/auth/register', { email, name, password });
-			password = '';
+			password = password2 = '';
 			mode = 'login';
 			notice =
 				'Fast geschafft: Bitte bestätige deine E-Mail über den Link, den wir dir geschickt haben, und melde dich dann an.';
@@ -214,6 +215,12 @@
 					type="password"
 				/>
 			{/if}
+			{#if mode === 'register'}
+				<TextInput bind:value={password2} label="Passwort wiederholen" type="password" />
+				{#if password2 && password2 !== password}
+					<p class="text-sm text-red-600 md:col-span-2">Die Passwörter stimmen nicht überein.</p>
+				{/if}
+			{/if}
 			{#if mode === 'login' && needsCode}
 				<TextInput bind:value={code} label="2FA-Code oder Wiederherstellungscode" />
 			{/if}
@@ -231,7 +238,7 @@
 				<button
 					class="btn-primary"
 					onclick={register}
-					disabled={busy || !url || !email || !name.trim() || password.length < 12}
+					disabled={busy || !url || !email || !name.trim() || password.length < 12 || password !== password2}
 				>
 					Registrieren
 				</button>
