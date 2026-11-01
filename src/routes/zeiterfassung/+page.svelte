@@ -278,7 +278,7 @@
 		if (Number.isNaN(base.getTime())) return null;
 		let diffMinutes = Math.round((date.getTime() - base.getTime()) / (1000 * 60));
 		// Overnight entries end on the next day: fold back to a clock time; the auto-detect re-adds the day on save.
-		if (diffMinutes > 24 * 60 && diffMinutes <= 48 * 60) diffMinutes -= 24 * 60;
+		if (diffMinutes >= 24 * 60 && diffMinutes <= 48 * 60) diffMinutes -= 24 * 60;
 		if (diffMinutes < 0 || diffMinutes > 24 * 60) return null;
 		return formatMinutesToTimeValue(diffMinutes);
 	}
