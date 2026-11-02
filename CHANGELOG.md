@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-02
+
+- Cloud time approval: members hand in a month ("Monat zur Freigabe einreichen"); a lead approves or returns only
+  handed-in months (their own hours directly). An edit withdraws the submission. The dashboard approvals card lists only
+  handed-in months. Needs the matching bookie-server (approving an unsubmitted month answers `not_submitted`).
+- Cloud invitations: a fresh account without a company can accept an invite next to "Firma anlegen"; the settings
+  overview lists Team.
+- Cloud mode: Einstellungen → Backup shows only the cloud export (local backup and S3 act on the local file).
+
 ## [0.1.10] - 2026-11-01
 
 - Time tracking: entries may cross midnight; an end at exactly 24:00 is kept when editing.
