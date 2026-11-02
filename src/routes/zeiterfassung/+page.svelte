@@ -20,7 +20,7 @@
 	import { goto } from '$app/navigation';
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
 	import { cloud } from '$lib/cloud';
-	import { can, initials, memberName, session } from '$lib/session.svelte';
+	import { can, initials, isSub, memberName, session } from '$lib/session.svelte';
 
 	type TimeEntryRow = TimeEntry & {
 		customerName: string;
@@ -46,6 +46,8 @@
 	let filterUserId = $state('all');
 	// Cloud with the team_time grant: other members' entries are listed too, so show and filter by author.
 	const teamView = cloud() && can('team_time') && (session.me?.active?.members.length ?? 0) > 1;
+	// Others' entries are view-only without team_time:edit (server scopes PATCH/DELETE to 'edit').
+	const mayChange = (row: { user_id?: number | null }) => !cloud() || row.user_id == null || row.user_id === session.me?.user.id || can('team_time', 'edit');
 	const filterUserOptions = [
 		{ value: 'all', label: 'Alle Mitarbeiter' },
 		...(session.me?.active?.members ?? []).map((m) => ({ value: String(m.id), label: m.name }))
@@ -67,8 +69,9 @@
 		...customers.map((customer) => ({ value: String(customer.id), label: customer.name }))
 	]);
 
+	// Subcontractors must book on an assigned project (server: 400 unknown_project_id otherwise).
 	const projectOptions = $derived.by(() => [
-		{ value: '', label: t('timeTracking.noProject') },
+		...(isSub() ? [] : [{ value: '', label: t('timeTracking.noProject') }]),
 		...projects.map((project) => ({ value: String(project.id), label: project.name }))
 	]);
 
@@ -101,7 +104,7 @@
 		return diffMinutes / 60;
 	});
 
-	const canSaveEntry = $derived.by(() => !saving && !!entryDate && !!startTime && !!endTime && durationHours > 0);
+	const canSaveEntry = $derived.by(() => !saving && !!entryDate && !!startTime && !!endTime && durationHours > 0 && (!isSub() || !!projectId));
 	const dialogTitle = $derived.by(() => (editingTimeEntryId === null ? t('timeTracking.createEntry') : t('timeTracking.editEntry')));
 
 	$effect(() => {
@@ -512,7 +515,7 @@
 				{:else}
 					<div class="transition-opacity duration-200 {loading ? 'opacity-60' : ''}">
 						{#each visibleRows as row (row.id)}
-							<div class="data-row group min-h-11 hover:bg-zinc-50 dark:hover:bg-zinc-800/60" style="grid-template-columns: {COLS}">
+							<div data-testid="time-entry-row" class="data-row group min-h-11 hover:bg-zinc-50 dark:hover:bg-zinc-800/60" style="grid-template-columns: {COLS}">
 								<div class="flex items-center gap-2 truncate px-4 py-2">
 									{#if teamView && row.user_id}
 										{@const name = memberName(row.user_id)}
@@ -529,7 +532,7 @@
 										<span class="badge badge-zinc" title="Beim Auftraggeber gebucht; ändern nur dort">vom Auftraggeber</span>
 									{:else if row.approved_at}
 										<span class="badge badge-green" title="Monat freigegeben; ändern erst nach Zurücknahme der Freigabe">freigegeben</span>
-									{:else}
+									{:else if mayChange(row)}
 										<div class="row-actions">
 											<button type="button" onclick={() => openEditDialog(row)} class="icon-btn icon-btn-blue" title={t('common.edit')} aria-label={t('common.edit')}>
 												<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" /></svg>

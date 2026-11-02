@@ -65,7 +65,8 @@
 				<stop offset="0" stop-color="#f87171" stop-opacity="0.24" /><stop offset="1" stop-color="#f87171" stop-opacity="0" />
 			</linearGradient>
 		</defs>
-		{#each [hi, (hi + lo) / 2, 0] as g (g)}
+		<!-- Keyed by position: hi = -lo makes the midline 0, a duplicate key that crashed the page. -->
+		{#each [hi, (hi + lo) / 2, 0] as g, i (i)}
 			<line x1={pad.l} x2={width - pad.r} y1={y(g)} y2={y(g)} class="stroke-zinc-200 dark:stroke-zinc-700/70" stroke-dasharray={g ? '2 4' : undefined} />
 		{/each}
 		{#key points}

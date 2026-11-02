@@ -7,6 +7,7 @@
 	import { onMount, tick } from 'svelte';
 	import { t } from '$lib/i18n';
 	import { commandPalette } from '$lib/ui/command.svelte';
+	import { can, isSub } from '$lib/session.svelte';
 	import { listCompanies } from '$lib/db/companies';
 	import { listCustomers } from '$lib/db/customers';
 	import { listInvoiceSearchItems, type InvoiceSearchItem } from '$lib/db/invoices';
@@ -61,7 +62,7 @@
 			if (companyId === undefined) return;
 			const [cs, inv] = await Promise.all([
 				listCustomers(companyId),
-				listInvoiceSearchItems(companyId)
+				can('invoices') ? listInvoiceSearchItems(companyId) : []
 			]);
 			customers = cs;
 			invoices = inv;
@@ -107,18 +108,19 @@
 		wasOpen = commandPalette.open;
 	});
 
-	const staticCommands = $derived<Command[]>([
-		{ id: 'nav-overview', label: t('nav.overview'), group: t('command.pages'), keywords: 'übersicht overview dashboard start', icon: ICONS.home, run: () => navTo('/uebersicht') },
-		{ id: 'nav-invoices', label: t('nav.invoices'), group: t('command.pages'), keywords: 'rechnungen invoices', icon: ICONS.invoice, run: () => navTo('/rechnungen') },
-		{ id: 'nav-incoming', label: t('nav.incomingInvoices'), group: t('command.pages'), keywords: 'eingehende rechnungen incoming bills lieferant', icon: ICONS.inbox, run: () => navTo('/eingehende-rechnungen') },
+	// Same visibility as the sidebar/pages: no entries that only lead to a 403.
+	const staticCommands = $derived<Command[]>(([
+		can('reports') && { id: 'nav-overview', label: t('nav.overview'), group: t('command.pages'), keywords: 'übersicht overview dashboard start', icon: ICONS.home, run: () => navTo('/uebersicht') },
+		can('invoices') && { id: 'nav-invoices', label: t('nav.invoices'), group: t('command.pages'), keywords: 'rechnungen invoices', icon: ICONS.invoice, run: () => navTo('/rechnungen') },
+		!isSub() && { id: 'nav-incoming', label: t('nav.incomingInvoices'), group: t('command.pages'), keywords: 'eingehende rechnungen incoming bills lieferant', icon: ICONS.inbox, run: () => navTo('/eingehende-rechnungen') },
 		{ id: 'nav-projects', label: t('nav.projects'), group: t('command.pages'), keywords: 'projekte projects', icon: ICONS.project, run: () => navTo('/projekte') },
 		{ id: 'nav-companies', label: t('nav.companies'), group: t('command.pages'), keywords: 'unternehmen companies kunden lieferanten customers', icon: ICONS.building, run: () => navTo('/unternehmen') },
 		{ id: 'nav-time', label: t('nav.timeTracking'), group: t('command.pages'), keywords: 'zeiterfassung time tracking stunden', icon: ICONS.clock, run: () => navTo('/zeiterfassung') },
 		{ id: 'nav-settings', label: t('nav.settings'), group: t('command.pages'), keywords: 'einstellungen settings konfiguration', icon: ICONS.cog, run: () => navTo('/einstellungen') },
-		{ id: 'act-new-invoice', label: t('command.newInvoice'), group: t('command.actions'), keywords: 'neue rechnung new invoice erstellen create', icon: ICONS.plus, run: () => navTo('/rechnungen/neu') },
-		{ id: 'act-new-company', label: t('command.newCustomer'), group: t('command.actions'), keywords: 'neues unternehmen kunde lieferant new customer company anlegen', icon: ICONS.plus, run: () => navTo('/unternehmen') },
+		can('invoices', 'edit') && { id: 'act-new-invoice', label: t('command.newInvoice'), group: t('command.actions'), keywords: 'neue rechnung new invoice erstellen create', icon: ICONS.plus, run: () => navTo('/rechnungen/neu') },
+		!isSub() && { id: 'act-new-company', label: t('command.newCustomer'), group: t('command.actions'), keywords: 'neues unternehmen kunde lieferant new customer company anlegen', icon: ICONS.plus, run: () => navTo('/unternehmen') },
 		{ id: 'act-time', label: t('command.newTimeEntry'), group: t('command.actions'), keywords: 'zeit erfassen time entry stunden', icon: ICONS.plus, run: () => navTo('/zeiterfassung') }
-	]);
+	] as (Command | false)[]).filter((c): c is Command => !!c));
 
 	const dynamicCommands = $derived<Command[]>([
 		...invoices.map((i) => ({

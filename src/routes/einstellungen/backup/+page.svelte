@@ -50,7 +50,7 @@
 	}
 
 	onMount(async () => {
-		s3 = await getS3Settings();
+		if (!cloud()) s3 = await getS3Settings();
 	});
 
 	let lastBackupFormatted = $derived(
@@ -156,6 +156,16 @@
 {/snippet}
 
 <div class="space-y-6">
+	<!-- Cloud mode: local backup, GoBD and S3 act on the local SQLite file (getDb refuses); only the export applies. -->
+	{#if cloud()}
+		<section class="card space-y-4 p-5">
+			<SectionHead eyebrow="Cloud" title={t('settings.cloudExportTitle')} desc={t('settings.cloudExportDesc')} />
+			<button type="button" onclick={handleCloudExport} disabled={cloudExportLoading} class="btn-primary">
+				{cloudExportLoading ? t('settings.gobdExporting') : t('settings.cloudExport')}
+			</button>
+			{#if cloudExportFeedback}{@render note(cloudExportFeedback, cloudExportFailed)}{/if}
+		</section>
+	{:else}
 	<section class="card space-y-4 p-5">
 		<SectionHead eyebrow="Lokal" title={t('settings.backupTitle')} desc={t('settings.backupDesc')} />
 		<div class="flex flex-wrap gap-2">
@@ -168,16 +178,6 @@
 		</div>
 		{#if feedback}{@render note(feedback, feedback.startsWith(t('common.error')))}{/if}
 	</section>
-
-	{#if cloud()}
-		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Cloud" title={t('settings.cloudExportTitle')} desc={t('settings.cloudExportDesc')} />
-			<button type="button" onclick={handleCloudExport} disabled={cloudExportLoading} class="btn-primary">
-				{cloudExportLoading ? t('settings.gobdExporting') : t('settings.cloudExport')}
-			</button>
-			{#if cloudExportFeedback}{@render note(cloudExportFeedback, cloudExportFailed)}{/if}
-		</section>
-	{/if}
 
 	<section class="card space-y-4 p-5">
 		<SectionHead eyebrow="Betriebsprüfung" title={t('settings.gobdTitle')} desc={t('settings.gobdDesc')} />
@@ -230,6 +230,7 @@
 			<div class="skeleton h-4 w-2/3"></div>
 		{/if}
 	</section>
+	{/if}
 </div>
 
 <Dialog open={pendingRestore !== null} title={t('settings.restore')} size="sm" onclose={() => (pendingRestore = null)}>

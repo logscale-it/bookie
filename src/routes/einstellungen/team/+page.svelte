@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { refreshMe } from '$lib/session.svelte';
+	import { can, refreshMe } from '$lib/session.svelte';
 	import { onMount } from 'svelte';
 	import TextInput from '../../../common/TextInput.svelte';
 	import CloudWorkContext from '../../../common/CloudWorkContext.svelte';
@@ -224,7 +224,7 @@
 			</section>
 		{/if}
 
-		{#if active && active.role !== 'subcontractor'}
+		{#if active && active.role !== 'subcontractor' && (can('team_time') || can('reports'))}
 			<section class="card space-y-3 p-5">
 				<SectionHead eyebrow="Zeiten" title="Stunden & Freigaben" />
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">

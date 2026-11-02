@@ -7,6 +7,7 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageForUnknown } from '$lib/shared/errors';
+	import { can } from '$lib/session.svelte';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
@@ -210,11 +211,22 @@
 		return path;
 	}
 
+	// Any failure (e.g. 403 on the recurring schedule) shows in the dialog and must not leave `saving` stuck.
 	async function addInvoice() {
 		const net = parseFloat(form.netAmount);
 		if (!form.invoiceDate || isNaN(net)) return;
 		saving = true;
 		uploadError = '';
+		try {
+			await saveInvoice(net);
+		} catch (e) {
+			uploadError = messageForUnknown(e);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function saveInvoice(net: number) {
 
 		const companyId = await ensureCompanyId();
 		const tax = parseFloat(form.taxAmount) || 0;
@@ -299,7 +311,6 @@
 		uploadFiles = null;
 		recurring = false;
 		showAddForm = false;
-		saving = false;
 		await loadData();
 	}
 
@@ -501,10 +512,13 @@
 			<div class="md:col-span-2">
 				<TextInput bind:value={form.notes} label={t('common.notes')} placeholder={t('incomingInvoices.optionalNotes')} />
 			</div>
-			<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 md:col-span-2 dark:text-zinc-200">
-				<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
-				{t('common.recurringMonthly')}
-			</label>
+			<!-- Schedules need incoming_invoices:edit (server recurring.ts); own uploads alone are not enough. -->
+			{#if can('incoming_invoices', 'edit')}
+				<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 md:col-span-2 dark:text-zinc-200">
+					<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
+					{t('common.recurringMonthly')}
+				</label>
+			{/if}
 		</div>
 		{#if uploadError}
 			<p class="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
@@ -580,17 +594,18 @@
 				<div>
 					{#each filteredInvoices as inv (inv.id)}
 						<div
+							data-testid="incoming-row"
 							class="data-row group {editingId === inv.id ? 'bg-accent-50/40 dark:bg-accent-900/10' : ''}"
 							style="grid-template-columns: {cols}; min-height: 48px"
 						>
 							{#if editingId === inv.id}
-								<div class="px-3 py-2"><input bind:value={editForm.invoiceNumber} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.invoiceNumber} aria-label={t('incomingInvoices.invoiceNumber')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
 								<div class="px-3 py-2">
-									<input bind:value={editForm.supplierName} list="supplier-names" class="input-base input-valid rounded-lg px-2 py-1" />
+									<input bind:value={editForm.supplierName} aria-label={t('incomingInvoices.supplier')} list="supplier-names" class="input-base input-valid rounded-lg px-2 py-1" />
 								</div>
-								<div class="px-3 py-2"><input type="date" bind:value={editForm.invoiceDate} class="input-base input-valid rounded-lg px-2 py-1" /></div>
-								<div class="px-3 py-2"><input bind:value={editForm.netAmount} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
-								<div class="px-3 py-2"><input bind:value={editForm.taxAmount} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
+								<div class="px-3 py-2"><input type="date" bind:value={editForm.invoiceDate} aria-label={t('incomingInvoices.invoiceDate')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.netAmount} aria-label={t('incomingInvoices.netAmount')} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.taxAmount} aria-label={t('incomingInvoices.taxAmount')} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
 								<div class="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">{editGrossAmount()} €</div>
 								<div class="px-3 py-2"></div>
 								<div class="px-3 py-2"></div>

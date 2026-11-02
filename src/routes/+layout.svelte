@@ -2,6 +2,7 @@
 	import '../app.css';
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
+	import EmptyState from '../common/EmptyState.svelte';
 	import { onMount } from 'svelte';
 	import { startAutoBackupScheduler } from '$lib/s3/auto-backup';
 	import { listCompanies } from '$lib/db/companies';
@@ -31,7 +32,7 @@
 	} from '$lib/diagnostics/boot';
 	import { createLogger } from '$lib/logger';
 	import { api, cloud, loadCloudToken, logout } from '$lib/cloud';
-	import { can, initials, loadSession, session } from '$lib/session.svelte';
+	import { can, initials, isSub, loadSession, session } from '$lib/session.svelte';
 	import Presence from '../common/Presence.svelte';
 	import { presence } from '$lib/presence.svelte';
 	import TimerWidget from '../common/TimerWidget.svelte';
@@ -179,6 +180,7 @@
 			get label() { return t('nav.incomingInvoices'); },
 			get shortLabel() { return t('nav.incomingShort'); },
 			href: '/eingehende-rechnungen',
+			show: () => !isSub(), // server forbids every receipt route for subcontractors
 			icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4'
 		},
 		{
@@ -218,6 +220,8 @@
 	const isActive = (href: string, pathname: string) => pathname === href || pathname.startsWith(`${href}/`);
 	// Cloud: hide areas the caller has no grant for (the server enforces it anyway).
 	const visibleNav = $derived(navItems.filter((i) => i.show?.() ?? true));
+	// Direct URL into a hidden area (bookmark, palette, link): show a notice instead of a page that only collects 403s.
+	const forbidden = $derived(navItems.some((i) => i.show && !i.show() && isActive(i.href, page.url.pathname)));
 
 	const ROLE_KEY = { admin: 'shell.roleAdmin', member: 'shell.roleMember', subcontractor: 'shell.roleSubcontractor' } as const;
 	const roleLabel = (role: keyof typeof ROLE_KEY) => t(ROLE_KEY[role]);
@@ -535,7 +539,11 @@
 				{/if}
 				<!-- Cloud: the "Neue Änderungen" pill bumps presence.reload; remounting reloads the page's data. -->
 				{#key presence.reload}
-					{@render children()}
+					{#if forbidden}
+						<EmptyState title="Keine Berechtigung für diesen Bereich" hint="Frag den Admin deiner Firma nach Zugriff." icon="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+					{:else}
+						{@render children()}
+					{/if}
 				{/key}
 			</div>
 		</main>

@@ -20,7 +20,8 @@
 	const ROLES: Record<team.Role, string> = { admin: 'Admin', member: 'Mitglied', subcontractor: 'Subunternehmer' };
 	const MESSAGES: Record<string, string> = {
 		invalid_input: 'Bitte einen Grund angeben.',
-		nothing_to_reject: 'In diesem Monat ist nichts mehr offen.'
+		nothing_to_reject: 'In diesem Monat ist nichts mehr offen.',
+		not_submitted: 'Der Monat wurde noch nicht (oder seit einer Änderung nicht erneut) zur Freigabe eingereicht.'
 	};
 	const message = (e: unknown) => (e instanceof CloudError && MESSAGES[e.code]) || messageForUnknown(e);
 	const hours = (min: number) => (min / 60).toLocaleString('de-DE', { maximumFractionDigits: 2 });
@@ -46,6 +47,9 @@
 	const online = $derived(new Set(presence.peers.map((p) => p.userId)));
 	// The selected month's open hours sit in the table; the card lists the other months.
 	const otherPending = $derived(pending.filter((p) => p.month !== month));
+	const submitted = (userId: number, m = month) => pending.some((p) => p.user_id === userId && p.month === m && p.submitted_at);
+	// Others' months only once handed in (server: not_submitted); own hours directly.
+	const approvable = (userId: number, m = month) => userId === session.me?.user.id || submitted(userId, m);
 
 	type Sum = { minutes: number; approved_minutes: number; invoiced_minutes: number };
 	const pct = (part: number, p: Sum) => `${p.minutes ? (part / p.minutes) * 100 : 0}%`;
@@ -231,6 +235,7 @@
 										<span class="bg-amber-400 transition-[width] duration-700 ease-spring" style:width={pct(p.minutes - p.approved_minutes, p)}></span>
 									</div>
 									<span class="badge {st.cls} mt-1.5">{st.label}</span>
+									{#if p.minutes > p.approved_minutes && submitted(p.user_id)}<span class="badge badge-blue mt-1.5">eingereicht</span>{/if}
 								</td>
 								<td class="px-3 py-2 text-right tabular-nums">{hours(p.minutes)}</td>
 								{#if money}
@@ -240,7 +245,11 @@
 								{#if canApprove}
 									<td class="whitespace-nowrap px-3 py-2 text-right">
 										{#if p.minutes > p.approved_minutes}
-											<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id)}>Freigeben</button>
+											{#if approvable(p.user_id)}
+												<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id)}>Freigeben</button>
+											{:else}
+												<span class="mr-1 text-xs text-zinc-500">noch nicht eingereicht</span>
+											{/if}
 											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => reject(p.user_id, p.user_name)}>Zurückgeben</button>
 										{:else if p.approved_minutes > p.invoiced_minutes}
 											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(false, p.user_id)}>Freigabe zurücknehmen</button>
@@ -287,9 +296,14 @@
 								<span>
 									<strong>{p.user_name}</strong> · {team.monthLabel(p.month)}
 									<span class="tabular-nums text-zinc-500">· {hours(p.minutes)} h in {p.entries} Einträgen</span>
+									{#if p.submitted_at}<span class="badge badge-blue ml-1">eingereicht</span>{/if}
 								</span>
 								<span class="flex gap-1.5 whitespace-nowrap">
-									<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id, p.month)}>Freigeben</button>
+									{#if approvable(p.user_id, p.month)}
+										<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id, p.month)}>Freigeben</button>
+									{:else}
+										<span class="self-center text-xs text-zinc-500">noch nicht eingereicht</span>
+									{/if}
 									<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => reject(p.user_id, p.user_name, p.month)}>Zurückgeben</button>
 								</span>
 							</li>

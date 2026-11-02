@@ -8,9 +8,12 @@
 	import { deferDelete } from '$lib/ui/undo';
 	import SectionHead from '../SectionHead.svelte';
 	import EmptyState from '../../../common/EmptyState.svelte';
+	import { can } from '$lib/session.svelte';
 
 	// Schedules are created from an invoice / incoming invoice ("monatlich");
 	// here they are listed, edited, paused and deleted.
+	// Server recurring.ts: changing a schedule needs edit on its area.
+	const mayEdit = (r: RecurringEntry) => can(r.kind === 'invoice' ? 'invoices' : 'incoming_invoices', 'edit');
 	const KINDS: Record<RecurringEntry['kind'], string> = {
 		invoice: 'recurring.kindInvoiceDraft',
 		incoming: 'recurring.kindIncomingInvoice'
@@ -139,10 +142,12 @@
 						<input type="checkbox" class="h-4 w-4 accent-accent-600" checked={!!r.active} onchange={(e) => (r.active = e.currentTarget.checked ? 1 : 0)} />
 						{t('recurring.statusActive')}
 					</label>
-					<div class="flex gap-2">
-						<button type="button" onclick={() => remove(r)} class="btn-secondary text-red-600 dark:text-red-400">{t('common.delete')}</button>
-						<button type="button" onclick={() => save(r)} class="btn-primary">{t('common.save')}</button>
-					</div>
+					{#if mayEdit(r)}
+						<div class="flex gap-2">
+							<button type="button" onclick={() => remove(r)} class="btn-secondary text-red-600 dark:text-red-400">{t('common.delete')}</button>
+							<button type="button" onclick={() => save(r)} class="btn-primary">{t('common.save')}</button>
+						</div>
+					{/if}
 				</div>
 			</div>
 		{/each}

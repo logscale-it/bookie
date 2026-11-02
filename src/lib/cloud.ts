@@ -121,7 +121,8 @@ async function request<T>(
   token?: string,
 ): Promise<T> {
   // Session / company switch: stamps of the previous company must not leak into the next.
-  if (method !== "GET" && !path.startsWith("/api/")) seen.clear();
+  // The local import rewrites company_settings: stamps loaded before it are stale.
+  if (method !== "GET" && (!path.startsWith("/api/") || path === "/api/import")) seen.clear();
   const expected = method === "PATCH" ? seen.get(path) : undefined;
   if (expected && body && typeof body === "object")
     body = { ...body, expected_updated_at: expected };

@@ -37,6 +37,10 @@ export function can(area: Area, level: "view" | "edit" = "view"): boolean {
   return g === "edit" || g === level;
 }
 
+/** Cloud role checks (false in local mode). Subcontractors only book time on assigned projects. */
+export const isSub = () => session.company?.role === "subcontractor";
+export const isAdmin = () => session.company?.role === "admin";
+
 /** Name of a company member by user id ("" when unknown, e.g. a removed member). */
 export const memberName = (id: number | null | undefined) =>
   _me?.active?.members.find((m) => m.id === id)?.name ?? "";

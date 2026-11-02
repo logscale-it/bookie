@@ -63,6 +63,8 @@ export type PendingRow = {
   month: string;
   minutes: number;
   entries: number;
+  /** Set when the member handed this month in and nobody approved or returned it since. */
+  submitted_at: string | null;
 };
 
 /** The caller's own hours (GET /api/me/hours). */
@@ -74,7 +76,7 @@ export type HoursRow = {
 };
 /** A month sent back by a team lead; null once approved again. */
 export type Rejection = { reason: string; at: string; by: string };
-export type MyHours = { projects: HoursRow[]; rejection: Rejection | null };
+export type MyHours = { projects: HoursRow[]; rejection: Rejection | null; submitted_at: string | null };
 
 /** A client project the caller works on as a subcontractor (GET /api/me/assignments). */
 export type Assignment = {
@@ -195,6 +197,9 @@ export const unapproveMonth = (userId: number, month: string) =>
     month,
   });
 
+/** The caller hands their own month in for approval. */
+export const submitMonth = (month: string) => api("/api/time-entries/submit", "POST", { month });
+
 /** Months with unapproved hours per member (needs team_time edit). */
 export const pendingApprovals = () => api<PendingRow[]>("/api/time-entries/pending");
 
@@ -305,6 +310,8 @@ export function describe(
     case "assign.remove": return `${who} hat ${whom} vom Projekt ${projectName(d.project_id)} abgezogen`;
     case "month.approve": return `${who} hat ${monthLabel(d.month)} von ${whom} freigegeben`;
     case "month.unapprove": return `${who} hat die Freigabe ${monthLabel(d.month)} von ${whom} zurückgenommen`;
+    case "month.submit": return `${who} hat ${monthLabel(d.month)} zur Freigabe eingereicht`;
+    case "month.withdraw": return `${who} hat ${monthLabel(d.month)} nach der Einreichung geändert (Einreichung zurückgezogen)`;
     case "month.reject": return `${who} hat ${monthLabel(d.month)} an ${whom} zurückgegeben: „${d.reason}“`;
     default: return `${who}: ${a.action}`;
   }
