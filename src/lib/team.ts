@@ -231,6 +231,42 @@ export const linkProject = (sourceProjectId: number, projectId: number) =>
 export const unlinkProject = (sourceProjectId: number) =>
   api(`/api/project-links/${sourceProjectId}`, "DELETE");
 
+/** A vacation request (bookie-server src/api/leave.ts). Never for subcontractors. */
+export type LeaveRequest = {
+  id: number;
+  user_id: number;
+  user_name: string;
+  start_date: string;
+  end_date: string;
+  note: string | null;
+  status: "pending" | "approved" | "rejected";
+  reason: string | null;
+  decided_at: string | null;
+  decided_by_name: string | null;
+  created_at: string;
+};
+
+/** Admin: the whole team's requests; everyone else: their own. */
+export const listLeave = () => api<LeaveRequest[]>("/api/leave");
+
+export const requestLeave = (start_date: string, end_date: string, note: string) =>
+  api<{ id: number }>("/api/leave", "POST", { start_date, end_date, note });
+
+/** Own request, any status; to change a period delete it and request anew. */
+export const deleteLeave = (id: number) => api(`/api/leave/${id}`, "DELETE");
+
+/** Admin only; rejecting needs a reason (mailed to the person). */
+export const decideLeave = (id: number, approve: boolean, reason = "") =>
+  api<{ ok: true; status: LeaveRequest["status"] }>(`/api/leave/${id}/decision`, "POST", { approve, reason });
+
+/** Mon–Fri between two YYYY-MM-DD days, both included. ponytail: ignores public holidays; add a per-country list when someone books leave over one. */
+export function workdays(start: string, end: string): number {
+  let n = 0;
+  for (let d = new Date(`${start}T00:00:00Z`); d <= new Date(`${end}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1))
+    if (d.getUTCDay() % 6) n++;
+  return n;
+}
+
 export type TeamSummary = {
   user_id: number;
   user_name: string;
@@ -275,6 +311,10 @@ export function summarize(rows: TeamRow[]): TeamSummary[] {
 export const monthLabel = (month: string) =>
   new Date(`${month}-01T00:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
 
+/** "2026-12-21" -> "21.12.2026" */
+export const dayLabel = (day: string) =>
+  new Date(`${day}T00:00:00`).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+
 const AREA_NAMES: Record<Area, string> = {
   invoices: "Rechnungen",
   incoming_invoices: "Eingangsrechnungen",
@@ -313,6 +353,10 @@ export function describe(
     case "month.submit": return `${who} hat ${monthLabel(d.month)} zur Freigabe eingereicht`;
     case "month.withdraw": return `${who} hat ${monthLabel(d.month)} nach der Einreichung geändert (Einreichung zurückgezogen)`;
     case "month.reject": return `${who} hat ${monthLabel(d.month)} an ${whom} zurückgegeben: „${d.reason}“`;
+    case "leave.request": return `${who} hat Urlaub vom ${dayLabel(d.start_date)} bis ${dayLabel(d.end_date)} beantragt`;
+    case "leave.delete": return `${who} hat ${d.status === "approved" ? "den genehmigten Urlaub" : "den Urlaubsantrag"} ${dayLabel(d.start_date)} – ${dayLabel(d.end_date)} gelöscht`;
+    case "leave.approve": return `${who} hat den Urlaub von ${whom} (${dayLabel(d.start_date)} – ${dayLabel(d.end_date)}) genehmigt`;
+    case "leave.reject": return `${who} hat den Urlaub von ${whom} (${dayLabel(d.start_date)} – ${dayLabel(d.end_date)}) abgelehnt: „${d.reason}“`;
     default: return `${who}: ${a.action}`;
   }
 }

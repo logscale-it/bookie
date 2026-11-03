@@ -12,6 +12,7 @@ export default {
     timeTracking: "Time Tracking",
     timeTrackingShort: "Time",
     team: "Team",
+    leave: "Time off",
     settings: "Settings",
     settingsShort: "Settings",
   },
