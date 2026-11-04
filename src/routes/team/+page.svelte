@@ -6,6 +6,7 @@
 	import { can, session } from '$lib/session.svelte';
 	import { onMount } from 'svelte';
 	import { cloud, CloudError } from '$lib/cloud';
+	import CloudTeaser from '../../common/CloudTeaser.svelte';
 	import { listProjects } from '$lib/db/projects';
 	import { formatCents } from '$lib/shared/money';
 	import { messageForUnknown } from '$lib/shared/errors';
@@ -156,9 +157,14 @@
 </script>
 
 {#if !isCloud}
-	<section class="card">
-		<p class="text-sm">Die Teamübersicht ist nur mit bookie Cloud verfügbar.</p>
-	</section>
+	<CloudTeaser
+		title="Team"
+		points={[
+			'Kolleginnen, Mitarbeiter und Subunternehmer per E-Mail einladen, mit Rechten je Bereich',
+			'Stunden pro Person und Projekt auf einen Blick',
+			'Monatliche Freigabe der Zeiten, freigegebene Einträge gehen direkt in die Rechnung'
+		]}
+	/>
 {:else}
 	<section class="space-y-6">
 		<header class="flex flex-wrap items-end justify-between gap-3">

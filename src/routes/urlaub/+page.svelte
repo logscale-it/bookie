@@ -7,6 +7,7 @@
 	import { fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { cloud, CloudError } from '$lib/cloud';
+	import CloudTeaser from '../../common/CloudTeaser.svelte';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import * as team from '$lib/team';
 	import Dialog from '../../common/Dialog.svelte';
@@ -120,9 +121,14 @@
 </script>
 
 {#if !isCloud}
-	<section class="card">
-		<p class="text-sm">Urlaubsanträge gibt es nur mit bookie Cloud für Mitarbeiter.</p>
-	</section>
+	<CloudTeaser
+		title="Urlaub"
+		points={[
+			'Mitarbeiter beantragen Urlaub direkt in bookie, Arbeitstage werden automatisch gezählt',
+			'Du genehmigst oder lehnst mit Begründung ab, alle bekommen eine Mail',
+			'Überschneidungen im Team sofort sichtbar'
+		]}
+	/>
 {:else}
 	<section class="space-y-8">
 		<header class="flex flex-wrap items-end justify-between gap-4">

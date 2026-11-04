@@ -255,6 +255,11 @@ export type Me = {
     id: number;
     name: string;
     role: "admin" | "member" | "subcontractor";
+    /** True while subscribed or in the trial. */
     paid: boolean;
+    /** Set during the card-free trial without a subscription yet. */
+    trialEndsAt?: string | null;
   }[];
+  /** Open invitations to this address; accept by id (/api/invitations/accept). */
+  invitations?: { id: number; company: string; role: "member" | "subcontractor" }[];
 };

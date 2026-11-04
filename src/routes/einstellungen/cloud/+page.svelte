@@ -11,7 +11,9 @@
 
 	const MESSAGES: Record<string, string> = {
 		invalid_credentials: 'E-Mail oder Passwort falsch.',
-		email_unverified: 'E-Mail-Adresse noch nicht bestätigt. Wir haben den Link erneut gesendet.',
+		email_unverified:
+			'E-Mail-Adresse noch nicht bestätigt. Klicke auf den Link in unserer Mail (auch im Spam-Ordner nachsehen).',
+		terms_required: 'Bitte AGB und Auftragsverarbeitungsvertrag akzeptieren.',
 		invalid_code: '2FA-Code ungültig.',
 		too_many_requests: 'Zu viele Versuche, bitte später erneut probieren.',
 		session_expired: 'Sitzung abgelaufen, bitte neu anmelden.',
@@ -34,8 +36,13 @@
 	const initial = cloud();
 	const saved = initial ?? savedAccount();
 	let session = $state(initial);
-	let mode = $state<'login' | 'register' | 'forgot'>('login');
-	let url = $state(saved?.url ?? 'https://bookie.logscale-it.com');
+	// verify: registered, waiting for the mail link; signs in by itself on return.
+	// ?neu=1 (cloud teasers on Team / Urlaub, settings card) opens the signup.
+	let mode = $state<'login' | 'register' | 'forgot' | 'verify'>('login');
+	const DEFAULT_URL = 'https://bookie.logscale-it.com';
+	let url = $state(saved?.url ?? DEFAULT_URL);
+	// Self-hosted / test servers only: hidden unless asked for or already in use.
+	let customServer = $state((saved?.url ?? DEFAULT_URL) !== DEFAULT_URL);
 	let email = $state(saved?.email ?? '');
 	let name = $state('');
 	let password = $state('');
@@ -44,6 +51,7 @@
 	let code = $state('');
 	let needsCode = $state(false);
 	let companyName = $state('');
+	let terms = $state(false);
 	let inviteToken = $state('');
 	let me = $state<Me | null>(null);
 	let busy = $state(false);
@@ -54,6 +62,7 @@
 	const active = $derived(me?.companies.find((c) => c.id === me?.activeCompanyId));
 
 	onMount(async () => {
+		if (!session && new URLSearchParams(location.search).has('neu')) mode = 'register'; // not at prerender
 		if (session) await run(loadMe);
 	});
 
@@ -82,6 +91,7 @@
 	const signIn = () =>
 		run(async () => {
 			if ((await login(url, email, password, needsCode ? code : undefined)) === 'mfa') {
+				mode = 'login';
 				needsCode = true;
 				return;
 			}
@@ -91,14 +101,29 @@
 			location.reload();
 		});
 
+	// The company (with the 14-day trial) is set up by the server at the first sign-in.
 	const register = () =>
 		run(async () => {
-			await publicApi(url, '/auth/register', { email, name, password });
-			password = password2 = '';
-			mode = 'login';
-			notice =
-				'Fast geschafft: Bitte bestätige deine E-Mail über den Link, den wir dir geschickt haben, und melde dich dann an.';
+			await publicApi(url, '/auth/register', {
+				email,
+				name,
+				password,
+				...(companyName.trim() ? { company: companyName.trim(), terms } : {})
+			});
+			password2 = '';
+			mode = 'verify';
+			notice = '';
 		});
+	// Back from the browser after clicking the mail link: try quietly, stay put while unverified.
+	async function verifiedYet() {
+		try {
+			if ((await login(url, email, password)) === 'mfa') return void (mode = 'login', (needsCode = true));
+			localStorage.removeItem(IMPORTED);
+			location.reload();
+		} catch {
+			// still unverified (or offline): the button retries with a visible error
+		}
+	}
 
 	const forgot = () =>
 		run(async () => {
@@ -114,9 +139,18 @@
 
 	const createCompany = () =>
 		run(async () => {
-			await api('/companies', 'POST', { name: companyName });
+			await api('/companies', 'POST', { name: companyName, terms });
 			me = await refreshMe();
+			if (active?.paid) await importLocal(active, true); // trial: move the local data in right away
 		});
+	// Open invitations to this address (from /me): join without pasting the mail link.
+	const joinInvited = (id: number) =>
+		run(async () => {
+			await api('/api/invitations/accept', 'POST', { id });
+			location.reload();
+		});
+	const legal = (path: string) => openUrl(`${url.replace(/\/+$/, '')}${path}`);
+	const trialEnd = (iso: string) => new Date(iso).toLocaleDateString('de-DE');
 
 	// The server switches the session to the invited company: reload like a company switch.
 	const acceptInvite = () =>
@@ -198,11 +232,24 @@
 
 	// Back from the Stripe page in the browser: pick up the new subscription status.
 	const onFocus = () => {
+		if (!session && mode === 'verify' && !busy) void verifiedYet();
 		if (session && !busy) loadMe().catch(() => (session = cloud()));
 	};
 </script>
 
 <svelte:window onfocus={onFocus} />
+
+{#snippet termsBox()}
+	<label class="flex items-start gap-2 text-sm">
+		<input type="checkbox" class="mt-1" bind:checked={terms} />
+		<span>
+			Ich bestelle als Unternehmer (§ 14 BGB) und akzeptiere die
+			<button type="button" class="text-accent-600 hover:underline dark:text-accent-400" onclick={() => legal('/agb')}>AGB</button>
+			und den
+			<button type="button" class="text-accent-600 hover:underline dark:text-accent-400" onclick={() => legal('/avv')}>Auftragsverarbeitungsvertrag</button>.
+		</span>
+	</label>
+{/snippet}
 
 <section class="card space-y-4">
 	<h2 class="text-base font-semibold">bookie Cloud</h2>
@@ -213,13 +260,30 @@
 		wieder da.
 	</p>
 
-	{#if !session}
+	{#if !session && mode === 'verify'}
+		<div class="space-y-3">
+			<p class="text-sm">
+				Fast geschafft: Wir haben dir eine E-Mail an <strong>{email}</strong> geschickt. Klicke auf den
+				Link darin und komm hierher zurück, die Anmeldung läuft dann von selbst.
+			</p>
+			<div class="flex flex-wrap gap-3">
+				<button class="btn-primary" onclick={signIn} disabled={busy}>Ich habe bestätigt</button>
+				<button class="btn-secondary" onclick={() => switchMode('login')}>Zurück</button>
+			</div>
+		</div>
+	{:else if !session}
+		{#if mode === 'register'}
+			<div class="rounded-lg bg-accent-500/10 p-3 text-sm ring-1 ring-accent-600/15">
+				<strong>14 Tage kostenlos testen</strong>, ohne Kreditkarte. Danach 5 € pro Platz und Monat,
+				monatlich kündbar. Deine lokalen Daten ziehen beim ersten Anmelden automatisch mit um.
+			</div>
+		{/if}
 		<div class="grid gap-3 md:grid-cols-2">
-			<TextInput bind:value={url} label="Server" placeholder="https://bookie.logscale-it.com" />
-			<TextInput bind:value={email} label="E-Mail" type="email" />
 			{#if mode === 'register'}
+				<TextInput bind:value={companyName} label="Firma" placeholder="Leer lassen, wenn du eingeladen wurdest" />
 				<TextInput bind:value={name} label="Name" />
 			{/if}
+			<TextInput bind:value={email} label="E-Mail" type="email" />
 			{#if mode !== 'forgot'}
 				<TextInput
 					bind:value={password}
@@ -237,6 +301,22 @@
 				<TextInput bind:value={code} label="2FA-Code oder Wiederherstellungscode" />
 			{/if}
 		</div>
+		{#if mode === 'register' && companyName.trim()}
+			{@render termsBox()}
+		{/if}
+		{#if customServer}
+			<div class="max-w-md">
+				<TextInput bind:value={url} label="Server" placeholder={DEFAULT_URL} />
+			</div>
+		{:else}
+			<button
+				type="button"
+				class="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+				onclick={() => (customServer = true)}
+			>
+				Eigener Server…
+			</button>
+		{/if}
 		<div class="flex flex-wrap items-center gap-3">
 			{#if mode === 'login'}
 				<button class="btn-primary" onclick={signIn} disabled={busy || !url || !email || !password}>
@@ -250,7 +330,13 @@
 				<button
 					class="btn-primary"
 					onclick={register}
-					disabled={busy || !url || !email || !name.trim() || password.length < 12 || password !== password2}
+					disabled={busy ||
+						!url ||
+						!email ||
+						!name.trim() ||
+						password.length < 12 ||
+						password !== password2 ||
+						(!!companyName.trim() && !terms)}
 				>
 					Registrieren
 				</button>
@@ -264,13 +350,36 @@
 		</div>
 	{:else}
 		<p class="text-sm">Angemeldet als <strong>{session.email}</strong> bei {session.url}</p>
+		{#if me?.invitations?.length}
+			<div class="space-y-2 rounded-lg bg-accent-500/10 p-3 ring-1 ring-accent-600/15">
+				<h3 class="text-sm font-semibold">Offene Einladungen</h3>
+				{#each me.invitations as inv (inv.id)}
+					<div class="flex flex-wrap items-center justify-between gap-3" data-testid="invitation-row">
+						<span class="text-sm">
+							<strong>{inv.company}</strong> · {inv.role === 'subcontractor' ? 'Subunternehmer' : 'Mitglied'}
+						</span>
+						<button class="btn-primary" onclick={() => joinInvited(inv.id)} disabled={busy}>
+							Beitreten
+						</button>
+					</div>
+				{/each}
+			</div>
+		{/if}
 		{#if me && !active}
 			<div class="flex flex-wrap items-end gap-3">
 				<TextInput bind:value={companyName} label="Firma anlegen" />
-				<button class="btn-primary" onclick={createCompany} disabled={busy || !companyName.trim()}>
+				<button
+					class="btn-primary"
+					onclick={createCompany}
+					disabled={busy || !companyName.trim() || !terms}
+				>
 					Anlegen
 				</button>
 			</div>
+			{@render termsBox()}
+			<p class="text-sm text-zinc-500 dark:text-zinc-400">
+				Neue Firmen starten mit 14 Tagen kostenloser Testphase, ohne Kreditkarte.
+			</p>
 			<p class="text-sm text-zinc-500 dark:text-zinc-400">Oder einer Firma beitreten, die dich eingeladen hat:</p>
 			<div class="flex flex-wrap items-end gap-3">
 				<TextInput bind:value={inviteToken} label="Einladungslink oder Code" />
@@ -297,12 +406,16 @@
 			{/if}
 			<p class="text-sm">
 				Firma: <strong>{active.name}</strong> ·
-				{active.paid ? 'Abo aktiv' : 'Kein aktives Abo'}{#if me.active}
+				{active.trialEndsAt
+					? `Testphase bis ${trialEnd(active.trialEndsAt)}`
+					: active.paid
+						? 'Abo aktiv'
+						: 'Kein aktives Abo'}{#if me.active}
 					· {me.active.seats} {me.active.seats === 1 ? 'Platz' : 'Plätze'} à 5 €/Monat{/if}
 			</p>
 			<div class="flex flex-wrap gap-3">
 				{#if active.role === 'admin'}
-					{#if active.paid}
+					{#if active.paid && !active.trialEndsAt}
 						<button
 							class="btn-secondary"
 							onclick={() => openBilling('/billing/portal')}
