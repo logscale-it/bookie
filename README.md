@@ -28,6 +28,7 @@ A free, offline alternative to subscription invoicing tools like lexoffice or se
 - 📊 Dashboard for revenue and profit/loss
 - ⏱ Built-in time tracking
 - 💾 Backups, with optional S3 sync
+- ☁️ Optional cloud mode for teams: shared data, roles, monthly time approval
 - 🪶 Tiny: ~6 MB, built with Tauri + Svelte
 
 <p align="center"><img src="docs/screenshots/new-invoice-pdf-preview.jpg" alt="Creating an invoice with PDF preview" width="800"></p>
@@ -50,18 +51,35 @@ Bookie is not yet code-signed, so your OS may warn you. The app is open source a
 - **macOS (Gatekeeper):** right-click the app → **Open** → **Open**. Or: System Settings → Privacy & Security → scroll down → **Open Anyway**.
 - **Linux:** `chmod +x Bookie*.AppImage`, then run it.
 
+## Cloud mode (optional)
+
+Bookie stays fully usable offline. If you work as a team, you can sign in to a bookie server under **Einstellungen → Cloud** and work on the same company data together:
+
+- 👥 Team with roles (admin, member, subcontractor), per-area rights (view / edit) and email invitations
+- ⏱ Monthly time approval: members hand in a month, a lead approves or returns it; approved entries are locked and can be invoiced
+- 🟢 Live presence, an activity feed, and a hint when a teammate has the same record open
+- 🧾 Invoices, payments, storno, incoming invoices with receipts, recurring entries and reports all run against the server
+- 🔐 Two-factor authentication; the session token is kept in the OS keyring
+- 📦 One-time move of your local data (including receipt files) into an empty cloud company; your local file stays untouched and is back when you sign out
+- 💾 Cloud export of all company data and receipts, also without an active subscription
+
+Billed per seat (5 €/month). Without signing in, nothing leaves your machine.
+
+<p align="center"><img src="docs/screenshots/cloud-team.jpg" alt="Team page in cloud mode with hours per person and monthly approvals" width="800"></p>
+
 ## Screenshots
 
 | | |
 |---|---|
-| ![Incoming invoices](docs/screenshots/incoming-invoices.jpg) | ![Time tracking and timesheets](docs/screenshots/time-tracking-timesheet.jpg) |
-| ![Settings: organisation](docs/screenshots/settings-organisation.jpg) | |
+| ![Incoming invoices](docs/screenshots/incoming-invoices.jpg) | ![Time tracking](docs/screenshots/time-tracking-timesheet.jpg) |
+| ![Settings: organisation](docs/screenshots/settings-organisation.jpg) | ![Team in cloud mode](docs/screenshots/cloud-team.jpg) |
+
+_Screenshots show sample data (Muster GmbH, example.com)._
 
 ## Roadmap
 
 - E-Rechnung (XRechnung / ZUGFeRD): receiving and creating, in progress, see [docs/e-rechnung-status.md](docs/e-rechnung-status.md)
 - English UI and more jurisdictions, see the open issues labelled `help wanted`
-- _Planned:_ a managed cloud version for a small fee. It would offer the same features as the S3 backup without setting up your own bucket.
 
 ## Development
 

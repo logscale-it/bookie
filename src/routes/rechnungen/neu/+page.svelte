@@ -147,22 +147,18 @@
 </script>
 
 <section class="space-y-6">
-	<header class="flex items-center justify-between">
-		<div>
-			<h1 class="text-2xl font-semibold tracking-tight">{t('invoices.newTitle')}</h1>
-			<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('invoices.newSubtitle')}</p>
-		</div>
-		<a
-			href="/rechnungen"
-			class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700"
-		>
-			{t('common.back')}
+	<header class="space-y-1.5">
+		<a href="/rechnungen" class="inline-flex items-center gap-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100">
+			<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+			{t('invoices.title')}
 		</a>
+		<h1 class="page-header">{t('invoices.newTitle')}</h1>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('invoices.newSubtitle')}</p>
 	</header>
 
 	{#if cloud()}
 		<details class="card space-y-3">
-			<summary class="cursor-pointer text-sm font-medium">Rechnung aus Zeiteinträgen</summary>
+			<summary class="cursor-pointer text-sm font-medium marker:text-zinc-400">Rechnung aus Zeiteinträgen</summary>
 			<p class="text-xs text-zinc-500 dark:text-zinc-400">
 				Übernommen werden nur freigegebene, abrechenbare Zeiteinträge, die noch auf keiner Rechnung stehen
 				— eine Position pro Eintrag zum Stundensatz des Projekts (19 % USt). Es entsteht ein Entwurf, den du vor dem Ausstellen prüfen kannst.
@@ -201,7 +197,7 @@
 	{/if}
 
 	<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 dark:text-zinc-200">
-		<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
+		<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300 accent-accent-600" />
 		{t('common.recurringMonthly')}
 	</label>
 

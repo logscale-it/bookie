@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { refreshMe } from '$lib/session.svelte';
 	import { onMount } from 'svelte';
 	import { openUrl } from '@tauri-apps/plugin-opener';
 	import TextInput from '../../../common/TextInput.svelte';
 	import Security from './Security.svelte';
 	import { api, cloud, CloudError, keyringError, login, logout, publicApi, savedAccount, type Me } from '$lib/cloud';
 	import { messageForUnknown } from '$lib/shared/errors';
+	import { acceptInvitation } from '$lib/team';
 	import { countsOf, pushImport, pushOrganization, pushReceipts, readLocalImport, SKIPPED, type ReceiptProgress } from '$lib/cloud-import';
 
 	const MESSAGES: Record<string, string> = {
@@ -18,6 +20,9 @@
 		admin_only: 'Nur Firmen-Admins können das Abo verwalten.',
 		no_subscription: 'Für diese Firma gibt es noch kein Abo.',
 		already_subscribed: 'Für diese Firma besteht bereits ein Abo.',
+		invalid_token: 'Einladung ungültig oder abgelaufen.',
+		wrong_account: 'Die Einladung gilt für eine andere E-Mail-Adresse.',
+		already_member: 'Du bist bereits Mitglied dieser Firma.',
 		totp_already_enabled: '2FA ist bereits aktiv.',
 		totp_not_enabled: '2FA ist nicht aktiv.',
 		company_not_empty:
@@ -34,10 +39,12 @@
 	let email = $state(saved?.email ?? '');
 	let name = $state('');
 	let password = $state('');
+	let password2 = $state('');
 	let notice = $state('');
 	let code = $state('');
 	let needsCode = $state(false);
 	let companyName = $state('');
+	let inviteToken = $state('');
 	let me = $state<Me | null>(null);
 	let busy = $state(false);
 	let error = $state(
@@ -51,7 +58,7 @@
 	});
 
 	const loadMe = async () => {
-		me = await api<Me>('/me');
+		me = await refreshMe();
 		const a = me.companies.find((c) => c.id === me?.activeCompanyId);
 		// Switching to the cloud moves the local data along: automatically into the first
 		// paid company this device administers (the button covers any further company).
@@ -87,7 +94,7 @@
 	const register = () =>
 		run(async () => {
 			await publicApi(url, '/auth/register', { email, name, password });
-			password = '';
+			password = password2 = '';
 			mode = 'login';
 			notice =
 				'Fast geschafft: Bitte bestätige deine E-Mail über den Link, den wir dir geschickt haben, und melde dich dann an.';
@@ -108,7 +115,14 @@
 	const createCompany = () =>
 		run(async () => {
 			await api('/companies', 'POST', { name: companyName });
-			me = await api<Me>('/me');
+			me = await refreshMe();
+		});
+
+	// The server switches the session to the invited company: reload like a company switch.
+	const acceptInvite = () =>
+		run(async () => {
+			await acceptInvitation(inviteToken);
+			location.reload();
 		});
 
 	// Every page loads its data on mount, so a company switch reloads the app.
@@ -213,6 +227,12 @@
 					type="password"
 				/>
 			{/if}
+			{#if mode === 'register'}
+				<TextInput bind:value={password2} label="Passwort wiederholen" type="password" />
+				{#if password2 && password2 !== password}
+					<p class="text-sm text-red-600 md:col-span-2">Die Passwörter stimmen nicht überein.</p>
+				{/if}
+			{/if}
 			{#if mode === 'login' && needsCode}
 				<TextInput bind:value={code} label="2FA-Code oder Wiederherstellungscode" />
 			{/if}
@@ -230,7 +250,7 @@
 				<button
 					class="btn-primary"
 					onclick={register}
-					disabled={busy || !url || !email || !name.trim() || password.length < 12}
+					disabled={busy || !url || !email || !name.trim() || password.length < 12 || password !== password2}
 				>
 					Registrieren
 				</button>
@@ -249,6 +269,13 @@
 				<TextInput bind:value={companyName} label="Firma anlegen" />
 				<button class="btn-primary" onclick={createCompany} disabled={busy || !companyName.trim()}>
 					Anlegen
+				</button>
+			</div>
+			<p class="text-sm text-zinc-500 dark:text-zinc-400">Oder einer Firma beitreten, die dich eingeladen hat:</p>
+			<div class="flex flex-wrap items-end gap-3">
+				<TextInput bind:value={inviteToken} label="Einladungslink oder Code" />
+				<button class="btn-primary" onclick={acceptInvite} disabled={busy || !inviteToken.trim()}>
+					Annehmen
 				</button>
 			</div>
 		{:else if me && active}
@@ -270,7 +297,8 @@
 			{/if}
 			<p class="text-sm">
 				Firma: <strong>{active.name}</strong> ·
-				{active.paid ? 'Abo aktiv' : 'Kein aktives Abo'}
+				{active.paid ? 'Abo aktiv' : 'Kein aktives Abo'}{#if me.active}
+					· {me.active.seats} {me.active.seats === 1 ? 'Platz' : 'Plätze'} à 5 €/Monat{/if}
 			</p>
 			<div class="flex flex-wrap gap-3">
 				{#if active.role === 'admin'}

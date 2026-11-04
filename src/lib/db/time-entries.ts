@@ -26,18 +26,43 @@ export interface PageResult<T> {
 
 export async function listTimeEntries(
   companyId: number,
-  opts?: { limit?: number; offset?: number },
+  opts?: {
+    limit?: number;
+    offset?: number;
+    customerId?: number | null;
+    projectId?: number | null;
+    /** Cloud only: entries of one member. */
+    userId?: number | null;
+  },
 ): Promise<PageResult<TimeEntry>> {
   // COUNT(*) OVER() computes the total in a single pass without a second round-trip.
   const limit = opts?.limit ?? 200;
   const offset = opts?.offset ?? 0;
-  if (cloud()) return remote.page(limit, offset);
+  const customerId = opts?.customerId ?? null;
+  const projectId = opts?.projectId ?? null;
+  const userId = opts?.userId ?? null;
+  if (cloud()) {
+    if (customerId == null && projectId == null && userId == null) return remote.page(limit, offset);
+    // ponytail: filters client-side over the full list; move to server query params if lists get big.
+    const all = (await remote.list())
+      .filter(
+        (e) =>
+          (customerId == null || e.customer_id === customerId) &&
+          (projectId == null || e.project_id === projectId) &&
+          (userId == null || e.user_id === userId),
+      )
+      .sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+    return { rows: all.slice(offset, offset + limit), totalCount: all.length };
+  }
   const db = await getDb();
   const raw = await db.select<(TimeEntry & { _total_count: number })[]>(
     `SELECT *, COUNT(*) OVER() AS _total_count
-     FROM time_entries WHERE company_id = $1
+     FROM time_entries
+     WHERE company_id = $1
+       AND ($4 IS NULL OR customer_id = $4)
+       AND ($5 IS NULL OR project_id = $5)
      ORDER BY entry_date DESC LIMIT $2 OFFSET $3`,
-    [companyId, limit, offset],
+    [companyId, limit, offset, customerId, projectId],
   );
   const totalCount = raw.length > 0 ? raw[0]._total_count : 0;
   const rows = raw.map(({ _total_count: _, ...rest }) => rest as TimeEntry);
@@ -47,14 +72,15 @@ export async function listTimeEntries(
 /** Unpaginated, filtered in SQL. entry_date is ISO `YYYY-MM-DD`, so string compare is a date compare. */
 export async function listTimesheetEntries(
   companyId: number,
-  filter: { from?: string; to?: string; customerId?: number | null } = {},
+  filter: { from?: string; to?: string; customerId?: number | null; projectId?: number | null } = {},
 ): Promise<TimeEntry[]> {
   if (cloud()) {
     return (await remote.list()).filter(
       (e) =>
         (!filter.from || e.entry_date >= filter.from) &&
         (!filter.to || e.entry_date <= filter.to) &&
-        (filter.customerId == null || e.customer_id === filter.customerId),
+        (filter.customerId == null || e.customer_id === filter.customerId) &&
+        (filter.projectId == null || e.project_id === filter.projectId),
     );
   }
   const db = await getDb();
@@ -64,12 +90,14 @@ export async function listTimesheetEntries(
        AND ($2 IS NULL OR entry_date >= $2)
        AND ($3 IS NULL OR entry_date <= $3)
        AND ($4 IS NULL OR customer_id = $4)
+       AND ($5 IS NULL OR project_id = $5)
      ORDER BY entry_date DESC`,
     [
       companyId,
       filter.from || null,
       filter.to || null,
       filter.customerId ?? null,
+      filter.projectId ?? null,
     ],
   );
 }

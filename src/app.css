@@ -6,25 +6,95 @@
    users keep dark mode by default. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Geist (SIL OFL, static/fonts/GEIST-LICENSE.txt), bundled so the offline
+   desktop app never fetches fonts. */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+/* Design tokens. `accent` is the single brand colour: use `bg-accent`,
+   `text-accent-600` etc. instead of hardcoding blue, so a rebrand is one edit. */
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-accent-50: var(--color-blue-50);
+  --color-accent-100: var(--color-blue-100);
+  --color-accent-200: var(--color-blue-200);
+  --color-accent-300: var(--color-blue-300);
+  --color-accent-400: var(--color-blue-400);
+  --color-accent-500: var(--color-blue-500);
+  --color-accent-600: var(--color-blue-600);
+  --color-accent-700: var(--color-blue-700);
+  --color-accent-800: var(--color-blue-800);
+  --color-accent-900: var(--color-blue-900);
+  --color-accent: var(--color-accent-600);
+
+  /* Motion: spring-like curves. Use `ease-spring` / `ease-out-expo` with
+     Tailwind duration utilities; never `linear`/`ease-in-out` for UI motion. */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --shadow-soft: 0 1px 2px rgb(24 24 27 / 0.04), 0 8px 24px -12px rgb(24 24 27 / 0.12);
+  --shadow-float: 0 2px 6px rgb(24 24 27 / 0.06), 0 24px 48px -16px rgb(24 24 27 / 0.25);
+
+  --animate-shimmer: shimmer 1.6s var(--ease-spring) infinite;
+  --animate-pop: pop 420ms var(--ease-out-expo) both;
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @keyframes pop {
+    0% { transform: scale(0.96); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+}
+
+@layer base {
+  html {
+    font-feature-settings: "ss01", "cv11";
+  }
+  /* Money and ids line up in columns everywhere. */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+    }
+  }
+}
+
 @layer components {
   /* ---- Buttons -------------------------------------------------------- */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 active:translate-y-px disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition duration-200 ease-spring hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/50 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-600 dark:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-700;
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition duration-200 ease-spring hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-600 dark:bg-transparent dark:text-zinc-200 dark:hover:bg-zinc-700;
   }
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 active:translate-y-px disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition duration-200 ease-spring hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/50 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50;
   }
 
   /* Compact square icon button for inline row actions. Variants tint the
      icon + hover background while keeping the same footprint. */
   .icon-btn {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:pointer-events-none disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100;
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-zinc-500 transition duration-200 ease-spring hover:bg-zinc-100 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 disabled:pointer-events-none disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100;
   }
   .icon-btn-blue {
-    @apply hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/30 dark:hover:text-blue-300;
+    @apply hover:bg-accent-50 hover:text-accent-700 dark:hover:bg-accent-900/30 dark:hover:text-accent-300;
   }
   .icon-btn-danger {
     @apply hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/30 dark:hover:text-red-300;
@@ -32,7 +102,16 @@
 
   /* ---- Surfaces ------------------------------------------------------- */
   .card {
-    @apply rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40;
+    @apply rounded-xl border border-zinc-200/80 bg-white p-4 shadow-soft dark:border-zinc-700/70 dark:bg-zinc-800/40 dark:shadow-none;
+  }
+
+  /* Double bezel: a machined tray (outer) holding a plate (inner). Only for
+     hero surfaces (KPI tiles); plain data cards stay `.card`. */
+  .bezel {
+    @apply rounded-2xl bg-zinc-900/[0.035] p-1 ring-1 ring-zinc-900/5 dark:bg-white/[0.04] dark:ring-white/10;
+  }
+  .bezel-core {
+    @apply rounded-[calc(1rem-0.25rem)] bg-white p-4 shadow-[inset_0_1px_0_rgb(255_255_255/0.7),0_1px_2px_rgb(24_24_27/0.05)] dark:bg-zinc-800/70 dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.06)];
   }
 
   /* Table shell: a bordered surface whose body scrolls horizontally on
@@ -40,24 +119,28 @@
      header + body with a `min-w-[…]` wrapper so columns keep a readable
      width and scroll together. */
   .table-card {
-    @apply overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800/40;
+    @apply overflow-clip rounded-xl border border-zinc-200/80 bg-white shadow-soft dark:border-zinc-700/70 dark:bg-zinc-800/40 dark:shadow-none;
   }
   .table-scroll {
     @apply overflow-x-auto overscroll-x-contain;
   }
   .table-head {
-    @apply grid border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300;
+    @apply sticky top-0 z-10 grid border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300;
+  }
+  /* Header labels never collide with the next column. */
+  .table-head > * {
+    @apply truncate;
   }
   .data-row {
-    @apply grid items-center border-b border-zinc-100 text-sm text-zinc-700 transition last:border-0 dark:border-zinc-700/70 dark:text-zinc-200;
+    @apply grid items-center border-b border-zinc-100 text-sm text-zinc-700 transition-colors duration-150 ease-spring last:border-0 hover:bg-zinc-50 dark:border-zinc-700/70 dark:text-zinc-200 dark:hover:bg-zinc-700/25;
   }
 
   /* ---- Inputs --------------------------------------------------------- */
   .input-base {
-    @apply w-full rounded-md border bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:ring-4 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-100;
+    @apply w-full rounded-md border bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition duration-200 ease-spring focus:ring-4 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-100;
   }
   .input-valid {
-    @apply border-zinc-300 focus:border-blue-500 focus:ring-blue-500/15 dark:border-zinc-600;
+    @apply border-zinc-300 focus:border-accent-500 focus:ring-accent-500/15 dark:border-zinc-600;
   }
   .input-error {
     @apply border-red-500 focus:border-red-500 focus:ring-red-500/15;
@@ -71,7 +154,7 @@
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
   }
   .badge-blue {
-    @apply bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300;
+    @apply bg-accent-100 text-accent-700 dark:bg-accent-900/40 dark:text-accent-300;
   }
   .badge-amber {
     @apply bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300;
@@ -97,9 +180,29 @@
     @apply rounded-md px-3 py-2 text-xs font-medium transition;
   }
   .nav-pill-active {
-    @apply bg-blue-600 text-white;
+    @apply bg-zinc-900 text-white shadow-soft dark:bg-white dark:text-zinc-900;
   }
   .nav-pill-inactive {
     @apply bg-white text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700;
+  }
+
+  /* Compact toggle/quick-pick chip (e.g. "+30 min"). */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-600 transition duration-200 ease-spring hover:border-accent-300 hover:bg-accent-50 hover:text-accent-700 active:scale-[0.97] dark:border-zinc-600 dark:bg-transparent dark:text-zinc-300 dark:hover:border-accent-500 dark:hover:bg-accent-900/30 dark:hover:text-accent-300;
+  }
+
+  /* Loading placeholder bar; see common/SkeletonRows.svelte. */
+  .skeleton {
+    @apply animate-shimmer rounded-md bg-[length:200%_100%] bg-gradient-to-r from-zinc-100 via-zinc-200/70 to-zinc-100 dark:from-zinc-700/40 dark:via-zinc-600/40 dark:to-zinc-700/40;
+  }
+
+  /* Hover-revealed row actions: put `.row-actions` on the action cell and
+     `group` on the row. Always visible on touch and while focused. */
+  .row-actions {
+    @apply flex items-center justify-end gap-1 opacity-0 transition-opacity duration-200 ease-spring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100;
+  }
+
+  .kbd {
+    @apply rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400;
   }
 }

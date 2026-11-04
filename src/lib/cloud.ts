@@ -7,6 +7,9 @@
 // (loadCloudToken() fills `token` before the first cloud() call).
 
 import { invoke } from "@tauri-apps/api/core";
+import type { Area } from "$lib/team";
+import { net } from "$lib/net.svelte";
+import { toasts } from "$lib/ui/toasts.svelte";
 
 const KEY = "bookie.cloud";
 
@@ -85,9 +88,28 @@ export class CloudError extends Error {
       ? "Kein aktives bookie Cloud Abo für dieses Unternehmen"
       : status === 403
         ? "Keine Berechtigung für diesen Bereich"
-        : `Server: ${status} ${code}`,
+        : code === "conflict"
+          ? "Wurde zwischenzeitlich von jemand anderem geändert"
+          : `Server: ${status} ${code}`,
   ) {
     super(message);
+  }
+}
+
+// Optimistic concurrency: the updated_at of each row as last loaded, keyed by
+// its item path (/api/customers/5, /api/company). A PATCH to that path echoes
+// it as expected_updated_at; the server answers 409 conflict when someone else
+// wrote since. Keeps pages unaware of it.
+// ponytail: last load wins; a list refetched elsewhere while a form is open refreshes the stamp.
+const seen = new Map<string, string>();
+
+function remember(path: string, method: string, data: any) {
+  path = path.split("?")[0];
+  const rows = Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : null;
+  if (rows) {
+    for (const r of rows) if (r?.updated_at && r.id != null) seen.set(`${path}/${r.id}`, r.updated_at);
+  } else if (data?.updated_at) {
+    seen.set(method === "POST" && data.id != null ? `${path}/${data.id}` : path, data.updated_at);
   }
 }
 
@@ -98,16 +120,31 @@ async function request<T>(
   body?: unknown,
   token?: string,
 ): Promise<T> {
+  // Session / company switch: stamps of the previous company must not leak into the next.
+  // The local import rewrites company_settings: stamps loaded before it are stale.
+  if (method !== "GET" && (!path.startsWith("/api/") || path === "/api/import")) seen.clear();
+  const expected = method === "PATCH" ? seen.get(path) : undefined;
+  if (expected && body && typeof body === "object" && !(body instanceof Blob))
+    body = { ...body, expected_updated_at: expected };
   // A Blob/File goes as the raw body with its own type (e.g. a receipt), anything else as JSON.
   const raw = body instanceof Blob;
-  const res = await fetch(url + path, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body === undefined ? {} : { "Content-Type": raw ? body.type : "application/json" }),
-    },
-    body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url + path, {
+      method,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(body === undefined ? {} : { "Content-Type": raw ? (body as Blob).type : "application/json" }),
+      },
+      body: body === undefined ? undefined : raw ? (body as Blob) : JSON.stringify(body),
+    });
+  } catch (e) {
+    // Network failure (offline, server down, DNS): the shell shows one global bar.
+    console.warn("[cloud]", e);
+    net.offline = true;
+    throw new CloudError(0, "offline", "Keine Verbindung zum bookie Server");
+  }
+  net.offline = false;
   const data = await res.json().catch(() => null);
   // Only "unauthorized" means the session is gone; a 401 invalid_credentials
   // (wrong current password on change / 2FA disable) must not sign out.
@@ -119,7 +156,16 @@ async function request<T>(
       "Sitzung abgelaufen, bitte neu anmelden",
     );
   }
+  if (res.status === 409 && data?.error === "conflict") {
+    const err = new CloudError(409, "conflict");
+    toasts.error(err.message, 0, {
+      label: "Neu laden",
+      run: () => location.reload(),
+    });
+    throw err;
+  }
   if (!res.ok) throw new CloudError(res.status, data?.error ?? res.statusText);
+  remember(path, method, data);
   return data as T;
 }
 
@@ -197,6 +243,14 @@ export async function logout(): Promise<void> {
 export type Me = {
   user: { id: number; email: string; name: string; totpEnabled: boolean };
   activeCompanyId: number | null;
+  /** The active company as the shell needs it; null without one. */
+  active: {
+    grants: Partial<Record<Area, "view" | "edit">>;
+    logo: string | null;
+    seats: number;
+    /** Every member's name for labels; empty for subcontractors. */
+    members: { id: number; name: string; role: "admin" | "member" | "subcontractor" }[];
+  } | null;
   companies: {
     id: number;
     name: string;

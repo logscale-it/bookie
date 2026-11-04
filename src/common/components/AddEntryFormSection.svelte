@@ -1,15 +1,18 @@
 <script lang="ts">
+	// Create form in a modal. The page owns the trigger (header button / `n`)
+	// and binds `open`; the form's own save button lives in `children`.
 	import type { Snippet } from 'svelte';
+	import Dialog from '../Dialog.svelte';
+
 	let {
 		title,
 		description,
-		buttonLabel = 'Neu hinzufügen',
-		cancelLabel = 'Abbrechen',
 		open = $bindable(false),
 		children
 	}: {
 		title: string;
 		description?: string;
+		/** Kept for call-site compatibility; the trigger now lives in the page header. */
 		buttonLabel?: string;
 		cancelLabel?: string;
 		open?: boolean;
@@ -17,37 +20,11 @@
 	} = $props();
 </script>
 
-<div class="card shadow-sm">
-	<div class="flex flex-wrap items-start justify-between gap-3">
-		<div>
-			<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">{title}</h2>
-			{#if description}
-				<p class="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{description}</p>
-			{/if}
-		</div>
-		{#if !open}
-			<button
-				type="button"
-				onclick={() => (open = true)}
-				class="btn-primary"
-			>
-				{buttonLabel}
-			</button>
+<Dialog bind:open {title} size="lg">
+	<div class="space-y-4">
+		{#if description}
+			<p class="-mt-2 text-sm text-zinc-500 dark:text-zinc-400">{description}</p>
 		{/if}
+		{@render children()}
 	</div>
-
-	{#if open}
-		<div class="mt-4 space-y-4">
-			{@render children()}
-			<div class="flex justify-end">
-				<button
-					type="button"
-					onclick={() => (open = false)}
-					class="btn-secondary"
-				>
-					{cancelLabel}
-				</button>
-			</div>
-		</div>
-	{/if}
-</div>
+</Dialog>

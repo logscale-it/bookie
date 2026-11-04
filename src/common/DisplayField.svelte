@@ -8,9 +8,9 @@
 	} = $props();
 </script>
 
-<div class="flex flex-col gap-1">
-	{#if label}<span class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{label}</span>{/if}
-	<div class="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900/80 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100/80">
-		{value || '\u00A0'}
+<div class="flex flex-col gap-1.5">
+	{#if label}<span class="label">{label}</span>{/if}
+	<div class="rounded-lg bg-zinc-50 px-3 py-2 text-sm text-zinc-800 ring-1 ring-inset ring-zinc-900/5 dark:bg-zinc-800/60 dark:text-zinc-200 dark:ring-white/10">
+		{value || ' '}
 	</div>
 </div>

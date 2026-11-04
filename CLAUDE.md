@@ -66,6 +66,7 @@ src-tauri/                  Rust backend (Tauri v2)
 - **Tailwind CSS** for all styling — no component library. Reuse classes from `src/app.css`: `.btn-primary`, `.btn-secondary`, `.card`, `.input-base`, `.input-valid`, `.input-error`, `.label`, `.page-header`, `.nav-pill`
 - **UI labels in German**, code and variable names in English
 - **TypeScript strict mode** is enabled
+- **E2E (Playwright)** lives in the private sibling repo `../bookie-server/e2e/` (`bun run e2e` there) and drives this UI in cloud mode per role; the cloud contract test (`$lib` client against the real server) moved there too (`bun run test:contract`). Markup rules still apply here: every input needs a visible label or `aria-label`; every list row a `data-testid="<area>-row"`. When a change renames a label or testid, update `bookie-server/e2e/pages.ts`; a new page/control that depends on a role or grant gets a row in `bookie-server/e2e/role-matrix.e2e.ts`
 - **Frontend tests** live under `tests/` and use Bun's built-in test runner — run with `bun test` (run `bunx svelte-kit sync` first if `.svelte-kit/` is missing, so the `$lib` alias resolves). Quality is also enforced via type checking (`bun run check`) and Rust linting (`cargo clippy`)
 
 ## Database Migrations

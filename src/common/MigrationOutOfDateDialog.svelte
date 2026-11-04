@@ -14,10 +14,11 @@
 	 *      dialog, then closes the window. This is the verification step
 	 *      called out in the issue.
 	 *
-	 * The dialog has no dismiss button, no Escape handler, and no
-	 * backdrop-click handler — it is a hard stop, not a modal.
+	 * Rendered via the shared <Dialog> with `dismissible={false}`: no close
+	 * button, Escape and backdrop clicks do nothing — it is a hard stop.
 	 */
 	import { goto } from '$app/navigation';
+	import Dialog from './Dialog.svelte';
 
 	import {
 		saveAppDataAndClose,
@@ -60,45 +61,52 @@
 	}
 </script>
 
-<!--
-	The wrapper is a static <div> rather than a <button> because clicking
-	the backdrop must NOT dismiss the dialog — this is a hard stop. The
-	role/aria-modal attributes are still set so screen readers treat it
-	as a modal.
--->
-<div
-	class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/70 p-4"
-	role="dialog"
-	aria-modal="true"
-	aria-labelledby="migration-out-of-date-title"
-	aria-describedby="migration-out-of-date-description"
-	data-testid="migration-out-of-date-dialog"
->
-	<div
-		class="card w-full max-w-lg space-y-4 border-red-300 bg-white shadow-xl dark:border-red-900 dark:bg-zinc-900"
-	>
-		<h2 id="migration-out-of-date-title" class="text-lg font-semibold text-red-700 dark:text-red-400">
-			Datenbankversion passt nicht zur Anwendung
-		</h2>
+<!-- Opaque full-window backdrop: the window is transparent on macOS and
+     nothing else is rendered behind this hard stop. -->
+<div class="h-screen w-screen bg-zinc-100 dark:bg-zinc-900">
+	<Dialog open title="Datenbankversion passt nicht zur Anwendung" dismissible={false}>
+		<div class="space-y-4" data-testid="migration-out-of-date-dialog">
+			<div class="flex gap-3">
+				<span
+					class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-600/10 dark:bg-red-900/30 dark:text-red-400"
+				>
+					<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"
+						><path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+						/></svg
+					>
+				</span>
+				<div class="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+					<p>
+						Die Datenbank auf diesem Gerät hat eine Schemaversion, die diese Version von Bookie nicht
+						verwenden kann. Aus Sicherheitsgründen werden keine weiteren Aktionen ausgeführt, bis das
+						Problem behoben ist.
+					</p>
+					{#if typeof actual === 'number' && typeof expected === 'number'}
+						<p class="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+							Datenbank-Version: {actual} &nbsp;·&nbsp; Erwartete Version: {expected}
+						</p>
+					{/if}
+					<p>
+						Bitte stelle ein passendes Backup wieder her oder sichere die aktuellen App-Daten und
+						schließe Bookie, bevor du eine kompatible Version installierst.
+					</p>
+				</div>
+			</div>
 
-		<div id="migration-out-of-date-description" class="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
-			<p>
-				Die Datenbank auf diesem Gerät hat eine Schemaversion, die diese Version von Bookie nicht
-				verwenden kann. Aus Sicherheitsgründen werden keine weiteren Aktionen ausgeführt, bis das
-				Problem behoben ist.
-			</p>
-			{#if typeof actual === 'number' && typeof expected === 'number'}
-				<p class="font-mono text-xs text-zinc-600 dark:text-zinc-400">
-					Datenbank-Version: {actual} &nbsp;·&nbsp; Erwartete Version: {expected}
+			{#if lastOutcome?.kind === 'cancelled'}
+				<p class="text-xs text-zinc-500 dark:text-zinc-400">
+					Speichern abgebrochen. Bitte einen Speicherort auswählen oder ein Backup wiederherstellen.
+				</p>
+			{:else if lastOutcome?.kind === 'failed'}
+				<p class="text-xs text-red-600 dark:text-red-400">
+					Sichern fehlgeschlagen: {lastOutcome.message}
 				</p>
 			{/if}
-			<p>
-				Bitte stelle ein passendes Backup wieder her oder sichere die aktuellen App-Daten und
-				schließe Bookie, bevor du eine kompatible Version installierst.
-			</p>
 		</div>
-
-		<div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+		{#snippet footer()}
 			<button
 				type="button"
 				class="btn-secondary"
@@ -117,16 +125,6 @@
 			>
 				{saving ? 'Wird gesichert…' : 'App-Daten sichern und schließen'}
 			</button>
-		</div>
-
-		{#if lastOutcome?.kind === 'cancelled'}
-			<p class="text-xs text-zinc-500 dark:text-zinc-400">
-				Speichern abgebrochen. Bitte einen Speicherort auswählen oder ein Backup wiederherstellen.
-			</p>
-		{:else if lastOutcome?.kind === 'failed'}
-			<p class="text-xs text-red-600 dark:text-red-400">
-				Sichern fehlgeschlagen: {lastOutcome.message}
-			</p>
-		{/if}
-	</div>
+		{/snippet}
+	</Dialog>
 </div>

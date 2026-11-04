@@ -8,6 +8,7 @@
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageFor, messageForUnknown, parseBookieError } from '$lib/shared/errors';
 	import { aiConfig, extractInvoice, extractInvoiceCloud, type Extracted } from '$lib/ai';
+	import { can } from '$lib/session.svelte';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
@@ -36,6 +37,10 @@
 	import type { Customer } from '$lib/db/types';
 	import EInvoicePreview from '../../common/EInvoicePreview.svelte';
 	import type { EInvoice } from '$lib/einvoice';
+	import SkeletonRows from '../../common/SkeletonRows.svelte';
+	import EmptyState from '../../common/EmptyState.svelte';
+	import { deferDelete } from '$lib/ui/undo';
+	import { isPlainKey } from '$lib/ui/shortcut';
 
 	const log = createLogger('eingehende-rechnungen');
 
@@ -82,6 +87,7 @@
 	let bulkBusy = $state(false);
 	let bulkStatus = $state('');
 	const aiAvailable = cloud() !== null || aiConfig() !== null;
+	const cols = 'minmax(0,0.8fr) minmax(0,1.2fr) minmax(0,0.8fr) minmax(0,0.8fr) minmax(0,0.8fr) minmax(0,0.8fr) 9rem minmax(0,0.5fr) 88px';
 
 	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
 	const pageCount = $derived(totalPages(totalCount, pager.size));
@@ -279,10 +285,21 @@
 		return newId;
 	}
 
+	// Any failure (e.g. 403 on the recurring schedule) shows in the dialog and must not leave `saving` stuck.
 	async function addInvoice() {
 		if (!form.invoiceDate || isNaN(parseFloat(form.netAmount))) return;
 		saving = true;
 		uploadError = '';
+		try {
+			await saveInvoice();
+		} catch (e) {
+			uploadError = messageForUnknown(e);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function saveInvoice() {
 		const companyId = await ensureCompanyId();
 		const newId = await storeInvoice(companyId, form, uploadFiles?.[0]);
 
@@ -306,7 +323,6 @@
 		uploadFiles = null;
 		recurring = false;
 		showAddForm = false;
-		saving = false;
 		await loadData();
 	}
 
@@ -318,6 +334,7 @@
 		bulkBusy = true;
 		uploadError = '';
 		let unread = 0;
+		let lastError = '';
 		try {
 			const companyId = await ensureCompanyId();
 			const config = aiConfig();
@@ -328,13 +345,14 @@
 					x = cloud() ? await extractInvoiceCloud(file) : await extractInvoice(file, config!);
 				} catch (e) {
 					log.warn(`Bulk AI extraction failed: ${file.name}`, e);
+					lastError = `${t('incomingInvoices.aiError')}: ${messageForUnknown(e)}`;
 				}
 				if (!x.netAmount) unread++;
 				const note = t(x.netAmount ? 'incomingInvoices.aiCheckNote' : 'incomingInvoices.aiFailedNote');
 				await storeInvoice(companyId, { ...initialForm(), netAmount: '0', ...x, notes: note }, file);
 				suppliers = await listSuppliers(companyId); // a supplier created for this receipt is reused by the next
 			}
-			bulkStatus = tp('incomingInvoices.bulkDone', { n: files.length, failed: unread });
+			bulkStatus = tp('incomingInvoices.bulkDone', { n: files.length, failed: unread }) + (lastError ? ` – ${lastError}` : '');
 			bulkFiles = null;
 		} catch (e) {
 			bulkStatus = messageForUnknown(e);
@@ -401,17 +419,40 @@
 		await loadData();
 	}
 
-	async function removeInvoice(id: number) {
-		if (!confirm(t('incomingInvoices.deleteConfirm'))) return;
-		const inv = invoices.find(i => i.id === id);
-		if (!cloud() && inv?.s3_key) {
-			try {
-				const s3Config = await getS3Settings();
-				if (s3Config.enabled) await s3DeleteFile(s3Config, inv.s3_key);
-			} catch (err) { log.warn('S3 delete failed', err); }
+	function removeInvoice(id: number) {
+		const inv = invoices.find((i) => i.id === id);
+		if (!inv) return;
+		const before = invoices;
+		deferDelete({
+			message: inv.invoice_number ? `Rechnung ${inv.invoice_number} gelöscht` : 'Rechnung gelöscht',
+			hide: () => {
+				invoices = invoices.filter((i) => i.id !== id);
+				totalCount -= 1;
+			},
+			restore: () => {
+				invoices = before;
+				totalCount += 1;
+			},
+			run: async () => {
+				if (!cloud() && inv.s3_key) {
+					try {
+						const s3Config = await getS3Settings();
+						if (s3Config.enabled) await s3DeleteFile(s3Config, inv.s3_key);
+					} catch (err) {
+						log.warn('S3 delete failed', err);
+					}
+				}
+				await deleteIncomingInvoice(id);
+			},
+			onDone: () => loadData()
+		});
+	}
+
+	function onKeydown(e: KeyboardEvent) {
+		if (isPlainKey(e, 'n') && !showAddForm) {
+			e.preventDefault();
+			showAddForm = true;
 		}
-		await deleteIncomingInvoice(id);
-		await loadData();
 	}
 
 	async function downloadFile(id: number) {
@@ -504,6 +545,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={onKeydown} />
+
 <section class="space-y-6">
 	<datalist id="supplier-names">
 		{#each supplierNames as name}
@@ -511,11 +554,18 @@
 		{/each}
 	</datalist>
 
-	<header>
-		<h1 class="page-header">{t('incomingInvoices.title')}</h1>
-		<p class="text-sm text-zinc-600 dark:text-zinc-300">
-			{t('incomingInvoices.subtitle')}
-		</p>
+	<header class="flex flex-wrap items-start justify-between gap-3">
+		<div>
+			<h1 class="page-header">{t('incomingInvoices.title')}</h1>
+			<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+				{t('incomingInvoices.subtitle')}
+			</p>
+		</div>
+		<button type="button" class="btn-primary shrink-0" onclick={() => (showAddForm = true)}>
+			<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+			{t('incomingInvoices.addButton')}
+			<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
+		</button>
 	</header>
 
 	<AddEntryFormSection
@@ -547,10 +597,13 @@
 			<div class="md:col-span-2">
 				<TextInput bind:value={form.notes} label={t('common.notes')} placeholder={t('incomingInvoices.optionalNotes')} />
 			</div>
-			<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 md:col-span-2 dark:text-zinc-200">
-				<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
-				{t('common.recurringMonthly')}
-			</label>
+			<!-- Schedules need incoming_invoices:edit (server recurring.ts); own uploads alone are not enough. -->
+			{#if can('incoming_invoices', 'edit')}
+				<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 md:col-span-2 dark:text-zinc-200">
+					<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
+					{t('common.recurringMonthly')}
+				</label>
+			{/if}
 		</div>
 		{#if uploadError}
 			<p class="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
@@ -586,23 +639,19 @@
 		</section>
 	{/if}
 
-	<div class="card shadow-sm">
-		<div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+	<div class="space-y-3">
+		<div class="flex flex-wrap items-end justify-between gap-3">
 			<div class="flex items-end gap-3">
 				<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">
 					{t('incomingInvoices.overview')}
 				</h2>
-				<div class="flex gap-1">
-					<button
-						type="button"
-						onclick={() => (statusFilter = '')}
-						class="rounded-md px-2 py-1 text-xs font-medium transition {statusFilter === '' ? 'bg-blue-600 text-white' : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700'}"
-					>{t('common.all')}</button>
-					{#each statusOptions as opt}
+				<div class="flex gap-0.5 rounded-lg bg-zinc-900/[0.04] p-0.5 ring-1 ring-zinc-900/5 dark:bg-white/[0.04] dark:ring-white/10" role="group" aria-label={t('common.status')}>
+					{#each [{ value: '', label: t('common.all') }, ...statusOptions] as opt}
 						<button
 							type="button"
 							onclick={() => (statusFilter = opt.value)}
-							class="rounded-md px-2 py-1 text-xs font-medium transition {statusFilter === opt.value ? 'bg-blue-600 text-white' : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-700'}"
+							aria-pressed={statusFilter === opt.value}
+							class="rounded-md px-2.5 py-1 text-xs font-medium transition duration-200 ease-spring {statusFilter === opt.value ? 'bg-white text-zinc-900 shadow-soft dark:bg-zinc-700 dark:text-zinc-100' : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100'}"
 						>{opt.label}</button>
 					{/each}
 				</div>
@@ -615,10 +664,7 @@
 		<div class="table-card">
 			<div class="table-scroll">
 			<div class="min-w-[1040px]">
-			<div
-				class="grid border-b border-zinc-200 bg-zinc-100 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-				style="grid-template-columns: 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.7fr 0.5fr 1fr"
-			>
+			<div class="table-head" style="grid-template-columns: {cols}">
 				<div class="px-3 py-2">{t('incomingInvoices.invoiceNumber')}</div>
 				<div class="px-3 py-2">{t('incomingInvoices.supplier')}</div>
 				<div class="px-3 py-2">{t('common.date')}</div>
@@ -631,43 +677,59 @@
 			</div>
 
 			{#if loading}
-				<div class="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">{t('incomingInvoices.loading')}</div>
+				<SkeletonRows rows={6} cols={7} />
 			{:else if filteredInvoices.length === 0}
-				<div class="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">{t('incomingInvoices.empty')}</div>
+				{#if search || statusFilter}
+					<EmptyState
+						icon="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+						title={t('incomingInvoices.empty')}
+						hint="Passe Suche oder Filter an."
+					/>
+				{:else}
+					<EmptyState
+						icon="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z"
+						title={t('incomingInvoices.empty')}
+						hint="Erfasse Belege deiner Lieferanten, inklusive PDF oder E-Rechnung."
+						actionLabel={t('incomingInvoices.addButton')}
+						onaction={() => (showAddForm = true)}
+					/>
+				{/if}
 			{:else}
-				<div class="max-h-[520px] overflow-y-auto">
+				<div>
 					{#each filteredInvoices as inv (inv.id)}
 						<div
-							class="grid items-center border-b border-zinc-100 text-sm text-zinc-700 last:border-0 dark:border-zinc-700/70 dark:text-zinc-200"
-							style="grid-template-columns: 0.8fr 1.2fr 0.8fr 0.8fr 0.8fr 0.8fr 0.7fr 0.5fr 1fr; min-height: 44px"
+							data-testid="incoming-row"
+							class="data-row group {editingId === inv.id ? 'bg-accent-50/40 dark:bg-accent-900/10' : ''}"
+							style="grid-template-columns: {cols}; min-height: 48px"
 						>
 							{#if editingId === inv.id}
-								<div class="px-3 py-2"><input bind:value={editForm.invoiceNumber} class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.invoiceNumber} aria-label={t('incomingInvoices.invoiceNumber')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
 								<div class="px-3 py-2">
-									<input bind:value={editForm.supplierName} list="supplier-names" class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" />
+									<input bind:value={editForm.supplierName} aria-label={t('incomingInvoices.supplier')} list="supplier-names" class="input-base input-valid rounded-lg px-2 py-1" />
 								</div>
-								<div class="px-3 py-2"><input type="date" bind:value={editForm.invoiceDate} class="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900" /></div>
-								<div class="px-3 py-2"><input bind:value={editForm.netAmount} class="w-full rounded border border-zinc-300 px-2 py-1 text-right dark:border-zinc-600 dark:bg-zinc-900" /></div>
-								<div class="px-3 py-2"><input bind:value={editForm.taxAmount} class="w-full rounded border border-zinc-300 px-2 py-1 text-right dark:border-zinc-600 dark:bg-zinc-900" /></div>
-								<div class="px-3 py-2 text-right text-xs text-zinc-500">{editGrossAmount()} €</div>
+								<div class="px-3 py-2"><input type="date" bind:value={editForm.invoiceDate} aria-label={t('incomingInvoices.invoiceDate')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.netAmount} aria-label={t('incomingInvoices.netAmount')} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.taxAmount} aria-label={t('incomingInvoices.taxAmount')} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
+								<div class="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">{editGrossAmount()} €</div>
 								<div class="px-3 py-2"></div>
 								<div class="px-3 py-2"></div>
 								<div class="flex justify-end gap-2 px-3 py-2 text-xs">
-									<button type="button" onclick={saveEdit} class="rounded bg-blue-600 px-2 py-1 text-white" disabled={saving}>{t('common.save')}</button>
-									<button type="button" onclick={cancelEdit} class="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600">{t('common.cancel')}</button>
+									<button type="button" onclick={saveEdit} class="btn-primary px-2.5 py-1 text-xs" disabled={saving}>{t('common.save')}</button>
+									<button type="button" onclick={cancelEdit} class="btn-secondary px-2.5 py-1 text-xs">{t('common.cancel')}</button>
 								</div>
 							{:else}
-								<div class="truncate px-3 py-2">{inv.invoice_number || '—'}</div>
-								<div class="truncate px-3 py-2">{inv.supplier_name || '—'}</div>
-								<div class="truncate px-3 py-2">{formatDate(inv.invoice_date)}</div>
-								<div class="truncate px-3 py-2 text-right">{formatCurrency(inv.net_cents / 100)}</div>
-								<div class="truncate px-3 py-2 text-right">{formatCurrency(inv.tax_cents / 100)}</div>
-								<div class="truncate px-3 py-2 text-right font-medium">{formatCurrency(inv.gross_cents / 100)}</div>
+								<div class="truncate px-3 py-2 text-xs tabular-nums">{inv.invoice_number || '—'}</div>
+								<div class="truncate px-3 py-2 font-medium text-zinc-900 dark:text-zinc-100">{inv.supplier_name || '—'}</div>
+								<div class="truncate px-3 py-2 tabular-nums">{formatDate(inv.invoice_date)}</div>
+								<div class="truncate px-3 py-2 text-right tabular-nums">{formatCurrency(inv.net_cents / 100)}</div>
+								<div class="truncate px-3 py-2 text-right tabular-nums text-zinc-500 dark:text-zinc-400">{formatCurrency(inv.tax_cents / 100)}</div>
+								<div class="truncate px-3 py-2 text-right font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatCurrency(inv.gross_cents / 100)}</div>
 								<div class="px-3 py-2">
 									<select
 										value={inv.status}
 										onchange={(e) => changeStatus(inv.id, e.currentTarget.value)}
-										class="rounded border px-1 py-0.5 text-xs font-medium
+										aria-label={t('common.status')}
+										class="cursor-pointer rounded-full border px-2 py-0.5 text-xs font-medium outline-none transition duration-200 ease-spring focus-visible:ring-2 focus-visible:ring-accent-500/40
 											{inv.status === 'bezahlt' ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-300' : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300'}"
 									>
 										{#each statusOptions as opt}
@@ -681,7 +743,7 @@
 											title={t('incomingInvoices.paidDate')}
 											value={inv.paid_date ?? ''}
 											onchange={(e) => changePaidDate(inv.id, e)}
-											class="mt-1 block rounded border border-zinc-200 bg-white px-1 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+											class="mt-0.5 block w-full max-w-[8.5rem] rounded-md bg-transparent px-1 py-0 text-[11px] tabular-nums text-zinc-500 outline-none transition hover:bg-zinc-100 focus:bg-white focus:ring-2 focus:ring-accent-500/30 dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:focus:bg-zinc-800"
 										/>
 									{/if}
 								</div>
@@ -690,22 +752,23 @@
 										<button
 											type="button"
 											onclick={() => downloadFile(inv.id)}
-											class="rounded-md border border-zinc-300 px-2 py-0.5 text-xs font-medium text-zinc-700 transition hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-700"
+											class="icon-btn icon-btn-blue"
 											title={inv.file_name}
+											aria-label={inv.file_name}
 										>
-											&#x2913;
+											<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" /></svg>
 										</button>
 									{:else}
 										<span class="text-xs text-zinc-400">—</span>
 									{/if}
 								</div>
-								<div class="flex justify-end gap-2 px-3 py-2">
-									<button type="button" onclick={() => startEdit(inv)} class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium dark:border-zinc-600">{t('common.edit')}</button>
-									<button
-										type="button"
-										onclick={() => removeInvoice(inv.id)}
-										class="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
-									>{t('common.delete')}</button>
+								<div class="row-actions px-3 py-2">
+									<button type="button" onclick={() => startEdit(inv)} class="icon-btn icon-btn-blue" title={t('common.edit')} aria-label={t('common.edit')}>
+										<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+									</button>
+									<button type="button" onclick={() => removeInvoice(inv.id)} class="icon-btn icon-btn-danger" title={t('common.delete')} aria-label={t('common.delete')}>
+										<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.16-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.04-2.09 1.02-2.09 2.2v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+									</button>
 								</div>
 							{/if}
 						</div>
@@ -716,8 +779,8 @@
 			</div>
 		</div>
 
-		{#if !loading && totalCount > 0}
-			<div class="mt-4 flex items-center justify-between gap-3">
+		{#if !loading && totalCount > 0 && pageCount > 1}
+			<div class="flex items-center justify-between gap-3">
 				<button
 					type="button"
 					class="btn-secondary"
@@ -726,7 +789,7 @@
 				>
 					{t('common.pagerPrev')}
 				</button>
-				<span class="text-sm text-zinc-600 dark:text-zinc-300">
+				<span class="text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
 					{tp('common.pagerPageOf', { page: pager.page, total: pageCount })}
 				</span>
 				<button

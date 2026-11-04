@@ -5,6 +5,40 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-02
+
+- Cloud time approval: members hand in a month ("Monat zur Freigabe einreichen"); a lead approves or returns only
+  handed-in months (their own hours directly). An edit withdraws the submission. The dashboard approvals card lists only
+  handed-in months. Needs the matching bookie-server (approving an unsubmitted month answers `not_submitted`).
+- Cloud invitations: a fresh account without a company can accept an invite next to "Firma anlegen"; the settings
+  overview lists Team.
+- Cloud mode: Einstellungen → Backup shows only the cloud export (local backup and S3 act on the local file).
+
+## [0.1.10] - 2026-11-01
+
+- Time tracking: entries may cross midnight; an end at exactly 24:00 is kept when editing.
+- Linux build fixed: `rfd` follows `tauri-plugin-dialog` to 0.17 with the gtk3 backend. v0.1.9 was never published
+  because its Linux build failed.
+
+## [0.1.9] - 2026-11-01
+
+- Cloud team work: live presence avatars (one color per person), a hint when a teammate has the same record open, and a
+  "Neue Änderungen im Team" pill that reloads the page once others changed data. Needs bookie-server with migration
+  `0002_team_activity`.
+- Team page (Team → Stunden, Freigaben, Aktivität): hours per person and month with status bar (abgerechnet /
+  freigegeben / offen), approve or send back a month with a reason, open approvals of other months, online dot, and a
+  shared activity feed of every team action that pages back ("Mehr"). The dashboard shows the same feed.
+- Workspace shell for multi-user companies: company switcher, user menu, navigation follows the caller's rights, invite
+  presets (Buchhaltung, Steuerberater, Teamleitung), admin handover, invoice audit trail (Verlauf), time entries show
+  their author with a member filter.
+- Projects: hour and euro budget with burn bar, staffing per project.
+- Cloud: offline bar when the server is unreachable; saving a record someone else changed meanwhile shows a reload
+  prompt instead of overwriting. Registration asks to confirm the password. Server URL prefilled with
+  `https://bookie.logscale-it.com`.
+- New design system and polished pages: bundled Geist fonts, dialogs instead of browser prompts, undo for deletes,
+  skeletons and empty states, sidebar timer that survives reloads, ⌘S to save, keyboard shortcut `n` to create.
+- Time tracking and timesheet: filter by customer and project; project options follow the selected customer.
+
 ## [0.1.8] - 2026-10-26
 
 - Cloud mode (Einstellungen → Cloud): sign in to a bookie-server; account, 2FA, billing, team with roles, invitations,

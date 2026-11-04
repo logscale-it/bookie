@@ -2,10 +2,13 @@ name: Pages
 
 # Deploy docs/ only when docs change, not on every push to master.
 # Download links use releases/latest, so release tags need no redeploy.
+# The daily run refreshes downloads.json for the README badge.
 on:
+  schedule:
+    - cron: '17 3 * * *'
   push:
     branches: [master]
-    paths: ['docs/**']
+    paths: ['docs/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:

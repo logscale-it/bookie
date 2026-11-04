@@ -89,14 +89,15 @@
   until the user fixes the underlying issue and retries.
 -->
 <div
-	class="flex h-screen w-screen items-center justify-center overflow-y-auto bg-zinc-100 p-6 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
+	class="flex h-screen w-screen items-center justify-center overflow-y-auto bg-zinc-100 bg-[radial-gradient(ellipse_at_top,rgb(255_255_255/0.9),transparent_60%)] p-6 dark:bg-[radial-gradient(ellipse_at_top,rgb(255_255_255/0.04),transparent_60%)] text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
 	role="alert"
 	aria-live="assertive"
 	data-testid="boot-diagnostics"
 >
-	<div class="card w-full max-w-2xl">
+	<div class="bezel w-full max-w-2xl animate-pop">
+	<div class="bezel-core p-6">
 		<div class="mb-4 flex items-center gap-3">
-			<img src="/bookie.svg" alt="Bookie" class="h-8 w-8 rounded-lg" />
+			<img src="/bookie.svg" alt="Bookie" class="h-10 w-10 rounded-xl shadow-soft" />
 			<div>
 				<h1 class="page-header">Bookie kann nicht starten</h1>
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">
@@ -110,7 +111,7 @@
 			{#each ALL_SLOTS as slot}
 				{@const result = status[slot]}
 				<li
-					class="rounded-md border border-zinc-200 p-3 dark:border-zinc-700"
+					class="rounded-xl bg-zinc-50/60 p-3 ring-1 ring-zinc-900/5 dark:bg-zinc-900/30 dark:ring-white/10"
 					data-slot={slot}
 					data-status={result.kind}
 				>
@@ -133,7 +134,7 @@
 							href={`https://github.com/logscale-it/bookie/blob/master/docs/diagnostics.md#${slot}`}
 							target="_blank"
 							rel="noopener noreferrer"
-							class="mt-1 inline-block text-xs text-blue-600 hover:underline dark:text-blue-400"
+							class="mt-1 inline-block text-xs text-accent-600 hover:underline dark:text-accent-400"
 						>
 							Wie behebe ich das?
 						</a>
@@ -154,5 +155,6 @@
 				</button>
 			</div>
 		{/if}
+	</div>
 	</div>
 </div>
