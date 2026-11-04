@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-11-04
+
+- Cloud signup from the app: the register form asks for the company and AGB/AVV acceptance; new companies get a
+  14-day free trial without a card ("Testphase bis …"). After registering, the app signs in by itself once the
+  address is verified and the window regains focus.
+- Open team invitations show under Einstellungen → Konto & Abo and can be accepted with one click.
+- The server field is hidden behind "Eigener Server…"; local mode shows Cloud, Team and Urlaub as teasers with
+  "Kostenlos testen".
+- Release assets now include version-free installer names, so the website links straight to the right download.
+- Needs bookie-server with the trial (`0004_trial`); older servers keep the previous flow.
+
 ## [0.1.12] - 2026-11-04
 
 - Incoming invoices: AI receipt capture. Uploading a PDF or photo prefills supplier, number, date, net and VAT for
