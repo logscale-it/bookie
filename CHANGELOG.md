@@ -5,6 +5,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-04
+
+- Incoming invoices: AI receipt capture. Uploading a PDF or photo prefills supplier, number, date, net and VAT for
+  review. Local mode: pick a provider under Einstellungen → KI (Anthropic, OpenAI-compatible such as Z.AI/OpenRouter,
+  Gemini, Mistral or self-hosted Ollama); the API key stays in the OS keyring and the request runs in Rust. Cloud mode:
+  bookie-server reads the receipt (Mistral OCR), no own key needed.
+- Incoming invoices: bulk capture ("Belege per KI erfassen") creates one open invoice per receipt, prefilled by AI and
+  flagged in the notes for review; receipts the AI could not read are flagged too and the error is shown.
+- Cloud vacation requests (/urlaub, hidden for subcontractors): request days off with a live weekday count, delete own
+  requests; the admin approves or rejects with a reason. Leave actions show in the team feed.
+- Cloud features above need the matching bookie-server (`/api/incoming-invoices/extract` with `MISTRAL_API_KEY`,
+  `/api/leave`).
+
 ## [0.1.11] - 2026-11-02
 
 - Cloud time approval: members hand in a month ("Monat zur Freigabe einreichen"); a lead approves or returns only
