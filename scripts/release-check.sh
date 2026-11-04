@@ -54,6 +54,8 @@ assets)
         "bookie_${ver}_amd64.deb" "bookie_${ver}_amd64.deb.sig"
         "bookie-${ver}-1.x86_64.rpm" "bookie-${ver}-1.x86_64.rpm.sig"
         "latest.json"
+        # Version-free copies for the website's direct download links (release.yml).
+        "bookie_aarch64.dmg" "bookie_x64_en-US.msi" "bookie_amd64.AppImage"
     )
     names="$(jq -r '.assets[].name' <<<"$release")"
     missing=()

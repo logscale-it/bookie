@@ -130,6 +130,29 @@ jobs:
         with:
           ref: refs/tags/${{ env.TAG }}
 
+      # Version-free copies, so the website can link releases/latest/download/<name>
+      # per OS. Skips names already there, so a re-run of a failed publish is fine.
+      - name: Add version-free download names
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          ver="${TAG#v}"
+          assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --paginate --jq '.[] | "\(.id) \(.name)"')"
+          for pair in "bookie_${ver}_aarch64.dmg=bookie_aarch64.dmg" \
+                      "bookie_${ver}_x64_en-US.msi=bookie_x64_en-US.msi" \
+                      "bookie_${ver}_amd64.AppImage=bookie_amd64.AppImage"; do
+            src="${pair%%=*}" dst="${pair#*=}"
+            if grep -q " $dst$" <<<"$assets"; then echo "$dst already there"; continue; fi
+            id="$(awk -v n="$src" '$2 == n {print $1}' <<<"$assets")"
+            [ -n "$id" ] || { echo "::error::$src not in the draft"; exit 1; }
+            gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$id" > "$dst"
+            curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/octet-stream" \
+              --data-binary "@$dst" "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$dst" > /dev/null
+            echo "$src -> $dst"
+          done
+
       - name: Verify the draft is complete
         env:
           GH_TOKEN: ${{ github.token }}

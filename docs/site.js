@@ -8,6 +8,9 @@
   var hero = document.getElementById('hero-download');
   var label = os && hero && hero.getAttribute('data-label-' + os);
   if (label) document.getElementById('hero-label').textContent = label;
+  // Direct installer link: same version-free asset as the OS card below (release.yml adds them).
+  var card = os && document.querySelector('.os[data-os="' + os + '"] a.cta');
+  if (label && card) hero.href = card.href;
 
   document.querySelectorAll('.os[data-os="' + os + '"]').forEach(function (c) { c.classList.add('highlighted'); });
 
