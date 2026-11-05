@@ -16,7 +16,7 @@
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { t, tp, translations } from '$lib/i18n';
 	import { cloud } from '$lib/cloud';
-	import { can, initials } from '$lib/session.svelte';
+	import { can, initials, session } from '$lib/session.svelte';
 	import ActivityFeed from '../../common/ActivityFeed.svelte';
 	import { pendingApprovals, approveMonth, unapproveMonth, type PendingRow } from '$lib/team';
 
@@ -147,11 +147,13 @@
 	};
 	type Tone = keyof typeof tone;
 
+	// reports-only users see the figures but have no invoices page to go to.
+	const invoicesHref = can('invoices') ? '/rechnungen' : undefined;
 	const cockpitTiles = $derived(
 		actions
 			? [
-					{ href: '/rechnungen', label: t('overview.overdueInvoices'), item: actions.overdue, tone: 'red' as Tone, icon: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z' },
-					{ href: '/rechnungen', label: t('overview.draftInvoices'), item: actions.drafts, tone: 'amber' as Tone, icon: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10' },
+					{ href: invoicesHref, label: t('overview.overdueInvoices'), item: actions.overdue, tone: 'red' as Tone, icon: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z' },
+					{ href: invoicesHref, label: t('overview.draftInvoices'), item: actions.drafts, tone: 'amber' as Tone, icon: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10' },
 					{ href: '/eingehende-rechnungen', label: t('overview.openBills'), item: actions.openIncoming, tone: 'accent' as Tone, icon: 'M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z' }
 				]
 			: []
@@ -216,11 +218,14 @@
 		}
 	}
 	onMount(() => {
-		if (cloud() && can('team_time', 'edit')) pendingApprovals().then((r) => (pending = r), () => {});
+		// Others' months only once handed in (server: not_submitted); own hours directly, as on the team page.
+		if (cloud() && can('team_time', 'edit'))
+			pendingApprovals().then((r) => (pending = r.filter((p) => p.submitted_at || p.user_id === session.me?.user.id)), () => {});
 	});
 
 	onMount(async () => {
-		actions = await getActionItems(await getCompanyId());
+		// Best effort: a failing cockpit must not take the backup status (or the page) with it.
+		actions = await getActionItems(await getCompanyId()).catch(() => null);
 		await loadBackupStatus();
 	});
 
@@ -254,7 +259,14 @@
 	let seq = 0;
 	async function loadData() {
 		const mine = ++seq;
-		const data = await getDashboardData(await getCompanyId(), year, groupBy);
+		let data;
+		try {
+			data = await getDashboardData(await getCompanyId(), year, groupBy);
+		} catch (e) {
+			// Without this the first-load skeleton stays forever.
+			if (mine === seq) (loading = false), toasts.error(messageForUnknown(e));
+			return;
+		}
 		if (mine !== seq) return;
 		revenue = data.revenue;
 		costs = data.costs;
@@ -535,7 +547,7 @@
 						{#each actions.overdue.items.slice(0, 4) as inv (inv.id)}
 							<li>
 								<a
-									href="/rechnungen/{inv.id}"
+									href={invoicesHref && `/rechnungen/${inv.id}`}
 									class="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm transition hover:bg-zinc-100 dark:hover:bg-zinc-700/40"
 								>
 									<span class="flex min-w-0 items-center gap-2">

@@ -183,7 +183,11 @@
 	const isEditable = $derived(!readonly && (initialStatus === 'draft' || mode === 'create'));
 
 	$effect(() => {
-		loadData();
+		// A failed load (e.g. 403 on settings) must not leave the form spinning forever.
+		loadData().catch((e) => {
+			pdfError = messageForUnknown(e);
+			loading = false;
+		});
 	});
 
 	async function loadData() {
@@ -599,6 +603,7 @@
 							<input
 								type="text"
 								bind:value={item.description}
+								aria-label="{t('invoiceForm.description')} {i + 1}"
 								placeholder="{t('invoiceForm.description')}…"
 								disabled={!isEditable}
 								class={cell}
@@ -608,6 +613,7 @@
 							<input
 								type="number"
 								bind:value={item.quantity}
+								aria-label="{t('invoiceForm.quantity')} {i + 1}"
 								min="0"
 								step="1"
 								disabled={!isEditable}
@@ -618,6 +624,7 @@
 							<input
 								type="number"
 								bind:value={item.unit_price_net}
+								aria-label="{t('invoiceForm.unitPrice')} {i + 1}"
 								min="0"
 								step="0.01"
 								placeholder="0,00"
@@ -629,6 +636,7 @@
 							{#if vatOptions.length > 0}
 								<select
 									bind:value={item.tax_rate}
+									aria-label="{t('invoiceForm.taxPercent')} {i + 1}"
 									disabled={!isEditable}
 									class="{cell} cursor-pointer dark:[&>option]:bg-zinc-800"
 								>
@@ -640,6 +648,7 @@
 								<input
 									type="number"
 									bind:value={item.tax_rate}
+									aria-label="{t('invoiceForm.taxPercent')} {i + 1}"
 									min="0"
 									step="1"
 									placeholder="19"

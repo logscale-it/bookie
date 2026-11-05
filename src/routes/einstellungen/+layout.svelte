@@ -4,6 +4,7 @@
 	import { t } from '$lib/i18n';
 	import { cloud } from '$lib/cloud';
 	import { can } from '$lib/session.svelte';
+	import EmptyState from '../../common/EmptyState.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -14,16 +15,23 @@
 			{ get label() { return t('settings.invoice'); }, href: '/einstellungen/rechnung' },
 			{ get label() { return t('settings.vatTaxes'); }, href: '/einstellungen/mwst' }
 		] : []),
-		...(can('recurring') ? [{ get label() { return t('settings.recurring'); }, href: '/einstellungen/wiederkehrend' }] : []),
-		// Backup/S3 act on the local SQLite file, which cloud mode does not use (getDb refuses).
-		...(cloud() ? [] : [
+		// Schedules belong to the invoice/receipt areas (server recurring.ts ignores the 'recurring' grant).
+		...(can('invoices') || can('incoming_invoices') ? [{ get label() { return t('settings.recurring'); }, href: '/einstellungen/wiederkehrend' }] : []),
+		// Backup/S3 act on the local SQLite file, which cloud mode does not use (getDb refuses);
+		// in cloud mode the backup page holds only the export (server /api/export needs invoices:view).
+		...(cloud() ? (can('invoices') ? [{ label: 'Cloud-Export', href: '/einstellungen/backup' }] : []) : [
 			{ get label() { return t('settings.backup'); }, href: '/einstellungen/backup' },
 			{ get label() { return t('settings.s3Storage'); }, href: '/einstellungen/s3' }
 		]),
+		{ get label() { return t('settings.ai'); }, href: '/einstellungen/ki' },
 		{ get label() { return t('settings.diagnose'); }, href: '/einstellungen/diagnose' },
 		{ label: cloud() ? 'Konto & Abo' : 'Cloud', href: '/einstellungen/cloud' },
 		...(cloud() ? [{ label: 'Team', href: '/einstellungen/team' }] : [])
 	];
+
+	// Grant-gated subpages opened by URL while their tab is hidden: notice instead of a page of 403s.
+	const GATED = ['/einstellungen/organisation', '/einstellungen/rechnung', '/einstellungen/mwst', '/einstellungen/wiederkehrend', '/einstellungen/backup'];
+	const forbidden = $derived(GATED.some((h) => page.url.pathname.startsWith(h) && !navItems.some((i) => i.href === h)));
 
 	// Sliding underline: a 1px-wide bar moved and stretched via transform only.
 	let nav = $state<HTMLElement>();
@@ -77,5 +85,9 @@
 		></span>
 	</nav>
 
-	{@render children()}
+	{#if forbidden}
+		<EmptyState title="Keine Berechtigung für diesen Bereich" hint="Frag den Admin deiner Firma nach Zugriff." />
+	{:else}
+		{@render children()}
+	{/if}
 </div>

@@ -9,8 +9,15 @@
 			{ href: '/einstellungen/mwst', label: 'MwSt.-Steuern', hint: 'Steuersätze für Positionen' }
 		] : []),
 		...(cloud()
-			? [{ href: '/einstellungen/cloud', label: 'Konto & Abo', hint: 'Anmeldung, Sicherheit, Abo' }]
-			: [{ href: '/einstellungen/backup', label: 'Backup & Wiederherstellung', hint: 'Datenbank sichern, GoBD-Export' }]),
+			? [
+					{ href: '/einstellungen/cloud', label: 'Konto & Abo', hint: 'Anmeldung, Sicherheit, Abo' },
+					{ href: '/einstellungen/team', label: 'Team', hint: 'Mitglieder, Einladungen, Einladung annehmen' },
+					...(can('invoices') ? [{ href: '/einstellungen/backup', label: 'Cloud-Export', hint: 'Alle Daten und Belege sichern' }] : [])
+				]
+			: [
+					{ href: '/einstellungen/cloud', label: 'Cloud', hint: 'Im Team arbeiten · 14 Tage kostenlos testen' },
+					{ href: '/einstellungen/backup', label: 'Backup & Wiederherstellung', hint: 'Datenbank sichern, GoBD-Export' }
+				]),
 		{ href: '/einstellungen/diagnose', label: 'Diagnose', hint: 'Protokoll für den Support' },
 		{ href: '/einstellungen/updates', label: 'Updates', hint: 'Neue Versionen installieren' }
 	];

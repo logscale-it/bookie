@@ -28,6 +28,7 @@ Eine kostenlose Offline-Alternative zu Abo-Rechnungsprogrammen wie lexoffice ode
 - 📊 Übersicht mit Umsatz sowie Gewinn und Verlust
 - ⏱ Zeiterfassung eingebaut
 - 💾 Backups, optional mit S3-Synchronisierung
+- ☁️ Optionaler Cloud-Modus für Teams: gemeinsame Daten, Rollen, monatliche Zeitfreigabe
 - 🪶 Winziger Installer (ca. 6 MB), gebaut mit Tauri + Svelte
 
 <p align="center"><img src="docs/screenshots/new-invoice-pdf-preview.jpg" alt="Neue Rechnung mit PDF-Vorschau" width="800"></p>
@@ -50,18 +51,35 @@ Bookie ist noch nicht code-signiert, daher warnt Ihr Betriebssystem eventuell. D
 - **macOS (Gatekeeper):** Rechtsklick auf die App → **Öffnen** → **Öffnen**. Oder: Systemeinstellungen → Datenschutz & Sicherheit → nach unten scrollen → **Trotzdem öffnen**.
 - **Linux:** `chmod +x Bookie*.AppImage`, dann starten.
 
+## Cloud-Modus (optional)
+
+Bookie bleibt vollständig offline nutzbar. Wer im Team arbeitet, meldet sich unter **Einstellungen → Cloud** an einem bookie-Server an und bearbeitet dieselben Firmendaten gemeinsam:
+
+- 👥 Team mit Rollen (Admin, Mitglied, Subunternehmer), Rechten je Bereich (Ansehen / Bearbeiten) und Einladungen per E-Mail
+- ⏱ Monatliche Zeitfreigabe: Mitglieder reichen einen Monat ein, eine Leitung gibt frei oder gibt zurück; freigegebene Einträge sind gesperrt und abrechenbar
+- 🟢 Live-Anwesenheit, Aktivitäts-Feed und Hinweis, wenn jemand denselben Datensatz geöffnet hat
+- 🧾 Rechnungen, Zahlungen, Storno, Eingangsrechnungen mit Belegen, wiederkehrende Einträge und Auswertungen laufen über den Server
+- 🔐 Zwei-Faktor-Anmeldung; das Sitzungs-Token liegt im Schlüsselbund des Betriebssystems
+- 📦 Einmalige Übertragung der lokalen Daten (inkl. Belegdateien) in eine leere Cloud-Firma; die lokale Datei bleibt unverändert und ist nach dem Abmelden wieder da
+- 💾 Cloud-Export aller Firmendaten und Belege, auch ohne aktives Abo
+
+Abrechnung pro Platz (5 €/Monat). Ohne Anmeldung verlässt nichts Ihren Rechner.
+
+<p align="center"><img src="docs/screenshots/cloud-team.jpg" alt="Team-Seite im Cloud-Modus mit Stunden je Person und Monatsfreigaben" width="800"></p>
+
 ## Screenshots
 
 | | |
 |---|---|
-| ![Eingehende Rechnungen](docs/screenshots/incoming-invoices.jpg) | ![Zeiterfassung und Stundenzettel](docs/screenshots/time-tracking-timesheet.jpg) |
-| ![Einstellungen: Organisation](docs/screenshots/settings-organisation.jpg) | |
+| ![Eingehende Rechnungen](docs/screenshots/incoming-invoices.jpg) | ![Zeiterfassung](docs/screenshots/time-tracking-timesheet.jpg) |
+| ![Einstellungen: Organisation](docs/screenshots/settings-organisation.jpg) | ![Team im Cloud-Modus](docs/screenshots/cloud-team.jpg) |
+
+_Die Screenshots zeigen Beispieldaten (Muster GmbH, example.com)._
 
 ## Roadmap
 
 - E-Rechnung (XRechnung / ZUGFeRD): Empfangen und Erstellen, in Arbeit, siehe [docs/e-rechnung-status.md](docs/e-rechnung-status.md)
 - Englische Oberfläche und weitere Länder, siehe offene Issues mit Label `help wanted`
-- _Geplant:_ eine verwaltete Cloud-Version gegen kleine Gebühr, mit denselben Funktionen wie das S3-Backup, ohne eigenen Bucket.
 
 ## Entwicklung
 

@@ -234,7 +234,8 @@ tr:last-child td { border-bottom: 1.5px solid #1a1a1a; }
 .total { width: 19%; text-align: right; font-weight: 500; }
 th.qty, th.price, th.tax, th.total { text-align: right; }
 .bottom { display: flex; justify-content: space-between; margin-top: 5mm; }
-.notes-section { width: 48%; font-size: 8.5px; color: #555; padding-right: 10mm; white-space: pre-wrap; line-height: 1.65; }
+.notes-section { width: 48%; font-size: 8.5px; color: #555; padding-right: 10mm; line-height: 1.65; }
+.notes-text { white-space: pre-wrap; }
 .notes-label { font-size: 7px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin-bottom: 3px; }
 .payment-terms { margin-top: 4mm; font-size: 9.5px; font-weight: 500; color: #1a1a1a; }
 .legal-notice { margin-top: 3mm; font-size: 8px; color: #666; font-style: italic; }
@@ -313,7 +314,7 @@ th.qty, th.price, th.tax, th.total { text-align: right; }
 
 	<div class="bottom">
 		<div class="notes-section">
-			${data.notes ? `<div class="notes-label">${esc(tr.notes)}</div><div>${esc(data.notes)}</div>` : ''}
+			${data.notes ? `<div class="notes-label">${esc(tr.notes)}</div><div class="notes-text">${esc(data.notes)}</div>` : ''}
 			${paymentTerms ? `<div class="payment-terms">${paymentTerms}</div>` : ''}
 			${legalNotices.map((n) => `<div class="legal-notice">${esc(n)}</div>`).join('')}
 		</div>

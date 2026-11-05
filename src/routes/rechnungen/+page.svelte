@@ -8,6 +8,7 @@
 	import StatusPill from '../../common/StatusPill.svelte';
 	import SkeletonRows from '../../common/SkeletonRows.svelte';
 	import EmptyState from '../../common/EmptyState.svelte';
+	import { can } from '$lib/session.svelte';
 	import { pendingDeletes } from './pending-deletes.svelte';
 
 	const COLS = 'grid-template-columns: minmax(0,1.1fr) minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,1fr) minmax(0,1.1fr)';
@@ -55,7 +56,7 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (isPlainKey(e, 'n')) {
+		if (isPlainKey(e, 'n') && can('invoices', 'edit')) {
 			e.preventDefault();
 			goto('/rechnungen/neu');
 		}
@@ -68,11 +69,13 @@
 			<h1 class="page-header">{t('invoices.title')}</h1>
 			<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('invoices.subtitle')}</p>
 		</div>
-		<a href="/rechnungen/neu" class="btn-primary" title="{t('invoices.newTitle')} (N)">
-			<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-			{t('invoices.newTitle')}
-			<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
-		</a>
+		{#if can('invoices', 'edit')}
+			<a href="/rechnungen/neu" class="btn-primary" title="{t('invoices.newTitle')} (N)">
+				<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+				{t('invoices.newTitle')}
+				<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
+			</a>
+		{/if}
 	</header>
 
 	<!-- No overflow clip: the head sticks to <main> (the scroll container) and the status menu may overhang the card. -->
@@ -91,12 +94,12 @@
 			<EmptyState
 				title={t('invoices.empty')}
 				hint={t('invoices.emptyHint')}
-				actionLabel={t('invoices.createFirst')}
-				actionHref="/rechnungen/neu"
+				actionLabel={can('invoices', 'edit') ? t('invoices.createFirst') : undefined}
+				actionHref={can('invoices', 'edit') ? '/rechnungen/neu' : undefined}
 			/>
 		{:else}
 			{#each visible as invoice (invoice.id)}
-				<div class="data-row group relative min-h-[52px] last:rounded-b-[11px] hover:bg-zinc-50 dark:hover:bg-zinc-700/30" style={COLS}>
+				<div data-testid="invoice-row" class="data-row group relative min-h-[52px] last:rounded-b-[11px] hover:bg-zinc-50 dark:hover:bg-zinc-700/30" style={COLS}>
 					<!-- Stretched link: the whole row navigates; the status pill sits above it. -->
 					<a
 						href="/rechnungen/{invoice.id}"

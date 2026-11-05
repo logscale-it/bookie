@@ -13,8 +13,10 @@
 	import { sumMinutesByProject } from '$lib/db/time-entries';
 	import type { Customer, Project } from '$lib/db/types';
 	import { t } from '$lib/i18n';
-	import { cloud } from '$lib/cloud';
-	import { can, initials, session } from '$lib/session.svelte';
+	import { cloud, CloudError } from '$lib/cloud';
+	import { can, initials, isSub, session } from '$lib/session.svelte';
+	import { toasts } from '$lib/ui/toasts.svelte';
+	import { messageForUnknown } from '$lib/shared/errors';
 	import { formatCents } from '$lib/shared/money';
 	import * as team from '$lib/team';
 
@@ -40,6 +42,8 @@
 	let minutesByProject = $state(new Map<number, number>());
 	const isCloud = cloud();
 	const isAdmin = $derived(session.company?.role === 'admin');
+	// Subcontractors only read assigned projects (server data.ts subScope: writes 403).
+	const canWrite = $derived(!isSub());
 	const gridCols = $derived(isCloud ? 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.5fr) minmax(0,0.7fr) minmax(0,1fr) minmax(0,0.8fr)' : 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.5fr) minmax(0,0.7fr) minmax(0,0.8fr)');
 
 	let name = $state('');
@@ -75,7 +79,8 @@
 		members = await team.listMembers();
 	}
 	// Cloud: members without invoices/reports grant get rates omitted, so a hidden one on any row means hidden for all.
-	const ratesHidden = $derived(projects.some((p) => p.hourly_rate_hidden));
+	// Finance fields need invoices or reports view (server data.ts); derive from grants, not rows, so an empty list doesn't offer the field.
+	const ratesHidden = $derived(isCloud ? !(can('invoices') || can('reports')) : projects.some((p) => p.hourly_rate_hidden));
 	const parseRate = (v: string) => (v.trim() ? Number(v.replace(',', '.')) || 0 : null);
 	const formatRate = (p: Project) =>
 		p.hourly_rate_hidden ? 'verborgen' : p.hourly_rate == null ? '—' : `${p.hourly_rate.toFixed(2).replace('.', ',')} €/h`;
@@ -129,30 +134,40 @@
 		if (isCloud && isAdmin) members = await team.listMembers().catch(() => []);
 	}
 
+	// A 409 conflict already raised its own toast (cloud.ts); anything else gets one here.
+	const saveFailed = (e: unknown) => {
+		if (!(e instanceof CloudError && e.code === 'conflict')) toasts.error(messageForUnknown(e));
+	};
+
 	async function addProject() {
 		if (!name.trim()) return;
 		saving = true;
-		const companyId = await ensureCompanyId();
-		await createProject({
-			company_id: companyId,
-			customer_id: customerId ? Number(customerId) : null,
-			project_number: null,
-			name: name.trim(),
-			description: null,
-			status: 'active',
-			hourly_rate: ratesHidden ? null : parseRate(rate),
-			starts_on: startDate || null,
-			ends_on: endDate || null,
-			...budgetPatch(ratesHidden ? { budget_cents: undefined } : null, budgetHours, budgetEur)
-		});
-		name = '';
-		customerId = '';
-		startDate = '';
-		endDate = '';
-		rate = budgetHours = budgetEur = '';
-		showAddProjectForm = false;
-		saving = false;
-		await loadData();
+		try {
+			const companyId = await ensureCompanyId();
+			await createProject({
+				company_id: companyId,
+				customer_id: customerId ? Number(customerId) : null,
+				project_number: null,
+				name: name.trim(),
+				description: null,
+				status: 'active',
+				hourly_rate: ratesHidden ? null : parseRate(rate),
+				starts_on: startDate || null,
+				ends_on: endDate || null,
+				...budgetPatch(ratesHidden ? { budget_cents: undefined } : null, budgetHours, budgetEur)
+			});
+			name = '';
+			customerId = '';
+			startDate = '';
+			endDate = '';
+			rate = budgetHours = budgetEur = '';
+			showAddProjectForm = false;
+			await loadData();
+		} catch (e) {
+			saveFailed(e);
+		} finally {
+			saving = false;
+		}
 	}
 
 	function startEdit(project: ProjectRow) {
@@ -178,21 +193,26 @@
 		const project = projects.find((p) => p.id === editingProjectId);
 		if (!project || !editingName.trim()) return;
 		saving = true;
-		await updateProject(project.id, {
-			name: editingName.trim(),
-			customer_id: editingCustomerId ? Number(editingCustomerId) : null,
-			starts_on: editingStartDate || null,
-			ends_on: editingEndDate || null,
-			...hourlyRatePatch(project, parseRate(editingRate)),
-			...budgetPatch(project, editingBudgetHours, editingBudgetEur)
-		});
-		cancelEdit();
-		saving = false;
-		await loadData();
+		try {
+			await updateProject(project.id, {
+				name: editingName.trim(),
+				customer_id: editingCustomerId ? Number(editingCustomerId) : null,
+				starts_on: editingStartDate || null,
+				ends_on: editingEndDate || null,
+				...hourlyRatePatch(project, parseRate(editingRate)),
+				...budgetPatch(project, editingBudgetHours, editingBudgetEur)
+			});
+			cancelEdit();
+			await loadData();
+		} catch (e) {
+			saveFailed(e);
+		} finally {
+			saving = false;
+		}
 	}
 
 	function onKeydown(e: KeyboardEvent) {
-		if (isPlainKey(e, 'n') && !showAddProjectForm) {
+		if (isPlainKey(e, 'n') && !showAddProjectForm && canWrite) {
 			e.preventDefault();
 			showAddProjectForm = true;
 		}
@@ -213,11 +233,13 @@
 			<h1 class="page-header">{t('projects.title')}</h1>
 			<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('projects.subtitle')}</p>
 		</div>
-		<button type="button" class="btn-primary shrink-0" onclick={() => (showAddProjectForm = true)}>
-			<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-			{t('projects.addButton')}
-			<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
-		</button>
+		{#if canWrite}
+			<button type="button" class="btn-primary shrink-0" onclick={() => (showAddProjectForm = true)}>
+				<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+				{t('projects.addButton')}
+				<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
+			</button>
+		{/if}
 	</header>
 
 	<SubcontractorLinks {projects} />
@@ -274,30 +296,31 @@
 				icon="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
 				title={t('projects.empty')}
 				hint="Lege dein erstes Projekt an, um Zeiten darauf zu buchen."
-				actionLabel={t('projects.addButton')}
-				onaction={() => (showAddProjectForm = true)}
+				actionLabel={canWrite ? t('projects.addButton') : undefined}
+				onaction={canWrite ? () => (showAddProjectForm = true) : undefined}
 			/>
 		{:else}
 			<div>
 				{#each projects as project (project.id)}
 					<div
+						data-testid="project-row"
 						class="data-row group {editingProjectId === project.id ? 'bg-accent-50/40 dark:bg-accent-900/10' : ''}"
 						style="grid-template-columns: {gridCols}; min-height: 48px"
 					>
 						{#if editingProjectId === project.id}
 							<div class="px-4 py-2">
-								<input bind:value={editingName} class="input-base input-valid rounded-lg px-2 py-1" />
+								<input bind:value={editingName} aria-label={t('projects.projectName')} class="input-base input-valid rounded-lg px-2 py-1" />
 							</div>
 							<div class="px-4 py-2">
-								<select bind:value={editingCustomerId} class="input-base input-valid rounded-lg px-2 py-1">
+								<select bind:value={editingCustomerId} aria-label={t('projects.customer')} class="input-base input-valid rounded-lg px-2 py-1">
 									{#each customerOptions as option}
 										<option value={option.value}>{option.label}</option>
 									{/each}
 								</select>
 							</div>
 							<div class="grid gap-2 px-4 py-2">
-								<input type="date" bind:value={editingStartDate} class="input-base input-valid rounded-lg px-2 py-1" />
-								<input type="date" bind:value={editingEndDate} class="input-base input-valid rounded-lg px-2 py-1" />
+								<input type="date" bind:value={editingStartDate} aria-label={t('projects.startDate')} class="input-base input-valid rounded-lg px-2 py-1" />
+								<input type="date" bind:value={editingEndDate} aria-label={t('projects.endDate')} class="input-base input-valid rounded-lg px-2 py-1" />
 							</div>
 							<div class="px-4 py-2 text-right tabular-nums text-zinc-500 dark:text-zinc-400">{hoursAvailable ? `${hoursLabel(hoursOf(project))} h` : '—'}</div>
 							<div class="px-4 py-2">
@@ -339,9 +362,11 @@
 								</div>
 							{/if}
 							<div class="row-actions px-4 py-2">
+								{#if canWrite}
 								<button type="button" onclick={() => startEdit(project)} class="icon-btn icon-btn-blue" title={t('common.edit')} aria-label={t('common.edit')}>
 									<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
 								</button>
+								{/if}
 							</div>
 						{/if}
 					</div>

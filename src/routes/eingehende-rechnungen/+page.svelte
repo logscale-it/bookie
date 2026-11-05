@@ -6,7 +6,9 @@
 	import { save } from '@tauri-apps/plugin-dialog';
 	import { invoke } from '@tauri-apps/api/core';
 	import { writeBinaryFile } from '$lib/fs';
-	import { messageForUnknown } from '$lib/shared/errors';
+	import { messageFor, messageForUnknown, parseBookieError } from '$lib/shared/errors';
+	import { aiConfig, extractInvoice, extractInvoiceCloud, type Extracted } from '$lib/ai';
+	import { can } from '$lib/session.svelte';
 	import AddEntryFormSection from '../../common/components/AddEntryFormSection.svelte';
 	import TextInput from '../../common/TextInput.svelte';
 	import DateInput from '../../common/DateInput.svelte';
@@ -31,7 +33,7 @@
 	import { getS3Settings } from '$lib/db/settings';
 	import { uploadFile, downloadFile as s3DownloadFile, deleteFile as s3DeleteFile } from '$lib/s3/client';
 	import { createLogger } from '$lib/logger';
-	import { cloud } from '$lib/cloud';
+	import { cloud, CloudError } from '$lib/cloud';
 	import type { Customer } from '$lib/db/types';
 	import EInvoicePreview from '../../common/EInvoicePreview.svelte';
 	import type { EInvoice } from '$lib/einvoice';
@@ -79,6 +81,12 @@
 	let editingId = $state<number | null>(null);
 	let editForm = $state<InvoiceForm>(initialForm());
 	let uploadError = $state('');
+	let aiStatus = $state('');
+	let aiBusy = $state(false);
+	let bulkFiles = $state<FileList | null>(null);
+	let bulkBusy = $state(false);
+	let bulkStatus = $state('');
+	const aiAvailable = cloud() !== null || aiConfig() !== null;
 	const cols = 'minmax(0,0.8fr) minmax(0,1.2fr) minmax(0,0.8fr) minmax(0,0.8fr) minmax(0,0.8fr) minmax(0,0.8fr) 9rem minmax(0,0.5fr) 88px';
 
 	const pager = $derived<PagerState>(parsePager(page.url.searchParams));
@@ -210,14 +218,11 @@
 		return path;
 	}
 
-	async function addInvoice() {
-		const net = parseFloat(form.netAmount);
-		if (!form.invoiceDate || isNaN(net)) return;
-		saving = true;
-		uploadError = '';
-
-		const companyId = await ensureCompanyId();
-		const tax = parseFloat(form.taxAmount) || 0;
+	// Creates the row from `f` and attaches `file` (S3, local disk or, in cloud
+	// mode, the server's bucket). Attach failures land in `uploadError`; the row stays.
+	async function storeInvoice(companyId: number, f: InvoiceForm, file: File | undefined): Promise<number> {
+		const net = parseFloat(f.netAmount);
+		const tax = parseFloat(f.taxAmount) || 0;
 
 		let fileName: string | null = null;
 		let fileType: string | null = null;
@@ -227,8 +232,7 @@
 		let localPath: string | null = null;
 
 		// Cloud: the receipt goes to the server's bucket after the row exists (below).
-		if (!cloud() && uploadFiles && uploadFiles.length > 0) {
-			const file = uploadFiles[0];
+		if (!cloud() && file) {
 			fileName = file.name;
 			fileType = file.type;
 
@@ -258,9 +262,9 @@
 		// `gross_cents` is derived inside `createIncomingInvoice`.
 		const newId = await createIncomingInvoice({
 			company_id: companyId,
-			supplier_id: await resolveSupplierId(companyId, form.supplierName),
-			invoice_number: form.invoiceNumber.trim() || null,
-			invoice_date: form.invoiceDate,
+			supplier_id: await resolveSupplierId(companyId, f.supplierName),
+			invoice_number: f.invoiceNumber.trim() || null,
+			invoice_date: f.invoiceDate,
 			net_cents: Math.round(net * 100),
 			tax_cents: Math.round(tax * 100),
 			status: 'offen',
@@ -268,16 +272,36 @@
 			file_type: fileType,
 			s3_key: s3Key,
 			local_path: localPath,
-			notes: form.notes.trim() || null
+			notes: f.notes.trim() || null
 		});
 
-		if (cloud() && uploadFiles && uploadFiles.length > 0) {
+		if (cloud() && file) {
 			try {
-				await uploadReceipt(newId, uploadFiles[0]);
+				await uploadReceipt(newId, file);
 			} catch (err) {
 				uploadError = `${t('incomingInvoices.s3UploadFailed')}: ${messageForUnknown(err)}`;
 			}
 		}
+		return newId;
+	}
+
+	// Any failure (e.g. 403 on the recurring schedule) shows in the dialog and must not leave `saving` stuck.
+	async function addInvoice() {
+		if (!form.invoiceDate || isNaN(parseFloat(form.netAmount))) return;
+		saving = true;
+		uploadError = '';
+		try {
+			await saveInvoice();
+		} catch (e) {
+			uploadError = messageForUnknown(e);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function saveInvoice() {
+		const companyId = await ensureCompanyId();
+		const newId = await storeInvoice(companyId, form, uploadFiles?.[0]);
 
 		// Recurring: schedule the next copy one month out on the same day.
 		// The boot generator (see +layout) materialises it.
@@ -299,8 +323,43 @@
 		uploadFiles = null;
 		recurring = false;
 		showAddForm = false;
-		saving = false;
 		await loadData();
+	}
+
+	// Bulk capture: one open row per receipt, prefilled by AI and flagged in the
+	// notes for review. Sequential: the server rate-limits OCR per company.
+	async function bulkCapture() {
+		const files = Array.from(bulkFiles ?? []);
+		if (!files.length) return;
+		bulkBusy = true;
+		uploadError = '';
+		let unread = 0;
+		let lastError = '';
+		try {
+			const companyId = await ensureCompanyId();
+			const config = aiConfig();
+			for (const [i, file] of files.entries()) {
+				bulkStatus = tp('incomingInvoices.bulkProgress', { i: i + 1, n: files.length });
+				let x: Extracted = {};
+				try {
+					x = cloud() ? await extractInvoiceCloud(file) : await extractInvoice(file, config!);
+				} catch (e) {
+					log.warn(`Bulk AI extraction failed: ${file.name}`, e);
+					lastError = `${t('incomingInvoices.aiError')}: ${messageForUnknown(e)}`;
+				}
+				if (!x.netAmount) unread++;
+				const note = t(x.netAmount ? 'incomingInvoices.aiCheckNote' : 'incomingInvoices.aiFailedNote');
+				await storeInvoice(companyId, { ...initialForm(), netAmount: '0', ...x, notes: note }, file);
+				suppliers = await listSuppliers(companyId); // a supplier created for this receipt is reused by the next
+			}
+			bulkStatus = tp('incomingInvoices.bulkDone', { n: files.length, failed: unread }) + (lastError ? ` – ${lastError}` : '');
+			bulkFiles = null;
+		} catch (e) {
+			bulkStatus = messageForUnknown(e);
+		} finally {
+			bulkBusy = false;
+			await loadData();
+		}
 	}
 
 	function toEditForm(inv: IncomingInvoiceWithSupplier): InvoiceForm {
@@ -434,6 +493,40 @@
 		}
 	}
 
+	// AI receipt extraction: prefill the form from an uploaded PDF/image. Cloud:
+	// via bookie-server; local: when configured (Einstellungen → KI). XML
+	// e-invoices go through EInvoicePreview.
+	$effect(() => {
+		const file = uploadFiles?.[0];
+		const config = aiConfig();
+		const viaCloud = cloud() !== null;
+		aiStatus = '';
+		if (!file || (!viaCloud && !config) || /\.xml$/i.test(file.name)) return;
+		let stale = false;
+		aiBusy = true;
+		aiStatus = t('incomingInvoices.aiReading');
+		(viaCloud ? extractInvoiceCloud(file) : extractInvoice(file, config!))
+			.then((x) => {
+				if (stale) return;
+				Object.assign(form, x);
+				aiStatus = t('incomingInvoices.aiApplied');
+			})
+			.catch((e) => {
+				if (stale) return;
+				// Server without MISTRAL_API_KEY: no extraction offered, not an error.
+				if (e instanceof CloudError && e.code === 'ocr_not_configured') return void (aiStatus = '');
+				const err = parseBookieError(e);
+				aiStatus = `${t('incomingInvoices.aiError')}: ${err.kind === 'Unknown' ? err.message : messageFor(err)}`;
+			})
+			.finally(() => {
+				if (!stale) aiBusy = false;
+			});
+		return () => {
+			stale = true;
+			aiBusy = false;
+		};
+	});
+
 	function applyEInvoice(e: EInvoice) {
 		form.supplierName = e.seller.name;
 		form.invoiceNumber = e.number;
@@ -498,13 +591,19 @@
 			<div class="md:col-span-2">
 				<EInvoicePreview files={uploadFiles} onapply={applyEInvoice} />
 			</div>
+			{#if aiStatus}
+				<p class="text-sm text-zinc-600 md:col-span-2 dark:text-zinc-300">{aiStatus}</p>
+			{/if}
 			<div class="md:col-span-2">
 				<TextInput bind:value={form.notes} label={t('common.notes')} placeholder={t('incomingInvoices.optionalNotes')} />
 			</div>
-			<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 md:col-span-2 dark:text-zinc-200">
-				<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
-				{t('common.recurringMonthly')}
-			</label>
+			<!-- Schedules need incoming_invoices:edit (server recurring.ts); own uploads alone are not enough. -->
+			{#if can('incoming_invoices', 'edit')}
+				<label class="flex w-fit items-center gap-2 text-sm text-zinc-700 md:col-span-2 dark:text-zinc-200">
+					<input type="checkbox" bind:checked={recurring} class="h-4 w-4 rounded border-zinc-300" />
+					{t('common.recurringMonthly')}
+				</label>
+			{/if}
 		</div>
 		{#if uploadError}
 			<p class="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
@@ -513,13 +612,32 @@
 			<button
 				type="button"
 				onclick={addInvoice}
-				disabled={saving || !form.invoiceDate || !form.netAmount}
+				disabled={saving || aiBusy || !form.invoiceDate || !form.netAmount}
 				class="btn-primary"
 			>
 				{saving ? t('common.saving') : t('incomingInvoices.saveInvoice')}
 			</button>
 		</div>
 	</AddEntryFormSection>
+
+	{#if aiAvailable}
+		<section class="card space-y-3">
+			<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">{t('incomingInvoices.bulkTitle')}</h2>
+			<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('incomingInvoices.bulkHint')}</p>
+			<FileUpload bind:files={bulkFiles} multiple disabled={bulkBusy} label={t('incomingInvoices.bulkUpload')} accept=".pdf,.png,.jpg,.jpeg,.webp" />
+			{#if bulkStatus}
+				<p class="text-sm text-zinc-600 dark:text-zinc-300">{bulkStatus}</p>
+			{/if}
+			{#if uploadError && bulkStatus}
+				<p class="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
+			{/if}
+			<div class="flex justify-end">
+				<button type="button" class="btn-primary" onclick={bulkCapture} disabled={bulkBusy || !bulkFiles?.length}>
+					{t('incomingInvoices.bulkButton')}
+				</button>
+			</div>
+		</section>
+	{/if}
 
 	<div class="space-y-3">
 		<div class="flex flex-wrap items-end justify-between gap-3">
@@ -580,17 +698,18 @@
 				<div>
 					{#each filteredInvoices as inv (inv.id)}
 						<div
+							data-testid="incoming-row"
 							class="data-row group {editingId === inv.id ? 'bg-accent-50/40 dark:bg-accent-900/10' : ''}"
 							style="grid-template-columns: {cols}; min-height: 48px"
 						>
 							{#if editingId === inv.id}
-								<div class="px-3 py-2"><input bind:value={editForm.invoiceNumber} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.invoiceNumber} aria-label={t('incomingInvoices.invoiceNumber')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
 								<div class="px-3 py-2">
-									<input bind:value={editForm.supplierName} list="supplier-names" class="input-base input-valid rounded-lg px-2 py-1" />
+									<input bind:value={editForm.supplierName} aria-label={t('incomingInvoices.supplier')} list="supplier-names" class="input-base input-valid rounded-lg px-2 py-1" />
 								</div>
-								<div class="px-3 py-2"><input type="date" bind:value={editForm.invoiceDate} class="input-base input-valid rounded-lg px-2 py-1" /></div>
-								<div class="px-3 py-2"><input bind:value={editForm.netAmount} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
-								<div class="px-3 py-2"><input bind:value={editForm.taxAmount} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
+								<div class="px-3 py-2"><input type="date" bind:value={editForm.invoiceDate} aria-label={t('incomingInvoices.invoiceDate')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.netAmount} aria-label={t('incomingInvoices.netAmount')} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
+								<div class="px-3 py-2"><input bind:value={editForm.taxAmount} aria-label={t('incomingInvoices.taxAmount')} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" /></div>
 								<div class="px-3 py-2 text-right text-xs tabular-nums text-zinc-500">{editGrossAmount()} €</div>
 								<div class="px-3 py-2"></div>
 								<div class="px-3 py-2"></div>

@@ -12,6 +12,7 @@ export default {
     timeTracking: "Time Tracking",
     timeTrackingShort: "Time",
     team: "Team",
+    leave: "Time off",
     settings: "Settings",
     settingsShort: "Settings",
   },
@@ -408,6 +409,17 @@ export default {
     einvoiceSyntax: "Format",
     einvoiceApply: "Apply data",
     einvoiceError: "Could not read e-invoice",
+    aiReading: "AI is reading the receipt …",
+    aiError: "AI extraction failed",
+    aiApplied: "Fields prefilled by AI – please check.",
+    aiCheckNote: "Captured by AI – please check",
+    aiFailedNote: "AI could not read this receipt – please fill in",
+    bulkTitle: "Capture receipts with AI",
+    bulkHint: "Several PDFs or photos at once: each receipt becomes an open incoming invoice, prefilled by AI. Please check them in the list afterwards.",
+    bulkUpload: "Receipts (PDF/image, multiple allowed)",
+    bulkButton: "Capture all",
+    bulkProgress: "Receipt {i} of {n} …",
+    bulkDone: "{n} receipts captured, {failed} without AI data – please check them in the list.",
     einvoiceHint:
       "The original file is archived unchanged. Applying only fills the form; please check the values.",
     einvoiceLines: "Lines",
@@ -624,6 +636,7 @@ export default {
     credentialWarning:
       "Credentials could not be loaded from the keychain. Please enter them again.",
     diagnose: "Diagnostics",
+    ai: "AI extraction",
     diagnoseTitle: "Diagnostic logs",
     diagnoseDesc:
       "The last 200 application log entries. Useful when filing a bug report.",

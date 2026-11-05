@@ -63,6 +63,8 @@ export type PendingRow = {
   month: string;
   minutes: number;
   entries: number;
+  /** Set when the member handed this month in and nobody approved or returned it since. */
+  submitted_at: string | null;
 };
 
 /** The caller's own hours (GET /api/me/hours). */
@@ -74,7 +76,7 @@ export type HoursRow = {
 };
 /** A month sent back by a team lead; null once approved again. */
 export type Rejection = { reason: string; at: string; by: string };
-export type MyHours = { projects: HoursRow[]; rejection: Rejection | null };
+export type MyHours = { projects: HoursRow[]; rejection: Rejection | null; submitted_at: string | null };
 
 /** A client project the caller works on as a subcontractor (GET /api/me/assignments). */
 export type Assignment = {
@@ -108,7 +110,7 @@ export type ProjectProgress = {
   invoiced_minutes: number;
 };
 
-/** One team action (GET /api/activity). */
+/** One team action (`action`/`data` of GET /api/feed rows, see describe()). */
 export type Activity = {
   id: number;
   action: string;
@@ -195,6 +197,9 @@ export const unapproveMonth = (userId: number, month: string) =>
     month,
   });
 
+/** The caller hands their own month in for approval. */
+export const submitMonth = (month: string) => api("/api/time-entries/submit", "POST", { month });
+
 /** Months with unapproved hours per member (needs team_time edit). */
 export const pendingApprovals = () => api<PendingRow[]>("/api/time-entries/pending");
 
@@ -207,10 +212,6 @@ export const teamReport = (month: string) =>
   api<TeamRow[]>(`/api/reports/team?month=${encodeURIComponent(month)}`);
 
 export const projectProgress = () => api<ProjectProgress[]>("/api/projects/progress");
-
-/** Newest first; pass the last id to page back. */
-export const activity = (before?: number) =>
-  api<Activity[]>(`/api/activity${before ? `?before=${before}` : ""}`);
 
 /** month = "YYYY-MM"; the caller's own hours per project in the active company. */
 export const myHours = (month: string) =>
@@ -229,6 +230,42 @@ export const linkProject = (sourceProjectId: number, projectId: number) =>
 /** Drops the link; copies already on an invoice stay. */
 export const unlinkProject = (sourceProjectId: number) =>
   api(`/api/project-links/${sourceProjectId}`, "DELETE");
+
+/** A vacation request (bookie-server src/api/leave.ts). Never for subcontractors. */
+export type LeaveRequest = {
+  id: number;
+  user_id: number;
+  user_name: string;
+  start_date: string;
+  end_date: string;
+  note: string | null;
+  status: "pending" | "approved" | "rejected";
+  reason: string | null;
+  decided_at: string | null;
+  decided_by_name: string | null;
+  created_at: string;
+};
+
+/** Admin: the whole team's requests; everyone else: their own. */
+export const listLeave = () => api<LeaveRequest[]>("/api/leave");
+
+export const requestLeave = (start_date: string, end_date: string, note: string) =>
+  api<{ id: number }>("/api/leave", "POST", { start_date, end_date, note });
+
+/** Own request, any status; to change a period delete it and request anew. */
+export const deleteLeave = (id: number) => api(`/api/leave/${id}`, "DELETE");
+
+/** Admin only; rejecting needs a reason (mailed to the person). */
+export const decideLeave = (id: number, approve: boolean, reason = "") =>
+  api<{ ok: true; status: LeaveRequest["status"] }>(`/api/leave/${id}/decision`, "POST", { approve, reason });
+
+/** Mon–Fri between two YYYY-MM-DD days, both included. ponytail: ignores public holidays; add a per-country list when someone books leave over one. */
+export function workdays(start: string, end: string): number {
+  let n = 0;
+  for (let d = new Date(`${start}T00:00:00Z`); d <= new Date(`${end}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1))
+    if (d.getUTCDay() % 6) n++;
+  return n;
+}
 
 export type TeamSummary = {
   user_id: number;
@@ -274,6 +311,10 @@ export function summarize(rows: TeamRow[]): TeamSummary[] {
 export const monthLabel = (month: string) =>
   new Date(`${month}-01T00:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
 
+/** "2026-12-21" -> "21.12.2026" */
+export const dayLabel = (day: string) =>
+  new Date(`${day}T00:00:00`).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+
 const AREA_NAMES: Record<Area, string> = {
   invoices: "Rechnungen",
   incoming_invoices: "Eingangsrechnungen",
@@ -285,7 +326,9 @@ const AREA_NAMES: Record<Area, string> = {
 const ROLE_NAMES: Record<Role, string> = { admin: "Admin", member: "Mitglied", subcontractor: "Subunternehmer" };
 
 /** One feed row as a German sentence; projectName resolves assignment rows. */
-export function describe(a: Activity, projectName: (id: number) => string = (id) => `#${id}`): string {
+export function describe(
+  a: Pick<Activity, "action" | "actor_name" | "subject_name" | "data">,
+  projectName: (id: number) => string = (id) => `#${id}`): string {
   const who = a.actor_name;
   const whom = a.subject_name ?? "jemand";
   const d = a.data;
@@ -307,7 +350,13 @@ export function describe(a: Activity, projectName: (id: number) => string = (id)
     case "assign.remove": return `${who} hat ${whom} vom Projekt ${projectName(d.project_id)} abgezogen`;
     case "month.approve": return `${who} hat ${monthLabel(d.month)} von ${whom} freigegeben`;
     case "month.unapprove": return `${who} hat die Freigabe ${monthLabel(d.month)} von ${whom} zurückgenommen`;
+    case "month.submit": return `${who} hat ${monthLabel(d.month)} zur Freigabe eingereicht`;
+    case "month.withdraw": return `${who} hat ${monthLabel(d.month)} nach der Einreichung geändert (Einreichung zurückgezogen)`;
     case "month.reject": return `${who} hat ${monthLabel(d.month)} an ${whom} zurückgegeben: „${d.reason}“`;
+    case "leave.request": return `${who} hat Urlaub vom ${dayLabel(d.start_date)} bis ${dayLabel(d.end_date)} beantragt`;
+    case "leave.delete": return `${who} hat ${d.status === "approved" ? "den genehmigten Urlaub" : "den Urlaubsantrag"} ${dayLabel(d.start_date)} – ${dayLabel(d.end_date)} gelöscht`;
+    case "leave.approve": return `${who} hat den Urlaub von ${whom} (${dayLabel(d.start_date)} – ${dayLabel(d.end_date)}) genehmigt`;
+    case "leave.reject": return `${who} hat den Urlaub von ${whom} (${dayLabel(d.start_date)} – ${dayLabel(d.end_date)}) abgelehnt: „${d.reason}“`;
     default: return `${who}: ${a.action}`;
   }
 }

@@ -102,7 +102,6 @@ export async function listTimesheetEntries(
   );
 }
 
-/** Minutes per project (entries without a project are skipped), for the Projekte overview. */
 /** Local-mode minutes per project (entries without a project are skipped). Cloud uses the server's projectProgress. */
 export async function sumMinutesByProject(
 	companyId: number,

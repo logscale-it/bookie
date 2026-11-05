@@ -6,6 +6,7 @@
 	import { canChangeStatus, updateInvoiceStatus, updateInvoicePaidDate } from '$lib/db/invoices';
 	import type { Invoice } from '$lib/db/types';
 	import { toasts } from '$lib/ui/toasts.svelte';
+	import { can } from '$lib/session.svelte';
 	import { t, tp } from '$lib/i18n';
 
 	let { invoice, onchanged }: { invoice: Invoice; onchanged?: () => unknown } = $props();
@@ -32,7 +33,8 @@
 	const targets = $derived(
 		(['draft', 'sent', 'paid', 'void'] as const).filter((s) => s !== invoice.status && canChangeStatus(invoice.status, s))
 	);
-	const interactive = $derived(targets.length > 0 || invoice.status === 'paid');
+	// Status changes need invoices:edit (server: invoices.ts route('edit')); view-only gets a plain badge.
+	const interactive = $derived(can('invoices', 'edit') && (targets.length > 0 || invoice.status === 'paid'));
 
 	let open = $state(false);
 	let view = $state<'menu' | 'pay' | 'confirm'>('menu');

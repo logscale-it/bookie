@@ -1,10 +1,12 @@
 <script lang="ts">
 	// Cloud mode: the team at a glance for the admin and team leads (team_time or
-	// reports grant): hours per person and month, approvals and the activity feed.
+	// reports grant): who is online, each person's month as a status bar
+	// (abgerechnet / freigegeben / offen), approvals and the shared activity feed.
 	// Members, rights and invites stay under Einstellungen → Team (admin only).
 	import { can, session } from '$lib/session.svelte';
 	import { onMount } from 'svelte';
 	import { cloud, CloudError } from '$lib/cloud';
+	import CloudTeaser from '../../common/CloudTeaser.svelte';
 	import { listProjects } from '$lib/db/projects';
 	import { formatCents } from '$lib/shared/money';
 	import { messageForUnknown } from '$lib/shared/errors';
@@ -12,11 +14,15 @@
 	import Dialog from '../../common/Dialog.svelte';
 	import SkeletonRows from '../../common/SkeletonRows.svelte';
 	import EmptyState from '../../common/EmptyState.svelte';
+	import Avatar from '../../common/Avatar.svelte';
+	import ActivityFeed from '../../common/ActivityFeed.svelte';
+	import { presence } from '$lib/presence.svelte';
 
 	const ROLES: Record<team.Role, string> = { admin: 'Admin', member: 'Mitglied', subcontractor: 'Subunternehmer' };
 	const MESSAGES: Record<string, string> = {
 		invalid_input: 'Bitte einen Grund angeben.',
-		nothing_to_reject: 'In diesem Monat ist nichts mehr offen.'
+		nothing_to_reject: 'In diesem Monat ist nichts mehr offen.',
+		not_submitted: 'Der Monat wurde noch nicht (oder seit einer Änderung nicht erneut) zur Freigabe eingereicht.'
 	};
 	const message = (e: unknown) => (e instanceof CloudError && MESSAGES[e.code]) || messageForUnknown(e);
 	const hours = (min: number) => (min / 60).toLocaleString('de-DE', { maximumFractionDigits: 2 });
@@ -27,8 +33,6 @@
 	let month = $state(new Date().toISOString().slice(0, 7));
 	let report = $state<team.TeamRow[]>([]);
 	let pending = $state<team.PendingRow[]>([]);
-	let feed = $state<team.Activity[]>([]);
-	let feedDone = $state(false);
 	let projectNames = $state(new Map<number, string>());
 	let open = $state<number | null>(null);
 	let busy = $state(false);
@@ -41,6 +45,23 @@
 	const canApprove = $derived(can('team_time', 'edit'));
 	const canFeed = $derived(can('team_time'));
 	const money = $derived(report.some((r) => r.cost_cents !== undefined));
+	const online = $derived(new Set(presence.peers.map((p) => p.userId)));
+	// The selected month's open hours sit in the table; the card lists the other months.
+	const otherPending = $derived(pending.filter((p) => p.month !== month));
+	const submitted = (userId: number, m = month) => pending.some((p) => p.user_id === userId && p.month === m && p.submitted_at);
+	// Others' months only once handed in (server: not_submitted); own hours directly.
+	const approvable = (userId: number, m = month) => userId === session.me?.user.id || submitted(userId, m);
+
+	type Sum = { minutes: number; approved_minutes: number; invoiced_minutes: number };
+	const pct = (part: number, p: Sum) => `${p.minutes ? (part / p.minutes) * 100 : 0}%`;
+	const status = (p: Sum) =>
+		p.minutes === 0
+			? { label: 'keine Zeiten', cls: 'badge-zinc' }
+			: p.minutes > p.approved_minutes
+				? { label: 'wartet auf Freigabe', cls: 'badge-amber' }
+				: p.approved_minutes > p.invoiced_minutes
+					? { label: 'freigegeben', cls: 'badge-green' }
+					: { label: 'abgerechnet', cls: 'badge-blue' };
 	// Everyone in the company (also without hours this month), then former members with hours.
 	const people = $derived.by(() => {
 		const sums = team.summarize(report);
@@ -78,7 +99,7 @@
 		run(async () => {
 			const companyId = session.company?.id;
 			if (companyId) projectNames = new Map((await listProjects(companyId)).map((p) => [p.id, p.name]));
-			await Promise.all([loadReport(), loadPending(), loadFeed()]);
+			await Promise.all([loadReport(), loadPending()]);
 		}).finally(() => (loaded = true));
 	});
 
@@ -88,12 +109,6 @@
 	const loadPending = async () => {
 		if (canApprove) pending = await team.pendingApprovals();
 	};
-	async function loadFeed(more = false) {
-		if (!canFeed) return;
-		const page = await team.activity(more ? feed.at(-1)?.id : undefined);
-		feed = more ? [...feed, ...page] : page;
-		feedDone = page.length < 50;
-	}
 
 	async function run(fn: () => Promise<unknown>) {
 		busy = true;
@@ -107,7 +122,9 @@
 		}
 	}
 
-	const refresh = () => Promise.all([loadReport(), loadPending(), loadFeed()]);
+	// Remount the feed after own actions so it shows them.
+	let feedKey = $state(0);
+	const refresh = () => Promise.all([loadReport(), loadPending()]).then(() => feedKey++);
 
 	const approve = (on: boolean, userId: number, m = month) =>
 		run(async () => {
@@ -140,9 +157,14 @@
 </script>
 
 {#if !isCloud}
-	<section class="card">
-		<p class="text-sm">Die Teamübersicht ist nur mit bookie Cloud verfügbar.</p>
-	</section>
+	<CloudTeaser
+		title="Team"
+		points={[
+			'Kolleginnen, Mitarbeiter und Subunternehmer per E-Mail einladen, mit Rechten je Bereich',
+			'Stunden pro Person und Projekt auf einen Blick',
+			'Monatliche Freigabe der Zeiten, freigegebene Einträge gehen direkt in die Rechnung'
+		]}
+	/>
 {:else}
 	<section class="space-y-6">
 		<header class="flex flex-wrap items-end justify-between gap-3">
@@ -174,9 +196,8 @@
 					<thead class="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
 						<tr>
 							<th class="px-3 py-2 text-left">Person</th>
+							<th class="w-1/3 min-w-48 px-3 py-2 text-left">Monat</th>
 							<th class="px-3 py-2 text-right">Stunden</th>
-							<th class="px-3 py-2 text-right">freigegeben</th>
-							<th class="px-3 py-2 text-right">abgerechnet</th>
 							{#if money}
 								<th class="px-3 py-2 text-right">Kosten</th>
 								<th class="px-3 py-2 text-right">Umsatz</th>
@@ -186,8 +207,15 @@
 					</thead>
 					<tbody>
 						{#each people as p (p.user_id)}
+							{@const st = status(p)}
 							<tr class="border-b border-zinc-100 align-top text-zinc-700 transition duration-200 ease-spring last:border-0 hover:bg-zinc-50/70 dark:border-zinc-700/70 dark:text-zinc-200 dark:hover:bg-white/[0.02]">
 								<td class="px-3 py-2">
+									<span class="relative mr-2 inline-flex align-middle">
+										<Avatar id={p.user_id} name={p.user_name} dim={!p.role} />
+										{#if online.has(p.user_id)}
+											<span class="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-zinc-900" title="gerade online"></span>
+										{/if}
+									</span>
 									<button type="button" class="inline-flex items-center gap-1 text-left font-medium text-zinc-900 dark:text-zinc-100" onclick={() => (open = open === p.user_id ? null : p.user_id)} disabled={!p.projects.length} aria-expanded={open === p.user_id}>
 										{#if p.projects.length}<svg class="h-3.5 w-3.5 text-zinc-400 transition-transform duration-200 ease-spring {open === p.user_id ? 'rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>{/if}
 										{p.user_name}
@@ -201,14 +229,21 @@
 										{/each}
 									{/if}
 								</td>
-								<td class="px-3 py-2 text-right tabular-nums">{hours(p.minutes)}</td>
-								<td class="px-3 py-2 text-right tabular-nums">
-									{hours(p.approved_minutes)}
-									{#if p.minutes > p.approved_minutes}
-										<div class="text-xs text-amber-700 dark:text-amber-400">{hours(p.minutes - p.approved_minutes)} offen</div>
-									{/if}
+								<td class="px-3 py-2.5">
+									<div
+										class="flex h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700/60"
+										role="img"
+										aria-label="{hours(p.invoiced_minutes)} h abgerechnet, {hours(p.approved_minutes - p.invoiced_minutes)} h freigegeben, {hours(p.minutes - p.approved_minutes)} h offen"
+										title="{hours(p.invoiced_minutes)} h abgerechnet · {hours(p.approved_minutes - p.invoiced_minutes)} h freigegeben · {hours(p.minutes - p.approved_minutes)} h offen"
+									>
+										<span class="bg-accent-500 transition-[width] duration-700 ease-spring" style:width={pct(p.invoiced_minutes, p)}></span>
+										<span class="bg-emerald-500 transition-[width] duration-700 ease-spring" style:width={pct(p.approved_minutes - p.invoiced_minutes, p)}></span>
+										<span class="bg-amber-400 transition-[width] duration-700 ease-spring" style:width={pct(p.minutes - p.approved_minutes, p)}></span>
+									</div>
+									<span class="badge {st.cls} mt-1.5">{st.label}</span>
+									{#if p.minutes > p.approved_minutes && submitted(p.user_id)}<span class="badge badge-blue mt-1.5">eingereicht</span>{/if}
 								</td>
-								<td class="px-3 py-2 text-right tabular-nums">{hours(p.invoiced_minutes)}</td>
+								<td class="px-3 py-2 text-right tabular-nums">{hours(p.minutes)}</td>
 								{#if money}
 									<td class="px-3 py-2 text-right tabular-nums">{formatCents(p.cost_cents)}</td>
 									<td class="px-3 py-2 text-right tabular-nums">{formatCents(p.revenue_cents)}</td>
@@ -216,7 +251,11 @@
 								{#if canApprove}
 									<td class="whitespace-nowrap px-3 py-2 text-right">
 										{#if p.minutes > p.approved_minutes}
-											<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id)}>Freigeben</button>
+											{#if approvable(p.user_id)}
+												<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id)}>Freigeben</button>
+											{:else}
+												<span class="mr-1 text-xs text-zinc-500">noch nicht eingereicht</span>
+											{/if}
 											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => reject(p.user_id, p.user_name)}>Zurückgeben</button>
 										{:else if p.approved_minutes > p.invoiced_minutes}
 											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(false, p.user_id)}>Freigabe zurücknehmen</button>
@@ -232,9 +271,10 @@
 						<tfoot>
 							<tr class="border-t border-zinc-200 bg-zinc-50/60 font-semibold dark:border-zinc-700 dark:bg-zinc-800/60">
 								<td class="px-3 py-2">Summe</td>
+								<td class="px-3 py-2 text-xs font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
+									{hours(totals.invoiced)} abgerechnet · {hours(totals.approved - totals.invoiced)} freigegeben · {hours(totals.minutes - totals.approved)} offen
+								</td>
 								<td class="px-3 py-2 text-right tabular-nums">{hours(totals.minutes)}</td>
-								<td class="px-3 py-2 text-right tabular-nums">{hours(totals.approved)}</td>
-								<td class="px-3 py-2 text-right tabular-nums">{hours(totals.invoiced)}</td>
 								{#if money}
 									<td class="px-3 py-2 text-right tabular-nums">{formatCents(totals.cost)}</td>
 									<td class="px-3 py-2 text-right tabular-nums">{formatCents(totals.revenue)}</td>
@@ -254,17 +294,22 @@
 
 		{#if canApprove}
 			<section class="card space-y-3">
-				<h2 class="text-base font-semibold tracking-tight">Offene Freigaben</h2>
-				{#if pending.length}
+				<h2 class="text-base font-semibold tracking-tight">Offene Freigaben anderer Monate</h2>
+				{#if otherPending.length}
 					<ul class="divide-y divide-zinc-100 dark:divide-zinc-700/70" data-testid="pending-approvals">
-						{#each pending as p (`${p.user_id}|${p.month}`)}
+						{#each otherPending as p (`${p.user_id}|${p.month}`)}
 							<li class="flex items-center justify-between gap-3 py-2 text-sm">
 								<span>
 									<strong>{p.user_name}</strong> · {team.monthLabel(p.month)}
 									<span class="tabular-nums text-zinc-500">· {hours(p.minutes)} h in {p.entries} Einträgen</span>
+									{#if p.submitted_at}<span class="badge badge-blue ml-1">eingereicht</span>{/if}
 								</span>
 								<span class="flex gap-1.5 whitespace-nowrap">
-									<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id, p.month)}>Freigeben</button>
+									{#if approvable(p.user_id, p.month)}
+										<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => approve(true, p.user_id, p.month)}>Freigeben</button>
+									{:else}
+										<span class="self-center text-xs text-zinc-500">noch nicht eingereicht</span>
+									{/if}
 									<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => reject(p.user_id, p.user_name, p.month)}>Zurückgeben</button>
 								</span>
 							</li>
@@ -273,37 +318,18 @@
 				{:else}
 					<p class="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
 						<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-						Keine offenen Stunden.
+						Keine anderen Monate offen.
 					</p>
 				{/if}
 			</section>
 		{/if}
 
 		{#if canFeed}
-			<section class="card space-y-3" data-testid="team-activity">
-				<h2 class="text-base font-semibold tracking-tight">Aktivität</h2>
-				{#if feed.length}
-					<ul class="divide-y divide-zinc-100 text-sm dark:divide-zinc-700/70">
-						{#each feed as a (a.id)}
-							<li class="flex justify-between gap-3 py-2">
-								<span>{team.describe(a, (id) => projectNames.get(id) ?? `#${id}`)}</span>
-								<span class="whitespace-nowrap text-xs tabular-nums text-zinc-500">{when(a.created_at)}</span>
-							</li>
-						{/each}
-					</ul>
-					{#if !feedDone}
-						<button class="btn-secondary" disabled={busy} onclick={() => run(() => loadFeed(true))}>Mehr</button>
-					{/if}
-				{:else if !loaded}
-					<div class="space-y-2.5">
-						<div class="skeleton h-3 w-3/4"></div>
-						<div class="skeleton h-3 w-1/2"></div>
-						<div class="skeleton h-3 w-2/3"></div>
-					</div>
-				{:else}
-					<EmptyState icon="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" title="Noch keine Aktivität." />
-				{/if}
-			</section>
+			<div data-testid="team-activity">
+				{#key feedKey}
+					<ActivityFeed limit={30} paged projectName={(id) => projectNames.get(id) ?? `#${id}`} />
+				{/key}
+			</div>
 		{/if}
 	</section>
 {/if}

@@ -121,19 +121,22 @@ async function request<T>(
   token?: string,
 ): Promise<T> {
   // Session / company switch: stamps of the previous company must not leak into the next.
-  if (method !== "GET" && !path.startsWith("/api/")) seen.clear();
+  // The local import rewrites company_settings: stamps loaded before it are stale.
+  if (method !== "GET" && (!path.startsWith("/api/") || path === "/api/import")) seen.clear();
   const expected = method === "PATCH" ? seen.get(path) : undefined;
-  if (expected && body && typeof body === "object")
+  if (expected && body && typeof body === "object" && !(body instanceof Blob))
     body = { ...body, expected_updated_at: expected };
+  // A Blob/File goes as the raw body with its own type (e.g. a receipt), anything else as JSON.
+  const raw = body instanceof Blob;
   let res: Response;
   try {
     res = await fetch(url + path, {
       method,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(body === undefined ? {} : { "Content-Type": raw ? (body as Blob).type : "application/json" }),
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : raw ? (body as Blob) : JSON.stringify(body),
     });
   } catch (e) {
     // Network failure (offline, server down, DNS): the shell shows one global bar.
@@ -252,6 +255,11 @@ export type Me = {
     id: number;
     name: string;
     role: "admin" | "member" | "subcontractor";
+    /** True while subscribed or in the trial. */
     paid: boolean;
+    /** Set during the card-free trial without a subscription yet. */
+    trialEndsAt?: string | null;
   }[];
+  /** Open invitations to this address; accept by id (/api/invitations/accept). */
+  invitations?: { id: number; company: string; role: "member" | "subcontractor" }[];
 };

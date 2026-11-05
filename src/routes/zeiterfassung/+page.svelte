@@ -13,13 +13,14 @@
 	import { listClients } from '$lib/db/customers';
 	import { listProjects } from '$lib/db/projects';
 	import { createTimeEntry, deleteTimeEntry, listTimeEntries, updateTimeEntry } from '$lib/db/time-entries';
+	import { spanMinutes } from '$lib/timespan';
 	import type { Customer, Project, TimeEntry } from '$lib/db/types';
 	import { t, tp } from '$lib/i18n';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
 	import { cloud } from '$lib/cloud';
-	import { can, initials, memberName, session } from '$lib/session.svelte';
+	import { can, initials, isSub, memberName, session } from '$lib/session.svelte';
 
 	type TimeEntryRow = TimeEntry & {
 		customerName: string;
@@ -45,6 +46,8 @@
 	let filterUserId = $state('all');
 	// Cloud with the team_time grant: other members' entries are listed too, so show and filter by author.
 	const teamView = cloud() && can('team_time') && (session.me?.active?.members.length ?? 0) > 1;
+	// Others' entries are view-only without team_time:edit (server scopes PATCH/DELETE to 'edit').
+	const mayChange = (row: { user_id?: number | null }) => !cloud() || row.user_id == null || row.user_id === session.me?.user.id || can('team_time', 'edit');
 	const filterUserOptions = [
 		{ value: 'all', label: 'Alle Mitarbeiter' },
 		...(session.me?.active?.members ?? []).map((m) => ({ value: String(m.id), label: m.name }))
@@ -66,8 +69,9 @@
 		...customers.map((customer) => ({ value: String(customer.id), label: customer.name }))
 	]);
 
+	// Subcontractors must book on an assigned project (server: 400 unknown_project_id otherwise).
 	const projectOptions = $derived.by(() => [
-		{ value: '', label: t('timeTracking.noProject') },
+		...(isSub() ? [] : [{ value: '', label: t('timeTracking.noProject') }]),
 		...projects.map((project) => ({ value: String(project.id), label: project.name }))
 	]);
 
@@ -95,12 +99,12 @@
 
 	const durationHours = $derived.by(() => {
 		if (startMinutes === null || endMinutes === null) return 0;
-		const diffMinutes = endMinutes - startMinutes - pause;
+		const diffMinutes = spanMinutes(startMinutes, endMinutes, pause);
 		if (diffMinutes <= 0 || diffMinutes > 24 * 60) return 0;
 		return diffMinutes / 60;
 	});
 
-	const canSaveEntry = $derived.by(() => !saving && !!entryDate && !!startTime && !!endTime && durationHours > 0);
+	const canSaveEntry = $derived.by(() => !saving && !!entryDate && !!startTime && !!endTime && durationHours > 0 && (!isSub() || !!projectId));
 	const dialogTitle = $derived.by(() => (editingTimeEntryId === null ? t('timeTracking.createEntry') : t('timeTracking.editEntry')));
 
 	$effect(() => {
@@ -207,7 +211,7 @@
 		const start = parseTimeToMinutes(startTime);
 		const end = parseTimeToMinutes(endTime);
 		pauseMinutes =
-			start !== null && end !== null && row.duration_minutes ? Math.max(0, end - start - row.duration_minutes) : 0;
+			start !== null && end !== null && row.duration_minutes ? Math.max(0, spanMinutes(start, end, row.duration_minutes)) : 0;
 		formError = '';
 		showEntryDialog = true;
 	}
@@ -274,9 +278,9 @@
 		if (!startTime) return;
 		const start = parseTimeToMinutes(startTime);
 		if (start === null) return;
-		// Quick buttons mean net working time, so the pause is added on top.
-		const next = Math.min(start + minutes + pause, 24 * 60);
-		endTime = formatMinutesToTimeValue(next);
+		// Quick buttons mean net working time, so the pause is added on top; wrapping past 24:00 becomes a next-day end.
+		const next = start + minutes + pause;
+		endTime = formatMinutesToTimeValue(next % (24 * 60));
 	}
 
 	async function saveEntry() {
@@ -289,8 +293,8 @@
 		saving = true;
 		try {
 			const start = composeDateTime(entryDate, startMinutes);
-			const end = composeDateTime(entryDate, endMinutes);
-			const minutes = endMinutes - startMinutes - pause;
+			const end = composeDateTime(entryDate, endMinutes < startMinutes ? endMinutes + 24 * 60 : endMinutes);
+			const minutes = spanMinutes(startMinutes, endMinutes, pause);
 
 			if (editingTimeEntryId === null) {
 				const companyId = await ensureCompanyId();
@@ -375,7 +379,9 @@
 		if (Number.isNaN(date.getTime())) return null;
 		const base = new Date(`${entryDateValue}T00:00:00`);
 		if (Number.isNaN(base.getTime())) return null;
-		const diffMinutes = Math.round((date.getTime() - base.getTime()) / (1000 * 60));
+		let diffMinutes = Math.round((date.getTime() - base.getTime()) / (1000 * 60));
+		// Overnight entries end on the next day: fold back to a clock time; the auto-detect re-adds the day on save.
+		if (diffMinutes >= 24 * 60 && diffMinutes <= 48 * 60) diffMinutes -= 24 * 60;
 		if (diffMinutes < 0 || diffMinutes > 24 * 60) return null;
 		return formatMinutesToTimeValue(diffMinutes);
 	}
@@ -509,7 +515,7 @@
 				{:else}
 					<div class="transition-opacity duration-200 {loading ? 'opacity-60' : ''}">
 						{#each visibleRows as row (row.id)}
-							<div class="data-row group min-h-11 hover:bg-zinc-50 dark:hover:bg-zinc-800/60" style="grid-template-columns: {COLS}">
+							<div data-testid="time-entry-row" class="data-row group min-h-11 hover:bg-zinc-50 dark:hover:bg-zinc-800/60" style="grid-template-columns: {COLS}">
 								<div class="flex items-center gap-2 truncate px-4 py-2">
 									{#if teamView && row.user_id}
 										{@const name = memberName(row.user_id)}
@@ -526,7 +532,7 @@
 										<span class="badge badge-zinc" title="Beim Auftraggeber gebucht; ändern nur dort">vom Auftraggeber</span>
 									{:else if row.approved_at}
 										<span class="badge badge-green" title="Monat freigegeben; ändern erst nach Zurücknahme der Freigabe">freigegeben</span>
-									{:else}
+									{:else if mayChange(row)}
 										<div class="row-actions">
 											<button type="button" onclick={() => openEditDialog(row)} class="icon-btn icon-btn-blue" title={t('common.edit')} aria-label={t('common.edit')}>
 												<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" /></svg>

@@ -13,6 +13,7 @@
 	import { createLogger } from '$lib/logger';
 	import { t } from '$lib/i18n';
 	import { cloud } from '$lib/cloud';
+	import { can } from '$lib/session.svelte';
 	import type { Invoice, InvoiceItem, Payment } from '$lib/db/types';
 	import { deferDelete } from '$lib/ui/undo';
 	import EmptyState from '../../../common/EmptyState.svelte';
@@ -152,6 +153,8 @@
 	}
 
 	const isDraft = $derived(invoice?.status === 'draft');
+	// Every change below needs invoices:edit (server invoices.ts); view-only reads.
+	const canEdit = $derived(can('invoices', 'edit'));
 	// Server/desktop: only sent/paid originals can be stornoed or take payments; a storno itself cannot.
 	const isOpen = $derived(
 		(invoice?.status === 'sent' || invoice?.status === 'paid') && invoice?.references_invoice_id == null
@@ -254,12 +257,12 @@
 			<div class="flex flex-col items-end gap-3">
 				<p class="text-3xl font-semibold tracking-tight tabular-nums">{eur(invoice.gross_cents)}</p>
 				<div class="flex gap-2">
-					{#if isDraft}
+					{#if isDraft && canEdit}
 						<button type="button" onclick={handleDelete} class="icon-btn icon-btn-danger" aria-label={t('common.delete')} title={t('common.delete')}>
 							<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
 						</button>
 					{/if}
-					{#if isOpen}
+					{#if isOpen && canEdit}
 						<button type="button" onclick={() => ((stornoReason = ''), (stornoOpen = true))} disabled={busy} class="btn-secondary text-red-600 dark:text-red-400">
 							{t('invoices.storno')}
 						</button>
@@ -317,7 +320,7 @@
 				unit_price_net: String(i.unit_price_net_cents / 100),
 				tax_rate: String(i.tax_rate)
 			}))}
-			readonly={!isDraft}
+			readonly={!isDraft || !canEdit}
 			snapshot={isDraft ? null : invoice}
 			onSave={handleSave}
 			onS3KeyUpdate={(key) => {
@@ -350,17 +353,19 @@
 								<span class="text-zinc-600 dark:text-zinc-300"><span class="tabular-nums">{p.payment_date.split('-').reverse().join('.')}</span> · {p.method ?? '—'}</span>
 								<span class="flex items-center gap-2">
 									<span class="font-medium tabular-nums">{eur(p.amount_cents)}</span>
-									<span class="row-actions">
-										<button type="button" class="icon-btn icon-btn-danger h-7 w-7" disabled={busy} aria-label={t('common.delete')} title={t('common.delete')} onclick={() => deletePaymentUndoable(p)}>
-											<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-										</button>
-									</span>
+									{#if canEdit}
+										<span class="row-actions">
+											<button type="button" class="icon-btn icon-btn-danger h-7 w-7" disabled={busy} aria-label={t('common.delete')} title={t('common.delete')} onclick={() => deletePaymentUndoable(p)}>
+												<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+											</button>
+										</span>
+									{/if}
 								</span>
 							</li>
 						{/each}
 					</ul>
 				{/if}
-				{#if isOpen}
+				{#if isOpen && canEdit}
 					<div class="grid items-end gap-3 border-t border-zinc-100 pt-4 md:grid-cols-4 dark:border-zinc-700/70">
 						<label class="text-sm">
 							<span class="label">Betrag (€)</span>

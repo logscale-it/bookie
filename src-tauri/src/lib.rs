@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+mod ai;
 mod gobd;
 pub mod s3;
 
@@ -2837,6 +2838,125 @@ fn set_cloud_token(token: Option<String>) -> Result<(), BookieError> {
     Ok(())
 }
 
+// --- AI receipt extraction (key in the OS keyring, never returned to JS) ---
+
+const KEYRING_AI_USER: &str = "ai_api_key";
+
+fn ai_key() -> Result<Option<String>, BookieError> {
+    match keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_AI_USER)?.get_password() {
+        Ok(key) => Ok(Some(key)),
+        Err(keyring_core::error::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+#[tauri::command(async)]
+fn has_ai_key() -> Result<bool, BookieError> {
+    Ok(ai_key()?.is_some())
+}
+
+/// Stores the provider API key, or deletes it with `None`/empty.
+#[tauri::command(async)]
+fn set_ai_key(key: Option<String>) -> Result<(), BookieError> {
+    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_AI_USER)?;
+    match key.as_deref().map(str::trim) {
+        Some(k) if !k.is_empty() => entry.set_password(k)?,
+        _ => match entry.delete_credential() {
+            Ok(()) | Err(keyring_core::error::Error::NoEntry) => {}
+            Err(e) => return Err(e.into()),
+        },
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AiExtractArgs {
+    provider: String,
+    model: String,
+    base_url: String,
+    mime_type: String,
+}
+
+fn ai_error(message: impl Into<String>) -> BookieError {
+    BookieError::Unknown {
+        message: message.into(),
+    }
+}
+
+/// Raw-body IPC like `put_presigned_url`: the receipt bytes are the body,
+/// the provider settings ride in `x-bookie-args`. Returns the model's answer
+/// text; the frontend parses the JSON out of it.
+#[tauri::command]
+async fn ai_extract_invoice(request: tauri::ipc::Request<'_>) -> Result<String, BookieError> {
+    let args: AiExtractArgs = request
+        .headers()
+        .get("x-bookie-args")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            serde_json::from_str(&percent_encoding::percent_decode_str(v).decode_utf8_lossy()).ok()
+        })
+        .ok_or_else(|| ai_error("ai_extract_invoice: missing or invalid x-bookie-args header"))?;
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err(ai_error("ai_extract_invoice: expected raw body"));
+    };
+    let data = data.clone();
+    run_blocking(move || {
+        let key = ai_key()?;
+        if key.is_none() && args.provider != "ollama" {
+            return Err(ai_error("Kein KI-API-Key hinterlegt (Einstellungen → KI)."));
+        }
+        let req = ai::build_request(
+            &args.provider,
+            &args.model,
+            &args.base_url,
+            &args.mime_type,
+            &data,
+            key.as_deref(),
+        )
+        .map_err(ai_error)?;
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_connect(Some(Duration::from_secs(10)))
+            .timeout_global(Some(Duration::from_secs(120)))
+            .build()
+            .into();
+        let mut builder = agent
+            .post(&req.url)
+            .header("content-type", "application/json");
+        for (name, value) in &req.headers {
+            builder = builder.header(*name, value);
+        }
+        let body = serde_json::to_vec(&req.body).map_err(|e| ai_error(e.to_string()))?;
+        let mut res = builder.send(&body[..]).map_err(|e| {
+            warn!("AI request failed: {e}");
+            ai_error(format!("KI-Anbieter nicht erreichbar: {e}"))
+        })?;
+        let status = res.status().as_u16();
+        let text = res
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| ai_error(e.to_string()))?;
+        match status {
+            200..=299 => {}
+            401 | 403 => return Err(ai_error("KI-API-Key ungültig oder ohne Berechtigung.")),
+            _ => {
+                warn!("AI provider returned {status}");
+                // Provider error bodies carry the reason (bad model name, quota, …), never the key.
+                return Err(ai_error(format!(
+                    "KI-Anbieter meldet Fehler {status}: {}",
+                    text.chars().take(300).collect::<String>()
+                )));
+            }
+        }
+        let json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| ai_error(e.to_string()))?;
+        ai::response_text(&args.provider, &json)
+            .ok_or_else(|| ai_error("Unerwartete Antwort vom KI-Anbieter."))
+    })
+    .await
+}
+
 #[cfg(test)]
 mod pure_helper_tests {
     use super::{is_sqlite_backup, sha256_hex, validate_restore_bytes, SQLITE_MAGIC};
@@ -4056,6 +4176,9 @@ pub fn run() {
             get_s3_credentials,
             get_cloud_token,
             set_cloud_token,
+            set_ai_key,
+            has_ai_key,
+            ai_extract_invoice,
             append_frontend_log,
             read_log_tail,
             schema_version_check,

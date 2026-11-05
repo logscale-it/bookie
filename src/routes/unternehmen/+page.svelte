@@ -13,6 +13,7 @@
 	import { isValidVatId } from '$lib/validation';
 	import { toasts } from '$lib/ui/toasts.svelte';
 	import { isPlainKey } from '$lib/ui/shortcut';
+	import { isAdmin, isSub } from '$lib/session.svelte';
 	import Dialog from '../../common/Dialog.svelte';
 	import SkeletonRows from '../../common/SkeletonRows.svelte';
 	import EmptyState from '../../common/EmptyState.svelte';
@@ -53,6 +54,8 @@
 		type: 'kunde'
 	});
 
+	// Subcontractors only read customers of assigned projects (server: writes 403).
+	const canWrite = $derived(!isSub());
 	let customers = $state<Customer[]>([]);
 	let search = $state('');
 	let typeFilter = $state('');
@@ -254,7 +257,7 @@
 		}
 	}
 	function onKeydown(e: KeyboardEvent) {
-		if (isPlainKey(e, 'n') && !showAddForm) {
+		if (isPlainKey(e, 'n') && !showAddForm && canWrite) {
 			e.preventDefault();
 			showAddForm = true;
 		}
@@ -271,11 +274,13 @@
 				{t('companies.subtitle')}
 			</p>
 		</div>
-		<button type="button" class="btn-primary shrink-0" onclick={() => (showAddForm = true)}>
-			<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-			{t('companies.addButton')}
-			<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
-		</button>
+		{#if canWrite}
+			<button type="button" class="btn-primary shrink-0" onclick={() => (showAddForm = true)}>
+				<svg class="-ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+				{t('companies.addButton')}
+				<kbd class="kbd !border-white/25 !bg-white/15 !text-white/80">N</kbd>
+			</button>
+		{/if}
 	</header>
 
 	<AddEntryFormSection
@@ -345,8 +350,8 @@
 							icon="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
 							title={t('companies.empty')}
 							hint="Lege Kunden und Lieferanten an, um sie in Rechnungen zu verwenden."
-							actionLabel={t('companies.addButton')}
-							onaction={() => (showAddForm = true)}
+							actionLabel={canWrite ? t('companies.addButton') : undefined}
+							onaction={canWrite ? () => (showAddForm = true) : undefined}
 						/>
 					{/if}
 				</div>
@@ -369,25 +374,26 @@
 						<div>
 							{#each filteredCustomers as customer (customer.id)}
 								<div
+									data-testid="customer-row"
 									class="data-row group {editingCustomerId === customer.id ? 'bg-accent-50/40 dark:bg-accent-900/10' : ''}"
 									style="grid-template-columns: {cols}; min-height: 48px"
 								>
 									{#if editingCustomerId === customer.id}
-										<div class="px-3 py-2"><input bind:value={editForm.name} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.name} aria-label={t('common.name')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
 										<div class="px-3 py-2">
-											<select bind:value={editForm.type} class="input-base input-valid rounded-lg px-2 py-1">
+											<select bind:value={editForm.type} aria-label={t('common.type')} class="input-base input-valid rounded-lg px-2 py-1">
 												{#each typeOptions as opt}
 													<option value={opt.value}>{opt.label}</option>
 												{/each}
 											</select>
 										</div>
-										<div class="px-3 py-2"><input bind:value={editForm.street} class="input-base input-valid rounded-lg px-2 py-1" /></div>
-										<div class="px-3 py-2"><input bind:value={editForm.postalCode} class="input-base input-valid rounded-lg px-2 py-1" /></div>
-										<div class="px-3 py-2"><input bind:value={editForm.city} class="input-base input-valid rounded-lg px-2 py-1" /></div>
-										<div class="px-3 py-2"><input bind:value={editForm.emails} class="input-base input-valid rounded-lg px-2 py-1" /></div>
-										<div class="px-3 py-2"><input bind:value={editForm.phone} class="input-base input-valid rounded-lg px-2 py-1" /></div>
-										<div class="px-3 py-2"><input bind:value={editForm.vatId} title={editVatIdError} aria-invalid={editVatIdError ? 'true' : undefined} class="input-base rounded-lg px-2 py-1 {editVatIdError ? 'input-error' : 'input-valid'}" /></div>
-										<div class="px-3 py-2"><input bind:value={editForm.website} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.street} aria-label={t('companies.street')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.postalCode} aria-label={t('companies.postalCode')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.city} aria-label={t('companies.city')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.emails} aria-label={t('companies.emails')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.phone} aria-label={t('companies.phone')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.vatId} aria-label={t('companies.vatId')} title={editVatIdError} aria-invalid={editVatIdError ? 'true' : undefined} class="input-base rounded-lg px-2 py-1 {editVatIdError ? 'input-error' : 'input-valid'}" /></div>
+										<div class="px-3 py-2"><input bind:value={editForm.website} aria-label={t('companies.website')} class="input-base input-valid rounded-lg px-2 py-1" /></div>
 										<div class="flex justify-end gap-2 px-3 py-2 text-xs">
 											<button type="button" onclick={saveEdit} class="btn-primary px-2.5 py-1 text-xs" disabled={saving || !editForm.name.trim() || !!editVatIdError}>{t('common.save')}</button>
 											<button type="button" onclick={cancelEdit} class="btn-secondary px-2.5 py-1 text-xs">{t('common.cancel')}</button>
@@ -417,6 +423,7 @@
 											>
 												<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
 											</button>
+											{#if canWrite}
 											<button
 												type="button"
 												onclick={() => startEdit(customer)}
@@ -426,6 +433,9 @@
 											>
 												<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" /></svg>
 											</button>
+											{/if}
+											<!-- DSGVO export/erasure are admin-only on the server (export.ts). -->
+											{#if isAdmin()}
 											<button
 												type="button"
 												onclick={() => handleDsgvoExport(customer)}
@@ -454,6 +464,7 @@
 													<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.16-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.04-2.09 1.02-2.09 2.2v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
 												{/if}
 											</button>
+											{/if}
 										</div>
 									{/if}
 								</div>
