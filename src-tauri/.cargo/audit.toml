@@ -71,6 +71,12 @@ ignore = [
   "RUSTSEC-2026-0370", # zvariant
   "RUSTSEC-2026-0371", # zbus_names
   "RUSTSEC-2026-0372", # zvariant_derive
+  # astral-tokio-tar unmaintained (Astral ended maintenance 2026-11-03, no
+  # patched version; they suggest tar-codec). Dev-only: reached via the
+  # optional `e2e` feature (testcontainers 0.27, and 0.28 / main still depend
+  # on it). Never in the shipped binary. Remove once testcontainers moves to
+  # tar-codec or another maintained tar crate.
+  "RUSTSEC-2026-0440",
 
   # --- Unsound (no upstream fix on the pulled-in versions) ---
   # glib VariantStrIter unsoundness. Pulled in via the GTK3 stack (same
