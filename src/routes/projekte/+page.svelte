@@ -10,6 +10,7 @@
 	import { createCompany, listCompanies } from '$lib/db/companies';
 	import { listCustomers } from '$lib/db/customers';
 	import { createProject, hourlyRatePatch, listProjects, updateProject } from '$lib/db/projects';
+	import { sumMinutesByProject } from '$lib/db/time-entries';
 	import type { Customer, Project } from '$lib/db/types';
 	import { t } from '$lib/i18n';
 	import { cloud, CloudError } from '$lib/cloud';
@@ -37,11 +38,13 @@
 	// Cloud: all-time hours per project (team_time or reports) and, for the admin, who is staffed where.
 	let progress = $state(new Map<number, team.ProjectProgress>());
 	let members = $state<team.TeamMember[]>([]);
+	// Local: minutes per project from time entries (cloud uses `progress` instead).
+	let minutesByProject = $state(new Map<number, number>());
 	const isCloud = cloud();
 	const isAdmin = $derived(session.company?.role === 'admin');
 	// Subcontractors only read assigned projects (server data.ts subScope: writes 403).
 	const canWrite = $derived(!isSub());
-	const gridCols = $derived(isCloud ? 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,1fr) minmax(0,0.8fr)' : 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.7fr) minmax(0,0.8fr)');
+	const gridCols = $derived(isCloud ? 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.5fr) minmax(0,0.7fr) minmax(0,1fr) minmax(0,0.8fr)' : 'minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,0.5fr) minmax(0,0.7fr) minmax(0,0.8fr)');
 
 	let name = $state('');
 	let customerId = $state('');
@@ -54,6 +57,9 @@
 	const centsOf = (eur: string) => (eur.trim() ? Math.round((Number(eur.replace(',', '.')) || 0) * 100) : null);
 	const plain = (n: number | null | undefined, div: number) => (n == null ? '' : String(n / div).replace('.', ','));
 	const hoursLabel = (min: number) => (min / 60).toLocaleString('de-DE', { maximumFractionDigits: 1 });
+	// Cloud members without team_time/reports grants see no team-wide totals, so the column shows a dash.
+	const hoursAvailable = $derived(!isCloud || can('team_time') || can('reports'));
+	const hoursOf = (p: Project) => (isCloud ? progress.get(p.id)?.minutes : minutesByProject.get(p.id)) ?? 0;
 
 	// Burn against the hour budget, else the euro budget (hours × rate). null = no budget or no data.
 	function burn(p: Project): { pct: number; label: string } | null {
@@ -110,10 +116,12 @@
 	async function loadData() {
 		loading = true;
 		const companyId = await ensureCompanyId();
-		const [projectRows, customerRows] = await Promise.all([
+		const [projectRows, customerRows, minutes] = await Promise.all([
 			listProjects(companyId),
-			listCustomers(companyId)
+			listCustomers(companyId),
+			isCloud ? Promise.resolve(new Map<number, number>()) : sumMinutesByProject(companyId)
 		]);
+		minutesByProject = minutes;
 		customers = customerRows;
 		const byId = new Map(customerRows.map((customer) => [customer.id, customer.name]));
 		projects = projectRows.map((project) => ({
@@ -270,18 +278,19 @@
 
 	<div class="table-card">
 		<div class="table-scroll">
-		<div class="min-w-[760px]">
+		<div class="min-w-[880px]">
 		<div class="table-head" style="grid-template-columns: {gridCols}">
 			<div class="px-4 py-3">{t('common.name')}</div>
 			<div class="px-4 py-3">{t('projects.customer')}</div>
 			<div class="px-4 py-3">{t('projects.timeframe')}</div>
+			<div class="px-4 py-3 text-right">{t('projects.hours')}</div>
 			<div class="px-4 py-3 text-right">Stundensatz</div>
 			{#if isCloud}<div class="px-4 py-3">Budget</div>{/if}
 			<div class="px-4 py-3 text-right">{t('common.action')}</div>
 		</div>
 
 		{#if loading}
-			<SkeletonRows rows={5} cols={isCloud ? 6 : 5} />
+			<SkeletonRows rows={5} cols={isCloud ? 7 : 6} />
 		{:else if projects.length === 0}
 			<EmptyState
 				icon="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
@@ -313,6 +322,7 @@
 								<input type="date" bind:value={editingStartDate} aria-label={t('projects.startDate')} class="input-base input-valid rounded-lg px-2 py-1" />
 								<input type="date" bind:value={editingEndDate} aria-label={t('projects.endDate')} class="input-base input-valid rounded-lg px-2 py-1" />
 							</div>
+							<div class="px-4 py-2 text-right tabular-nums text-zinc-500 dark:text-zinc-400">{hoursAvailable ? `${hoursLabel(hoursOf(project))} h` : '—'}</div>
 							<div class="px-4 py-2">
 								{#if project.hourly_rate_hidden}
 									<div class="text-right text-zinc-400" title="Stundensätze sind nur mit Berechtigung für Rechnungen oder Berichte sichtbar">verborgen</div>
@@ -336,6 +346,7 @@
 							<div class="truncate px-4 py-2 font-medium text-zinc-900 dark:text-zinc-100">{project.name}</div>
 							<div class="truncate px-4 py-2">{project.customerName}</div>
 							<div class="truncate px-4 py-2">{formatTimeframe(project)}</div>
+							<div class="truncate px-4 py-2 text-right tabular-nums">{hoursAvailable ? `${hoursLabel(hoursOf(project))} h` : '—'}</div>
 							<div class="truncate px-4 py-2 text-right tabular-nums {project.hourly_rate_hidden ? 'text-zinc-400' : ''}">{formatRate(project)}</div>
 							{#if isCloud}
 								{@const b = burn(project)}

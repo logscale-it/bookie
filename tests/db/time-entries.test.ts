@@ -144,6 +144,24 @@ describe("time entries", () => {
     expect(await timeEntries.getTimeEntryById(id)).toBeUndefined();
   });
 
+  test("sumMinutesByProject aggregates per project and ignores entries without one", async () => {
+    const { companyId, customerId, projectId } = await seed();
+    const otherProject = await projects.createProject({
+      company_id: companyId, customer_id: customerId, project_number: null,
+      name: "Other", description: null, status: "active",
+      hourly_rate: 80, starts_on: null, ends_on: null,
+    });
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, "2026-05-01", 90));
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, projectId, "2026-05-02", 45));
+    await timeEntries.createTimeEntry(blankEntry(companyId, customerId, otherProject, "2026-05-03", 30));
+    await timeEntries.createTimeEntry({ ...blankEntry(companyId, customerId, projectId, "2026-05-04", 60), project_id: null });
+
+    const sums = await timeEntries.sumMinutesByProject(companyId);
+    expect(sums.get(projectId)).toBe(135);
+    expect(sums.get(otherProject)).toBe(30);
+    expect(sums.size).toBe(2);
+  });
+
   test("FK to company is enforced", async () => {
     await expect(
       timeEntries.createTimeEntry(blankEntry(99999, 1, 1, "2026-05-01", 30)),
