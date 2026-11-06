@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import InvoiceForm, { type SaveData } from '../../../common/InvoiceForm.svelte';
@@ -39,7 +40,10 @@
 	const invoiceId = $derived(Number($page.params.id));
 
 	$effect(() => {
-		loadInvoice(invoiceId);
+		const id = invoiceId;
+		// loadInvoice reads `invoice` before its first await; untracked, or every
+		// `invoice = inv` re-runs this effect (endless reload + history remount).
+		untrack(() => loadInvoice(id));
 	});
 
 	async function loadInvoice(id: number) {
