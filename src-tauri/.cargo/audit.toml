@@ -37,6 +37,16 @@ ignore = [
   "RUSTSEC-2026-0367",
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
+  # libsqlite3-sys < 0.39 bundles SQLite < 3.54: a crafted `-wal` sibling with
+  # a smaller page size leaks uninitialized page-cache memory (local info
+  # disclosure, CVSS 6.8). No fix reachable: sqlx-sqlite 0.8.6 pins ^0.30.1,
+  # sqlx 0.9 caps < 0.38, tauri-plugin-sql (incl. 3.0-alpha) needs sqlx 0.8,
+  # and `links = "sqlite3"` forces one version for rusqlite too. Not
+  # reachable: we only open our own DB/WAL; restore takes a single file and
+  # deletes the old -wal/-shm before the swap, so a foreign WAL needs write
+  # access to the app data dir. Triaged 2026-11-09; remove once
+  # tauri-plugin-sql's sqlx-sqlite allows libsqlite3-sys >= 0.39.
+  "RUSTSEC-2026-0459",
 
   # --- Unmaintained crates (transitive, no action available) ---
   # gtk-rs GTK3 bindings, all unmaintained. Pulled in by Tauri/wry on Linux.
