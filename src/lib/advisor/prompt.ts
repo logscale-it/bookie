@@ -103,3 +103,36 @@ export function userPrompt(
     `\nFrage: ${question.trim()}`,
   ].join("\n");
 }
+
+/** One turn of the advisor chat: `text` is shown, `sent` goes to the model. */
+export type Turn = {
+  role: "user" | "assistant";
+  text: string;
+  sent: string;
+  /** User turns: the calculator summary current when the question was asked. */
+  calc?: string;
+};
+
+/**
+ * The next user turn. The first question carries the full facts; a follow-up
+ * is sent as typed, re-attaching the calculator only when it changed since
+ * the last question (the facts are already in the conversation).
+ */
+export function userTurn(
+  f: Facts,
+  question: string,
+  calc: string,
+  thread: Turn[],
+): Turn {
+  const q = question.trim();
+  const prev = thread.findLast((t) => t.role === "user");
+  const sent = !prev
+    ? userPrompt(f, q, calc)
+    : calc !== prev.calc
+      ? `Aktuelle Berechnung des Nutzers:\n${calc}\n\nFrage: ${q}`
+      : q;
+  return { role: "user", text: q, sent, calc };
+}
+
+export const toMessages = (thread: Turn[]) =>
+  thread.map((t) => ({ role: t.role, content: t.sent }));

@@ -811,6 +811,12 @@ export default {
     questionPlaceholder: "e.g. Can I hire an employee for 3,500 € next month?",
     thinking: "Thinking…",
     ask: "Ask",
+    followUp: "Follow-up",
+    followUpPlaceholder: "Keep asking, e.g. And if I hire in June instead?",
+    newChat: "New conversation",
+    you: "You",
+    advisorName: "Advisor",
+    chatFailed: "The answer failed. Your question is back in the field; send it again.",
     aiSent:
       "Sent along: key figures, liquidity plan, open items and the current calculator. No receipts, no addresses.",
   },

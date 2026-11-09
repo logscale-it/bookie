@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { listCompanies } from '$lib/db/companies';
 	import { gatherFacts, loadAssumptions, saveAssumptions } from '$lib/advisor/facts';
 	import {
@@ -11,7 +11,7 @@
 		rentOrBuy,
 		type Facts
 	} from '$lib/advisor/calc';
-	import { SYSTEM_PROMPT, userPrompt } from '$lib/advisor/prompt';
+	import { SYSTEM_PROMPT, toMessages, userTurn, type Turn } from '$lib/advisor/prompt';
 	import { aiConfig, complete } from '$lib/ai';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import EmptyState from '../../common/EmptyState.svelte';
@@ -122,25 +122,54 @@
 		return `Investition ${eur(toCents(invCost))}, Mehrertrag ${eur(toCents(invGain))}/Jahr über ${invYears} Jahre, Restwert ${eur(toCents(invResidual))}, Kalkulationszins ${invRate} %: Kapitalwert ${eur(inv.npvCents)}, interner Zinsfuß ${inv.irrAnnual == null ? '–' : pct(inv.irrAnnual)}, Amortisation ${inv.paybackYears == null ? 'nie' : inv.paybackYears.toFixed(1) + ' Jahre'}, Rentabilität ${pct(inv.roiAnnual)}.`;
 	}
 
-	// ---- AI ---------------------------------------------------------------
+	// ---- AI chat ----------------------------------------------------------
+	// ponytail: the conversation lives in page state; leaving the page ends it.
 	const ai = aiConfig();
 	let question = $state('');
-	let answer = $state('');
+	let thread = $state<Turn[]>([]);
 	let asking = $state(false);
 	let aiError = $state('');
+	let composerEl = $state<HTMLFormElement>();
+
+	/** The page scrolls (no inner scroll box: it clips answers on a phone); keep the composer in view. */
+	async function scrollToEnd() {
+		await tick();
+		const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+		composerEl?.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' });
+	}
 
 	async function ask(q = question) {
-		if (!facts || !ai || !q.trim()) return;
-		question = q;
+		if (!facts || !ai || !q.trim() || asking) return;
+		const turn = userTurn(facts, q, calculationSummary(), thread);
+		thread = [...thread, turn];
+		question = '';
 		asking = true;
 		aiError = '';
-		answer = '';
+		void scrollToEnd();
 		try {
-			answer = await complete(SYSTEM_PROMPT, userPrompt(facts, q, calculationSummary()), ai);
+			const text = await complete(SYSTEM_PROMPT, toMessages(thread), ai);
+			thread = [...thread, { role: 'assistant', text, sent: text }];
 		} catch (e) {
+			// Drop the unanswered question and hand it back, so sending again retries it.
+			thread = thread.slice(0, -1);
+			question = turn.text;
 			aiError = messageForUnknown(e);
 		} finally {
 			asking = false;
+			void scrollToEnd();
+		}
+	}
+
+	function newChat() {
+		thread = [];
+		aiError = '';
+		question = '';
+	}
+
+	function onComposerKey(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+			e.preventDefault();
+			void ask();
 		}
 	}
 
@@ -332,28 +361,85 @@
 			{/if}
 		</section>
 
-		<!-- AI -->
-		<section class="card lg:col-span-3">
-			<h2 class={eyebrow}>{t('advisor.aiTitle')}</h2>
+		<!-- AI chat -->
+		<section class="card lg:col-span-3" aria-labelledby="adv-chat-title">
+			<div class="flex items-baseline justify-between gap-3">
+				<h2 id="adv-chat-title" class={eyebrow}>{t('advisor.aiTitle')}</h2>
+				{#if ai && thread.length}
+					<button class="rounded text-xs text-zinc-500 transition-colors hover:text-zinc-900 focus-visible:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/40 disabled:opacity-50 dark:text-zinc-400 dark:hover:text-zinc-100 dark:focus-visible:text-zinc-100" onclick={newChat} disabled={asking} data-testid="advisor-new-chat">{t('advisor.newChat')}</button>
+				{/if}
+			</div>
 			{#if !ai}
 				<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
 					{t('advisor.aiSetupLead')} <a class="underline" href="/einstellungen/ki">{t('advisor.aiSetupLink')}</a> {t('advisor.aiSetupRest')}
 				</p>
 			{:else}
-				<div class="mt-2 flex flex-wrap gap-2">
-					{#each ['q1', 'q2', 'q3', 'q4'].map((k) => t(`advisorQuick.${k}`)) as q}
-						<button class="btn-secondary text-xs" onclick={() => ask(q)} disabled={asking}>{q}</button>
-					{/each}
-				</div>
-				<label class="label mt-3" for="adv-q">{t('advisor.question')}</label>
-				<textarea id="adv-q" class="input-base w-full" rows="2" bind:value={question} placeholder={t('advisor.questionPlaceholder')}></textarea>
-				<div class="mt-2 flex items-center gap-3">
-					<button class="btn-primary" onclick={() => ask()} disabled={asking || !question.trim()}>{asking ? t('advisor.thinking') : t('advisor.ask')}</button>
-					<span class="text-xs text-zinc-500">{t('advisor.aiSent')}</span>
-				</div>
-				{#if aiError}<p class="mt-2 text-sm text-red-600">{aiError}</p>{/if}
-				{#if answer}<div class="mt-3 whitespace-pre-wrap rounded-lg border border-zinc-900/10 p-4 text-sm leading-relaxed dark:border-white/10">{answer}</div>{/if}
+				{#if thread.length}
+					<ol class="mt-4 space-y-5" aria-live="polite" aria-busy={asking}>
+						{#each thread as turn, i (i)}
+							<li class="chat-turn flex flex-col {turn.role === 'user' ? 'items-end' : 'items-start'}" data-testid="advisor-chat-row" data-role={turn.role}>
+								<span class="mb-1 text-xs text-zinc-500 dark:text-zinc-400">{turn.role === 'user' ? t('advisor.you') : t('advisor.advisorName')}</span>
+								{#if turn.role === 'user'}
+									<p class="max-w-[min(75%,36rem)] whitespace-pre-wrap rounded-lg bg-zinc-900/[0.06] px-3.5 py-2 text-sm leading-relaxed text-zinc-900 dark:bg-white/10 dark:text-zinc-100">{turn.text}</p>
+								{:else}
+									<div class="max-w-[68ch] whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-900 dark:text-zinc-100">{turn.text}</div>
+								{/if}
+							</li>
+						{/each}
+						{#if asking}
+							<li class="chat-turn flex flex-col items-start" data-testid="advisor-chat-pending">
+								<span class="mb-1 text-xs text-zinc-500 dark:text-zinc-400">{t('advisor.advisorName')}</span>
+								<span class="chat-pending text-sm text-zinc-500 dark:text-zinc-400">{t('advisor.thinking')}</span>
+							</li>
+						{/if}
+					</ol>
+				{:else}
+					<div class="mt-3 flex flex-wrap gap-2">
+						{#each ['q1', 'q2', 'q3', 'q4'].map((k) => t(`advisorQuick.${k}`)) as q}
+							<button class="btn-secondary text-xs" onclick={() => ask(q)} disabled={asking}>{q}</button>
+						{/each}
+					</div>
+				{/if}
+
+				<form bind:this={composerEl} class="mt-5 scroll-mb-24" onsubmit={(e) => { e.preventDefault(); void ask(); }}>
+					<label class="label" for="adv-q">{thread.length ? t('advisor.followUp') : t('advisor.question')}</label>
+					<textarea
+						id="adv-q"
+						class="input-base w-full resize-y"
+						rows="2"
+						bind:value={question}
+						onkeydown={onComposerKey}
+						placeholder={thread.length ? t('advisor.followUpPlaceholder') : t('advisor.questionPlaceholder')}
+						aria-describedby="adv-q-note"
+					></textarea>
+					<div class="mt-2 flex flex-wrap items-center gap-3">
+						<button type="submit" class="btn-primary" disabled={asking || !question.trim()} data-testid="advisor-send">{asking ? t('advisor.thinking') : t('advisor.ask')}</button>
+						<span id="adv-q-note" class="text-xs text-zinc-500 dark:text-zinc-400">{t('advisor.aiSent')}</span>
+					</div>
+				</form>
+				{#if aiError}
+					<p class="mt-2 text-sm text-red-600 dark:text-red-400" role="alert" data-testid="advisor-chat-error">{t('advisor.chatFailed')} <span class="text-zinc-500">({aiError})</span></p>
+				{/if}
 			{/if}
 		</section>
 	</div>
 {/if}
+
+<style>
+	/* New turns rise in once; the pending line breathes. Transform/opacity only. */
+	.chat-turn {
+		animation: chat-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+	}
+	.chat-pending {
+		animation: chat-breathe 1.4s ease-in-out infinite;
+	}
+	@keyframes chat-in {
+		from { opacity: 0; transform: translateY(8px); }
+	}
+	@keyframes chat-breathe {
+		50% { opacity: 0.45; }
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.chat-turn, .chat-pending { animation: none; }
+	}
+</style>

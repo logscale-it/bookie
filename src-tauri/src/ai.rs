@@ -102,17 +102,45 @@ pub fn build_request(
     }
 }
 
-/// Text-only request (Finanzberater): a system prompt plus one user turn,
-/// same three provider shapes as `build_request`.
+/// One turn of a Finanzberater conversation. `role` is "user" or "assistant".
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+/// Rejects histories the providers would refuse or that the UI never sends:
+/// empty, an unknown role, or not ending on the user's question.
+fn validate_chat(messages: &[ChatMessage]) -> Result<(), String> {
+    if messages.last().map(|m| m.role.as_str()) != Some("user") {
+        return Err("Das Gespräch muss mit einer Frage enden.".into());
+    }
+    if let Some(m) = messages
+        .iter()
+        .find(|m| m.role != "user" && m.role != "assistant")
+    {
+        return Err(format!("Unbekannte Rolle im Gespräch: {}", m.role));
+    }
+    Ok(())
+}
+
+/// Text-only request (Finanzberater): a system prompt plus the conversation so
+/// far, same three provider shapes as `build_request`.
 pub fn build_text_request(
     provider: &str,
     model: &str,
     base_url: &str,
     system: &str,
-    prompt: &str,
+    messages: &[ChatMessage],
     key: Option<&str>,
 ) -> Result<AiRequest, String> {
+    validate_chat(messages)?;
     let key = key.unwrap_or_default().to_string();
+    let turns = || {
+        messages
+            .iter()
+            .map(|m| json!({"role": m.role, "content": m.content}))
+    };
     match provider {
         "anthropic" => Ok(AiRequest {
             url: "https://api.anthropic.com/v1/messages".into(),
@@ -124,7 +152,7 @@ pub fn build_text_request(
                 "model": model,
                 "max_tokens": 2048,
                 "system": system,
-                "messages": [{"role": "user", "content": prompt}]
+                "messages": turns().collect::<Vec<_>>()
             }),
         }),
         "gemini" => Ok(AiRequest {
@@ -134,7 +162,10 @@ pub fn build_text_request(
             headers: vec![("x-goog-api-key", key)],
             body: json!({
                 "system_instruction": {"parts": [{"text": system}]},
-                "contents": [{"parts": [{"text": prompt}]}]
+                "contents": messages.iter().map(|m| json!({
+                    "role": if m.role == "assistant" { "model" } else { "user" },
+                    "parts": [{"text": m.content}]
+                })).collect::<Vec<_>>()
             }),
         }),
         "openai" | "mistral" | "ollama" => {
@@ -147,10 +178,9 @@ pub fn build_text_request(
                 headers,
                 body: json!({
                     "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt}
-                    ]
+                    "messages": std::iter::once(json!({"role": "system", "content": system}))
+                        .chain(turns())
+                        .collect::<Vec<_>>()
                 }),
             })
         }
@@ -247,20 +277,65 @@ mod tests {
         assert!(build_request("nope", "m", "", "image/png", b"x", None).is_err());
     }
 
+    fn chat(turns: &[(&str, &str)]) -> Vec<ChatMessage> {
+        turns
+            .iter()
+            .map(|(role, content)| ChatMessage {
+                role: role.to_string(),
+                content: content.to_string(),
+            })
+            .collect()
+    }
+
     #[test]
     fn text_request_shapes() {
-        let a = build_text_request("anthropic", "m", "", "sys", "q", Some("k")).unwrap();
+        let q = chat(&[("user", "q")]);
+        let a = build_text_request("anthropic", "m", "", "sys", &q, Some("k")).unwrap();
         assert_eq!(a.body["system"], "sys");
         assert_eq!(a.body["messages"][0]["content"], "q");
 
-        let g = build_text_request("gemini", "flash", "", "sys", "q", Some("k")).unwrap();
+        let g = build_text_request("gemini", "flash", "", "sys", &q, Some("k")).unwrap();
         assert_eq!(g.body["system_instruction"]["parts"][0]["text"], "sys");
 
-        let o = build_text_request("ollama", "m", "http://x/v1/", "sys", "q", None).unwrap();
+        let o = build_text_request("ollama", "m", "http://x/v1/", "sys", &q, None).unwrap();
         assert_eq!(o.url, "http://x/v1/chat/completions");
         assert_eq!(o.body["messages"][0]["role"], "system");
         assert!(o.headers.is_empty());
-        assert!(build_text_request("nope", "m", "", "s", "q", None).is_err());
+        assert!(build_text_request("nope", "m", "", "s", &q, None).is_err());
+    }
+
+    #[test]
+    fn text_request_carries_the_whole_conversation() {
+        let c = chat(&[("user", "q1"), ("assistant", "a1"), ("user", "q2")]);
+
+        let a = build_text_request("anthropic", "m", "", "sys", &c, Some("k")).unwrap();
+        let roles: Vec<_> = a.body["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["role"].as_str().unwrap())
+            .collect();
+        assert_eq!(roles, ["user", "assistant", "user"]);
+        assert_eq!(a.body["messages"][2]["content"], "q2");
+
+        // Gemini calls the assistant "model".
+        let g = build_text_request("gemini", "f", "", "sys", &c, Some("k")).unwrap();
+        assert_eq!(g.body["contents"][1]["role"], "model");
+        assert_eq!(g.body["contents"][1]["parts"][0]["text"], "a1");
+
+        // OpenAI-compatible: system first, then the turns in order.
+        let o = build_text_request("openai", "m", "https://x/v1", "sys", &c, Some("k")).unwrap();
+        assert_eq!(o.body["messages"].as_array().unwrap().len(), 4);
+        assert_eq!(o.body["messages"][3]["content"], "q2");
+    }
+
+    #[test]
+    fn text_request_rejects_bad_histories() {
+        let ok = |c: &[(&str, &str)]| build_text_request("anthropic", "m", "", "s", &chat(c), None);
+        assert!(ok(&[]).is_err());
+        assert!(ok(&[("user", "q"), ("assistant", "a")]).is_err());
+        assert!(ok(&[("system", "x"), ("user", "q")]).is_err());
+        assert!(ok(&[("user", "q")]).is_ok());
     }
 
     #[test]

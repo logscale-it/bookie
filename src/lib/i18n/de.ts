@@ -817,6 +817,12 @@ export default {
       "z. B. Kann ich nächsten Monat einen Mitarbeiter für 3.500 € einstellen?",
     thinking: "Denkt nach…",
     ask: "Fragen",
+    followUp: "Nachfrage",
+    followUpPlaceholder: "Weiter fragen, z. B. Und wenn ich erst im Juni einstelle?",
+    newChat: "Neues Gespräch",
+    you: "Du",
+    advisorName: "Berater",
+    chatFailed: "Antwort fehlgeschlagen. Deine Frage steht wieder im Feld; sende sie erneut.",
     aiSent:
       "Mitgeschickt: Kennzahlen, Liquiditätsplan, offene Posten und der aktuelle Rechner. Keine Belege, keine Adressen.",
   },

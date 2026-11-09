@@ -2793,7 +2793,7 @@ struct AiCompleteArgs {
     model: String,
     base_url: String,
     system: String,
-    prompt: String,
+    messages: Vec<ai::ChatMessage>,
 }
 
 /// Text-only completion for the Finanzberater: same provider config and key
@@ -2807,7 +2807,7 @@ async fn ai_complete(args: AiCompleteArgs) -> Result<String, BookieError> {
             &args.model,
             &args.base_url,
             &args.system,
-            &args.prompt,
+            &args.messages,
             key.as_deref(),
         )
         .map_err(ai_error)?;
