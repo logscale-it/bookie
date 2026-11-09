@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-09
+
+- Finanzberater (new page): Liquiditätsplan, Steuerrücklage, Leisten-, Mieten-oder-kaufen- and Investitionsrechner;
+  questions to the AI provider set under Einstellungen → KI.
+- Remaining hard-coded German labels moved to translations, so the English UI is complete.
+- Projekte shows the total tracked hours per project.
+- Invoice detail page no longer reloads endlessly.
 - Kontoauszug importieren (CSV, N26 layout) under Übersicht → Exporte. Already imported lines are skipped, also
   from overlapping exports; two identical transfers on one day stay two. The DATEV-Export books each line on the bank
   account (SKR03 1200 / SKR04 1800): inflow Soll against Forderungen, outflow Haben against Verbindlichkeiten.
