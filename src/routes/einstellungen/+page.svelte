@@ -1,25 +1,26 @@
 <script lang="ts">
 	import { cloud } from '$lib/cloud';
 	import { can } from '$lib/session.svelte';
+	import { t } from '$lib/i18n';
 
 	const links = [
 		...(can('settings') ? [
-			{ href: '/einstellungen/organisation', label: 'Organisation', hint: 'Absender, Steuer, Bank, DATEV' },
-			{ href: '/einstellungen/rechnung', label: 'Rechnung', hint: 'Nummernkreis, Fristen, Logo' },
-			{ href: '/einstellungen/mwst', label: 'MwSt.-Steuern', hint: 'Steuersätze für Positionen' }
+			{ href: '/einstellungen/organisation', label: t('settings.organisation'), hint: t('settingsHub.orgHint') },
+			{ href: '/einstellungen/rechnung', label: t('settings.invoice'), hint: t('settingsHub.invoiceHint') },
+			{ href: '/einstellungen/mwst', label: t('settings.vatTaxes'), hint: t('settingsHub.vatHint') }
 		] : []),
 		...(cloud()
 			? [
-					{ href: '/einstellungen/cloud', label: 'Konto & Abo', hint: 'Anmeldung, Sicherheit, Abo' },
-					{ href: '/einstellungen/team', label: 'Team', hint: 'Mitglieder, Einladungen, Einladung annehmen' },
-					...(can('invoices') ? [{ href: '/einstellungen/backup', label: 'Cloud-Export', hint: 'Alle Daten und Belege sichern' }] : [])
+					{ href: '/einstellungen/cloud', label: t('settingsHub.account'), hint: t('settingsHub.accountHint') },
+					{ href: '/einstellungen/team', label: t('settingsHub.team'), hint: t('settingsHub.teamHint') },
+					...(can('invoices') ? [{ href: '/einstellungen/backup', label: t('settingsHub.cloudExport'), hint: t('settingsHub.cloudExportHint') }] : [])
 				]
 			: [
-					{ href: '/einstellungen/cloud', label: 'Cloud', hint: 'Im Team arbeiten · 14 Tage kostenlos testen' },
-					{ href: '/einstellungen/backup', label: 'Backup & Wiederherstellung', hint: 'Datenbank sichern, GoBD-Export' }
+					{ href: '/einstellungen/cloud', label: t('settingsHub.cloud'), hint: t('settingsHub.cloudHint') },
+					{ href: '/einstellungen/backup', label: t('settings.backup'), hint: t('settingsHub.backupHint') }
 				]),
-		{ href: '/einstellungen/diagnose', label: 'Diagnose', hint: 'Protokoll für den Support' },
-		{ href: '/einstellungen/updates', label: 'Updates', hint: 'Neue Versionen installieren' }
+		{ href: '/einstellungen/diagnose', label: t('settings.diagnose'), hint: t('settingsHub.diagnoseHint') },
+		{ href: '/einstellungen/updates', label: t('settingsHub.updates'), hint: t('settingsHub.updatesHint') }
 	];
 </script>
 

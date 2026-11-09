@@ -8,19 +8,45 @@ import { api } from "./cloud";
 
 const KEY = "bookie.ai";
 
-export type AiProvider = "anthropic" | "openai" | "gemini" | "mistral" | "ollama";
+export type AiProvider =
+  "anthropic" | "openai" | "gemini" | "mistral" | "ollama";
 export type AiConfig = { provider: AiProvider; model: string; baseUrl: string };
 
 export const PROVIDERS: Record<
   AiProvider,
   { label: string; model: string; baseUrl: string; needsKey: boolean }
 > = {
-  anthropic: { label: "Anthropic (Claude)", model: "claude-haiku-5-5", baseUrl: "", needsKey: true },
+  anthropic: {
+    label: "Anthropic (Claude)",
+    model: "claude-haiku-5-5",
+    baseUrl: "",
+    needsKey: true,
+  },
   // Any OpenAI-compatible API via baseUrl; PDFs only on api.openai.com, images everywhere.
-  openai: { label: "OpenAI-kompatibel (OpenAI, Z.AI, OpenRouter …)", model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1", needsKey: true },
-  gemini: { label: "Google Gemini", model: "gemini-2.5-flash", baseUrl: "", needsKey: true },
-  mistral: { label: "Mistral AI", model: "mistral-medium-latest", baseUrl: "https://api.mistral.ai/v1", needsKey: true },
-  ollama: { label: "Ollama (selbst gehostet)", model: "qwen2.5vl", baseUrl: "http://localhost:11434/v1", needsKey: false },
+  openai: {
+    label: "OpenAI-kompatibel (OpenAI, Z.AI, OpenRouter …)",
+    model: "gpt-4o-mini",
+    baseUrl: "https://api.openai.com/v1",
+    needsKey: true,
+  },
+  gemini: {
+    label: "Google Gemini",
+    model: "gemini-2.5-flash",
+    baseUrl: "",
+    needsKey: true,
+  },
+  mistral: {
+    label: "Mistral AI",
+    model: "mistral-medium-latest",
+    baseUrl: "https://api.mistral.ai/v1",
+    needsKey: true,
+  },
+  ollama: {
+    label: "Ollama (selbst gehostet)",
+    model: "qwen2.5vl",
+    baseUrl: "http://localhost:11434/v1",
+    needsKey: false,
+  },
 };
 
 /** Saved config, or null when the feature was never set up / switched off. */
@@ -51,7 +77,8 @@ export type Extracted = Partial<{
 
 // Models answer `19,99`, `"1.234,50"` or 19.99; anything else is dropped.
 function amount(v: unknown): string | undefined {
-  if (typeof v === "number") return Number.isFinite(v) ? v.toFixed(2) : undefined;
+  if (typeof v === "number")
+    return Number.isFinite(v) ? v.toFixed(2) : undefined;
   if (typeof v !== "string") return undefined;
   let s = v.replace(/[^\d,.-]/g, "");
   if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
@@ -81,7 +108,10 @@ export function parseExtraction(text: string): Extracted {
 }
 
 /** Sends the receipt to the configured provider (via Rust) and parses the answer. */
-export async function extractInvoice(file: File, c: AiConfig): Promise<Extracted> {
+export async function extractInvoice(
+  file: File,
+  c: AiConfig,
+): Promise<Extracted> {
   const text = await invoke<string>(
     "ai_extract_invoice",
     new Uint8Array(await file.arrayBuffer()),
@@ -96,9 +126,28 @@ export async function extractInvoice(file: File, c: AiConfig): Promise<Extracted
   return parseExtraction(text);
 }
 
+/** Text-only completion (Finanzberater) via the configured provider; same key, same Rust path. */
+export function complete(
+  system: string,
+  prompt: string,
+  c: AiConfig,
+): Promise<string> {
+  return invoke<string>("ai_complete", { args: { ...c, system, prompt } });
+}
+
 /** Cloud mode: bookie-server reads the receipt (Mistral OCR), no own key or config needed. */
 export async function extractInvoiceCloud(file: File): Promise<Extracted> {
-  const x = await api<Record<string, unknown>>("/api/incoming-invoices/extract", "POST", file);
+  const x = await api<Record<string, unknown>>(
+    "/api/incoming-invoices/extract",
+    "POST",
+    file,
+  );
   const euros = (c: unknown) => (typeof c === "number" ? c / 100 : null);
-  return parseExtraction(JSON.stringify({ ...x, net_amount: euros(x.net_cents), tax_amount: euros(x.tax_cents) }));
+  return parseExtraction(
+    JSON.stringify({
+      ...x,
+      net_amount: euros(x.net_cents),
+      tax_amount: euros(x.tax_cents),
+    }),
+  );
 }

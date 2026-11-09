@@ -19,14 +19,14 @@
 		...(can('invoices') || can('incoming_invoices') ? [{ get label() { return t('settings.recurring'); }, href: '/einstellungen/wiederkehrend' }] : []),
 		// Backup/S3 act on the local SQLite file, which cloud mode does not use (getDb refuses);
 		// in cloud mode the backup page holds only the export (server /api/export needs invoices:view).
-		...(cloud() ? (can('invoices') ? [{ label: 'Cloud-Export', href: '/einstellungen/backup' }] : []) : [
+		...(cloud() ? (can('invoices') ? [{ get label() { return t('settingsHub.cloudExport'); }, href: '/einstellungen/backup' }] : []) : [
 			{ get label() { return t('settings.backup'); }, href: '/einstellungen/backup' },
 			{ get label() { return t('settings.s3Storage'); }, href: '/einstellungen/s3' }
 		]),
 		{ get label() { return t('settings.ai'); }, href: '/einstellungen/ki' },
 		{ get label() { return t('settings.diagnose'); }, href: '/einstellungen/diagnose' },
-		{ label: cloud() ? 'Konto & Abo' : 'Cloud', href: '/einstellungen/cloud' },
-		...(cloud() ? [{ label: 'Team', href: '/einstellungen/team' }] : [])
+		{ get label() { return cloud() ? t('settingsHub.account') : t('settingsHub.cloud'); }, href: '/einstellungen/cloud' },
+		...(cloud() ? [{ get label() { return t('settingsHub.team'); }, href: '/einstellungen/team' }] : [])
 	];
 
 	// Grant-gated subpages opened by URL while their tab is hidden: notice instead of a page of 403s.
@@ -86,7 +86,7 @@
 	</nav>
 
 	{#if forbidden}
-		<EmptyState title="Keine Berechtigung für diesen Bereich" hint="Frag den Admin deiner Firma nach Zugriff." />
+		<EmptyState title={t('access.forbiddenTitle')} hint={t('access.forbiddenHint')} />
 	{:else}
 		{@render children()}
 	{/if}

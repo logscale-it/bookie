@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Area } from "$lib/team";
 import { net } from "$lib/net.svelte";
 import { toasts } from "$lib/ui/toasts.svelte";
+import { t } from "$lib/i18n";
 
 const KEY = "bookie.cloud";
 
@@ -85,11 +86,11 @@ export class CloudError extends Error {
     public status: number,
     public code: string,
     message = status === 402
-      ? "Kein aktives bookie Cloud Abo für dieses Unternehmen"
+      ? t("cloudErrors.unpaid")
       : status === 403
-        ? "Keine Berechtigung für diesen Bereich"
+        ? t("cloudErrors.forbidden")
         : code === "conflict"
-          ? "Wurde zwischenzeitlich von jemand anderem geändert"
+          ? t("cloudErrors.conflict")
           : `Server: ${status} ${code}`,
   ) {
     super(message);
@@ -142,7 +143,7 @@ async function request<T>(
     // Network failure (offline, server down, DNS): the shell shows one global bar.
     console.warn("[cloud]", e);
     net.offline = true;
-    throw new CloudError(0, "offline", "Keine Verbindung zum bookie Server");
+    throw new CloudError(0, "offline", t("cloudErrors.offline"));
   }
   net.offline = false;
   const data = await res.json().catch(() => null);
@@ -153,13 +154,13 @@ async function request<T>(
     throw new CloudError(
       401,
       "session_expired",
-      "Sitzung abgelaufen, bitte neu anmelden",
+      t("cloudErrors.sessionExpired"),
     );
   }
   if (res.status === 409 && data?.error === "conflict") {
     const err = new CloudError(409, "conflict");
     toasts.error(err.message, 0, {
-      label: "Neu laden",
+      label: t("cloudErrors.reload"),
       run: () => location.reload(),
     });
     throw err;
@@ -175,7 +176,7 @@ export function api<T>(
   body?: unknown,
 ): Promise<T> {
   const c = cloud();
-  if (!c) throw new Error("Nicht mit bookie Cloud angemeldet");
+  if (!c) throw new Error(t("cloudErrors.notSignedIn"));
   return request<T>(c.url, path, method, body, c.token);
 }
 

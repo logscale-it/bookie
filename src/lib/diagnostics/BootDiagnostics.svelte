@@ -14,45 +14,14 @@
 		type BootStatus,
 		type Slot,
 	} from "./boot";
+	import { t, tp } from "$lib/i18n";
 
 	let { status, onRetry }: { status: BootStatus; onRetry?: () => void } = $props();
 
-	const SLOT_TITLES: Record<Slot, string> = {
-		app_data: "Anwendungsdaten-Verzeichnis",
-		keyring: "Schlüsselbund (OS Keyring)",
-		s3: "S3-Speicher",
-		schema: "Datenbank-Schema",
-	};
-
-	// Per-slot fix-it copy. Keyed by `BookieError.kind` first, then by slot
-	// name as a fallback for unrecognised error kinds. UI copy is German per
-	// project convention (`UI labels in German`).
-	const FIX_IT_BY_KIND: Record<string, string> = {
-		IoError:
-			"Stellen Sie sicher, dass das Anwendungsdaten-Verzeichnis existiert und beschreibbar ist (Schreibrechte, freier Speicher, kein Read-only Mount).",
-		KeyringUnavailable:
-			"Der OS-Schlüsselbund ist nicht erreichbar. Unter Linux benötigen Sie einen laufenden Secret Service (z.B. gnome-keyring oder KWallet).",
-		MigrationOutOfDate:
-			"Die Datenbank ist auf einem älteren Schema-Stand. Bitte starten Sie die App neu, damit Migrationen ausgeführt werden.",
-		S3CredsInvalid:
-			"Die S3-Zugangsdaten sind ungültig. Prüfen Sie Access Key und Secret Key in den Einstellungen.",
-		S3Unreachable:
-			"Der S3-Endpunkt ist nicht erreichbar. Prüfen Sie Endpoint-URL und Netzwerkverbindung.",
-		S3BucketMissing:
-			"Der angegebene S3-Bucket existiert nicht. Prüfen Sie den Bucket-Namen in den Einstellungen.",
-		S3EndpointInvalid:
-			"Die S3-Endpoint-URL ist ungültig. Sie muss mit https:// beginnen (oder http:// auf localhost).",
-	};
-
-	const FIX_IT_BY_SLOT: Record<Slot, string> = {
-		app_data:
-			"Stellen Sie sicher, dass das Anwendungsdaten-Verzeichnis existiert und beschreibbar ist.",
-		keyring:
-			"Der OS-Schlüsselbund konnte nicht erreicht werden. Bitte aktivieren Sie einen Secret-Service-Dienst.",
-		s3: "Prüfen Sie die S3-Einstellungen und die Netzwerkverbindung.",
-		schema:
-			"Bitte starten Sie die App neu, damit Migrationen erneut ausgeführt werden.",
-	};
+	// Per-slot fix-it copy (i18n bootDiagnostics.*). Keyed by `BookieError.kind`
+	// first, then by slot name as a fallback for unrecognised error kinds.
+	const slotTitle = (slot: Slot) => t(`bootDiagnostics.slots.${slot}`);
+	const FIX_IT_KINDS = ['IoError', 'KeyringUnavailable', 'MigrationOutOfDate', 'S3CredsInvalid', 'S3Unreachable', 'S3BucketMissing', 'S3EndpointInvalid'];
 
 	function renderStatus(slot: Slot): string {
 		const r = status[slot];
@@ -60,16 +29,16 @@
 			case "Ok":
 				return "OK";
 			case "Skipped":
-				return "Übersprungen";
+				return t('bootDiagnostics.skipped');
 			case "Failed":
-				return `Fehler${r.error.kind ? ` (${r.error.kind})` : ""}`;
+				return r.error.kind ? tp('bootDiagnostics.failedKind', { kind: r.error.kind }) : t('bootDiagnostics.failed');
 		}
 	}
 
 	function fixIt(slot: Slot): string {
 		const r = status[slot];
 		if (r.kind !== "Failed") return "";
-		return FIX_IT_BY_KIND[r.error.kind] ?? FIX_IT_BY_SLOT[slot];
+		return FIX_IT_KINDS.includes(r.error.kind) ? t(`bootDiagnostics.fixByKind.${r.error.kind}`) : t(`bootDiagnostics.fixBySlot.${slot}`);
 	}
 
 	function pillClass(slot: Slot): string {
@@ -99,10 +68,9 @@
 		<div class="mb-4 flex items-center gap-3">
 			<img src="/bookie.svg" alt="Bookie" class="h-10 w-10 rounded-xl shadow-soft" />
 			<div>
-				<h1 class="page-header">Bookie kann nicht starten</h1>
+				<h1 class="page-header">{t('bootDiagnostics.title')}</h1>
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">
-					Mindestens eine Startprüfung ist fehlgeschlagen. Beheben Sie die
-					unten aufgeführten Probleme und klicken Sie auf „Erneut prüfen".
+					{t('bootDiagnostics.intro')}
 				</p>
 			</div>
 		</div>
@@ -116,7 +84,7 @@
 					data-status={result.kind}
 				>
 					<div class="flex items-center justify-between gap-2">
-						<span class="text-sm font-medium">{SLOT_TITLES[slot]}</span>
+						<span class="text-sm font-medium">{slotTitle(slot)}</span>
 						<span
 							class={`rounded-full px-2 py-0.5 text-xs font-medium ${pillClass(slot)}`}
 						>
@@ -136,7 +104,7 @@
 							rel="noopener noreferrer"
 							class="mt-1 inline-block text-xs text-accent-600 hover:underline dark:text-accent-400"
 						>
-							Wie behebe ich das?
+							{t('bootDiagnostics.howToFix')}
 						</a>
 					{/if}
 				</li>
@@ -151,7 +119,7 @@
 					onclick={onRetry}
 					data-testid="boot-retry"
 				>
-					Erneut prüfen
+					{t('bootDiagnostics.retry')}
 				</button>
 			</div>
 		{/if}

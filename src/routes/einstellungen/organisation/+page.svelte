@@ -89,7 +89,7 @@
 {:else}
 	<div class="space-y-6">
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Stammdaten" title={t('settings.orgTitle')} desc="Erscheint als Absender auf deinen Rechnungen." />
+			<SectionHead eyebrow={t('settingsUi.masterEyebrow')} title={t('settings.orgTitle')} desc={t('settingsUi.masterDesc')} />
 			<div class="grid gap-3 md:grid-cols-2">
 				<TextInput bind:value={form.name} label={t('common.name')} />
 				<TextInput bind:value={form.country} label={t('settings.country')} />
@@ -103,7 +103,7 @@
 		</section>
 
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Steuer & Bank" title="Steuernummern und Bankverbindung" desc="Pflichtangaben nach §14 UStG und Zahlungsinformationen für den Rechnungsfuß." />
+			<SectionHead eyebrow={t('settingsUi.taxEyebrow')} title={t('settingsUi.taxTitle')} desc={t('settingsUi.taxDesc')} />
 			<div class="grid gap-3 md:grid-cols-2">
 				<TextInput bind:value={form.registering_id} label={t('settings.registeringId')} />
 				<TextInput bind:value={form.vatin} label={t('settings.vatinLabel')} />
@@ -114,7 +114,7 @@
 		</section>
 
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Rechnungsstellung" title="Sprache, Recht und E-Rechnung" desc="Standardwerte für neue Rechnungen." />
+			<SectionHead eyebrow={t('settingsUi.billingEyebrow')} title={t('settingsUi.billingTitle')} desc={t('settingsUi.billingDesc')} />
 			<div class="grid gap-3 md:grid-cols-2">
 				<Select bind:value={form.default_locale} label={t('settings.defaultLocale')} options={localeOptions} />
 				<Select bind:value={form.default_legal_country} label={t('settings.defaultLegalCountry')} options={legalCountryOptions} />
@@ -128,7 +128,7 @@
 		</section>
 
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Export" title="DATEV" desc="Berater- und Mandantennummer für den DATEV-Buchungsstapel." />
+			<SectionHead eyebrow="Export" title="DATEV" desc={t('settingsUi.datevDesc')} />
 			<div class="grid gap-3 md:grid-cols-3">
 				<TextInput bind:value={form.datev_consultant_number} label={t('settings.datevConsultantNumber')} placeholder="1001" />
 				<TextInput bind:value={form.datev_client_number} label={t('settings.datevClientNumber')} placeholder="10001" />

@@ -2914,10 +2914,7 @@ async fn ai_extract_invoice(request: tauri::ipc::Request<'_>) -> Result<String, 
     };
     let data = data.clone();
     run_blocking(move || {
-        let key = ai_key()?;
-        if key.is_none() && args.provider != "ollama" {
-            return Err(ai_error("Kein KI-API-Key hinterlegt (Einstellungen → KI)."));
-        }
+        let key = ai_key_for(&args.provider)?;
         let req = ai::build_request(
             &args.provider,
             &args.model,
@@ -2927,46 +2924,90 @@ async fn ai_extract_invoice(request: tauri::ipc::Request<'_>) -> Result<String, 
             key.as_deref(),
         )
         .map_err(ai_error)?;
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .timeout_connect(Some(Duration::from_secs(10)))
-            .timeout_global(Some(Duration::from_secs(120)))
-            .build()
-            .into();
-        let mut builder = agent
-            .post(&req.url)
-            .header("content-type", "application/json");
-        for (name, value) in &req.headers {
-            builder = builder.header(*name, value);
-        }
-        let body = serde_json::to_vec(&req.body).map_err(|e| ai_error(e.to_string()))?;
-        let mut res = builder.send(&body[..]).map_err(|e| {
-            warn!("AI request failed: {e}");
-            ai_error(format!("KI-Anbieter nicht erreichbar: {e}"))
-        })?;
-        let status = res.status().as_u16();
-        let text = res
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| ai_error(e.to_string()))?;
-        match status {
-            200..=299 => {}
-            401 | 403 => return Err(ai_error("KI-API-Key ungültig oder ohne Berechtigung.")),
-            _ => {
-                warn!("AI provider returned {status}");
-                // Provider error bodies carry the reason (bad model name, quota, …), never the key.
-                return Err(ai_error(format!(
-                    "KI-Anbieter meldet Fehler {status}: {}",
-                    text.chars().take(300).collect::<String>()
-                )));
-            }
-        }
-        let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| ai_error(e.to_string()))?;
-        ai::response_text(&args.provider, &json)
-            .ok_or_else(|| ai_error("Unerwartete Antwort vom KI-Anbieter."))
+        ai_send(&args.provider, req)
     })
     .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AiCompleteArgs {
+    provider: String,
+    model: String,
+    base_url: String,
+    system: String,
+    prompt: String,
+}
+
+/// Text-only completion for the Finanzberater: same provider config and key
+/// as receipt extraction, no file. Returns the model's answer text.
+#[tauri::command]
+async fn ai_complete(args: AiCompleteArgs) -> Result<String, BookieError> {
+    run_blocking(move || {
+        let key = ai_key_for(&args.provider)?;
+        let req = ai::build_text_request(
+            &args.provider,
+            &args.model,
+            &args.base_url,
+            &args.system,
+            &args.prompt,
+            key.as_deref(),
+        )
+        .map_err(ai_error)?;
+        ai_send(&args.provider, req)
+    })
+    .await
+}
+
+/// The keyring key; every provider but Ollama needs one.
+fn ai_key_for(provider: &str) -> Result<Option<String>, BookieError> {
+    let key = ai_key()?;
+    if key.is_none() && provider != "ollama" {
+        return Err(ai_error("Kein KI-API-Key hinterlegt (Einstellungen → KI)."));
+    }
+    Ok(key)
+}
+
+/// Posts one provider request and returns the answer text (blocking; call inside `run_blocking`).
+fn ai_send(provider: &str, req: ai::AiRequest) -> Result<String, BookieError> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_global(Some(Duration::from_secs(120)))
+        .build()
+        .into();
+    let mut builder = agent
+        .post(&req.url)
+        .header("content-type", "application/json");
+    for (name, value) in &req.headers {
+        builder = builder.header(*name, value);
+    }
+    let body = serde_json::to_vec(&req.body).map_err(|e| ai_error(e.to_string()))?;
+    let mut res = builder.send(&body[..]).map_err(|e| {
+        warn!("AI request failed: {e}");
+        ai_error(format!("KI-Anbieter nicht erreichbar: {e}"))
+    })?;
+    let status = res.status().as_u16();
+    let text = res
+        .body_mut()
+        .read_to_string()
+        .map_err(|e| ai_error(e.to_string()))?;
+    match status {
+        200..=299 => {}
+        401 | 403 => return Err(ai_error("KI-API-Key ungültig oder ohne Berechtigung.")),
+        _ => {
+            warn!("AI provider returned {status}");
+            // Provider error bodies carry the reason (bad model name, quota, …), never the key.
+            return Err(ai_error(format!(
+                "KI-Anbieter meldet Fehler {status}: {}",
+                text.chars().take(300).collect::<String>()
+            )));
+        }
+    }
+    let json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| ai_error(e.to_string()))?;
+    ai::response_text(provider, &json)
+        .ok_or_else(|| ai_error("Unerwartete Antwort vom KI-Anbieter."))
 }
 
 #[cfg(test)]
@@ -4191,6 +4232,7 @@ pub fn run() {
             set_ai_key,
             has_ai_key,
             ai_extract_invoice,
+            ai_complete,
             append_frontend_log,
             read_log_tail,
             schema_version_check,

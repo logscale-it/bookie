@@ -49,7 +49,7 @@
 	// Others' entries are view-only without team_time:edit (server scopes PATCH/DELETE to 'edit').
 	const mayChange = (row: { user_id?: number | null }) => !cloud() || row.user_id == null || row.user_id === session.me?.user.id || can('team_time', 'edit');
 	const filterUserOptions = [
-		{ value: 'all', label: 'Alle Mitarbeiter' },
+		{ value: 'all', label: t('timeUi.allStaff') },
 		...(session.me?.active?.members ?? []).map((m) => ({ value: String(m.id), label: m.name }))
 	];
 
@@ -268,8 +268,8 @@
 		showEntryDialog = false;
 		resetForm();
 		if (draft)
-			toasts.info('Timer-Zeit nicht gespeichert', 10000, {
-				label: 'Wiederherstellen',
+			toasts.info(t('timeUi.timerNotSaved'), 10000, {
+				label: t('timeUi.restore'),
 				run: () => openFromTimer(draft)
 			});
 	}
@@ -434,7 +434,7 @@
 	<Dialog bind:open={showEntryDialog} title={dialogTitle} size="lg" onclose={resetForm}>
 		<div class="grid gap-3 sm:grid-cols-4">
 			<div class="sm:col-span-4">
-				<TextInput bind:value={description} label={t('common.description')} placeholder="Workshop Vorbereitung" />
+				<TextInput bind:value={description} label={t('common.description')} placeholder={t('timeUi.descriptionPlaceholder')} />
 			</div>
 			<div class="sm:col-span-2"><Select bind:value={customerId} label={t('timeTracking.customer')} options={customerOptions} placeholder={t('timeTracking.customerPlaceholder')} /></div>
 			<div class="sm:col-span-2"><Select bind:value={projectId} label={t('timeTracking.project')} options={projectOptions} placeholder={t('timeTracking.projectPlaceholder')} /></div>
@@ -486,7 +486,7 @@
 		<Select bind:value={filterCustomerId} label={t('timeTracking.customer')} options={filterCustomerOptions} />
 		<Select bind:value={filterProjectId} label={t('timeTracking.project')} options={filterProjectOptions} />
 		{#if teamView}
-			<Select bind:value={filterUserId} label="Mitarbeiter" options={filterUserOptions} />
+			<Select bind:value={filterUserId} label={t('timeUi.staff')} options={filterUserOptions} />
 		{/if}
 	</div>
 
@@ -519,7 +519,7 @@
 								<div class="flex items-center gap-2 truncate px-4 py-2">
 									{#if teamView && row.user_id}
 										{@const name = memberName(row.user_id)}
-										<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[10px] font-semibold text-zinc-600 ring-1 ring-zinc-900/5 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-white/10" title={name || 'ehemaliges Mitglied'}>{initials(name)}</span>
+										<span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[10px] font-semibold text-zinc-600 ring-1 ring-zinc-900/5 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-white/10" title={name || t('timeUi.formerMember')}>{initials(name)}</span>
 									{/if}
 									<span class="truncate font-medium text-zinc-900 dark:text-zinc-100">{row.description || '—'}</span>
 								</div>
@@ -529,9 +529,9 @@
 								<div class="truncate px-4 py-2 text-right tabular-nums">{row.durationHoursLabel}</div>
 								<div class="flex items-center justify-end px-3 py-1.5">
 									{#if row.source_entry_id != null}
-										<span class="badge badge-zinc" title="Beim Auftraggeber gebucht; ändern nur dort">vom Auftraggeber</span>
+										<span class="badge badge-zinc" title={t('timeUi.mirroredTitle')}>{t('timeUi.mirrored')}</span>
 									{:else if row.approved_at}
-										<span class="badge badge-green" title="Monat freigegeben; ändern erst nach Zurücknahme der Freigabe">freigegeben</span>
+										<span class="badge badge-green" title={t('timeUi.approvedTitle')}>{t('timeUi.approved')}</span>
 									{:else if mayChange(row)}
 										<div class="row-actions">
 											<button type="button" onclick={() => openEditDialog(row)} class="icon-btn icon-btn-blue" title={t('common.edit')} aria-label={t('common.edit')}>

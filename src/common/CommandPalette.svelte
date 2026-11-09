@@ -111,6 +111,7 @@
 	// Same visibility as the sidebar/pages: no entries that only lead to a 403.
 	const staticCommands = $derived<Command[]>(([
 		can('reports') && { id: 'nav-overview', label: t('nav.overview'), group: t('command.pages'), keywords: 'übersicht overview dashboard start', icon: ICONS.home, run: () => navTo('/uebersicht') },
+		can('reports') && { id: 'nav-advisor', label: t('nav.advisor'), group: t('command.pages'), keywords: 'finanzberater berater liquidität liquidity advisor investition', icon: ICONS.home, run: () => navTo('/finanzberater') },
 		can('invoices') && { id: 'nav-invoices', label: t('nav.invoices'), group: t('command.pages'), keywords: 'rechnungen invoices', icon: ICONS.invoice, run: () => navTo('/rechnungen') },
 		!isSub() && { id: 'nav-incoming', label: t('nav.incomingInvoices'), group: t('command.pages'), keywords: 'eingehende rechnungen incoming bills lieferant', icon: ICONS.inbox, run: () => navTo('/eingehende-rechnungen') },
 		{ id: 'nav-projects', label: t('nav.projects'), group: t('command.pages'), keywords: 'projekte projects', icon: ICONS.project, run: () => navTo('/projekte') },

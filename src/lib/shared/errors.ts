@@ -17,6 +17,8 @@
  * must appear in `BookieErrorKind`, `BookieError`, and `messageFor()`.
  */
 
+import { t, tp } from "../i18n";
+
 export type BookieErrorKind =
   | "S3CredsInvalid"
   | "S3Unreachable"
@@ -112,37 +114,13 @@ export function parseBookieError(value: unknown): BookieError {
 }
 
 /**
- * Return a German user-facing message for a `BookieError`. Pure: depends only
- * on the input variant. The settings page (and any other error-rendering site)
- * should call this instead of stringifying the raw rejection.
+ * Return a user-facing message (current locale) for a `BookieError`.
+ * The settings page (and any other error-rendering site) should call this
+ * instead of stringifying the raw rejection.
  */
 export function messageFor(err: BookieError): string {
-  switch (err.kind) {
-    case "S3CredsInvalid":
-      return "Die S3-Zugangsdaten sind ungültig. Bitte Access Key und Secret Key prüfen.";
-    case "S3Unreachable":
-      return "Der S3-Endpunkt ist nicht erreichbar. Netzwerkverbindung und Endpoint-URL prüfen.";
-    case "S3BucketMissing":
-      return "Der angegebene S3-Bucket existiert nicht.";
-    case "S3EndpointInvalid":
-      return "Die S3-Endpoint-URL ist ungültig.";
-    case "BackupCorrupt":
-      return "Die Backup-Datei ist beschädigt und kann nicht wiederhergestellt werden.";
-    case "BackupSidecarMismatch":
-      return "Die Prüfsumme der Backup-Datei stimmt nicht mit der Sidecar-Datei überein.";
-    case "BackupSidecarMissing":
-      return "Die Sidecar-Prüfsummendatei (.sha256) wurde nicht gefunden.";
-    case "KeyringUnavailable":
-      return "Der Schlüsselbund des Betriebssystems ist nicht verfügbar. Zugangsdaten konnten nicht gespeichert werden.";
-    case "MigrationOutOfDate":
-      return "Die Datenbank-Migration ist nicht aktuell. Bitte Anwendung neu starten.";
-    case "InvoiceImmutable":
-      return "Diese Rechnung kann nicht mehr geändert werden.";
-    case "IoError":
-      return `Ein-/Ausgabefehler: ${err.message}`;
-    case "Unknown":
-      return `Unbekannter Fehler: ${err.message}`;
-  }
+  if (err.kind === "IoError" || err.kind === "Unknown") return tp(`errors.${err.kind}`, { message: err.message });
+  return t(`errors.${err.kind}`);
 }
 
 /**

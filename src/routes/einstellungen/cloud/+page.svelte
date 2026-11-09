@@ -7,31 +7,14 @@
 	import { api, cloud, CloudError, keyringError, login, logout, publicApi, savedAccount, type Me } from '$lib/cloud';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { acceptInvitation } from '$lib/team';
-	import { countsOf, pushImport, pushOrganization, pushReceipts, readLocalImport, SKIPPED, type ReceiptProgress } from '$lib/cloud-import';
+	import { getLocaleFormatting, t, tp } from '$lib/i18n';
+	import { countsOf, pushImport, pushOrganization, pushReceipts, readLocalImport, skipped, type ReceiptProgress } from '$lib/cloud-import';
 
-	const MESSAGES: Record<string, string> = {
-		invalid_credentials: 'E-Mail oder Passwort falsch.',
-		email_unverified:
-			'E-Mail-Adresse noch nicht bestätigt. Klicke auf den Link in unserer Mail (auch im Spam-Ordner nachsehen).',
-		terms_required: 'Bitte AGB und Auftragsverarbeitungsvertrag akzeptieren.',
-		invalid_code: '2FA-Code ungültig.',
-		too_many_requests: 'Zu viele Versuche, bitte später erneut probieren.',
-		session_expired: 'Sitzung abgelaufen, bitte neu anmelden.',
-		invalid_input: 'Bitte E-Mail und Name korrekt angeben.',
-		password_length_12_to_128: 'Das Passwort muss 12 bis 128 Zeichen lang sein.',
-		admin_only: 'Nur Firmen-Admins können das Abo verwalten.',
-		no_subscription: 'Für diese Firma gibt es noch kein Abo.',
-		already_subscribed: 'Für diese Firma besteht bereits ein Abo.',
-		invalid_token: 'Einladung ungültig oder abgelaufen.',
-		wrong_account: 'Die Einladung gilt für eine andere E-Mail-Adresse.',
-		already_member: 'Du bist bereits Mitglied dieser Firma.',
-		totp_already_enabled: '2FA ist bereits aktiv.',
-		totp_not_enabled: '2FA ist nicht aktiv.',
-		company_not_empty:
-			'Diese Cloud-Firma enthält bereits Daten. Die Übertragung ist nur in eine leere Firma möglich.'
+	// Server error codes with a cloudSettings.errors.<code> text; t() returns the key itself when missing.
+	const message = (e: unknown) => {
+		const k = e instanceof CloudError ? `cloudSettings.errors.${e.code}` : '';
+		return (k && t(k) !== k && t(k)) || messageForUnknown(e);
 	};
-	const message = (e: unknown) =>
-		(e instanceof CloudError && MESSAGES[e.code]) || messageForUnknown(e);
 
 	const initial = cloud();
 	const saved = initial ?? savedAccount();
@@ -56,7 +39,7 @@
 	let me = $state<Me | null>(null);
 	let busy = $state(false);
 	let error = $state(
-		!initial && keyringError ? 'Schlüsselbund nicht erreichbar: Sitzung nicht geladen, bitte erneut anmelden.' : ''
+		!initial && keyringError ? t('cloudSettings.keyringError') : ''
 	);
 
 	const active = $derived(me?.companies.find((c) => c.id === me?.activeCompanyId));
@@ -129,8 +112,7 @@
 		run(async () => {
 			await publicApi(url, '/auth/password/forgot', { email });
 			mode = 'login';
-			notice =
-				'Falls ein Konto zu dieser Adresse existiert, haben wir dir einen Link zum Zurücksetzen des Passworts geschickt.';
+			notice = t('cloudSettings.resetSent');
 		});
 
 	const switchMode = (m: typeof mode) => ((mode = m), (notice = error = ''));
@@ -150,7 +132,7 @@
 			location.reload();
 		});
 	const legal = (path: string) => openUrl(`${url.replace(/\/+$/, '')}${path}`);
-	const trialEnd = (iso: string) => new Date(iso).toLocaleDateString('de-DE');
+	const trialEnd = (iso: string) => new Date(iso).toLocaleDateString(getLocaleFormatting());
 
 	// The server switches the session to the invited company: reload like a company switch.
 	const acceptInvite = () =>
@@ -194,20 +176,30 @@
 		const c = countsOf(doc);
 		const { vat_taxes, ...data } = c; // VAT rates are seeded locally, they alone are no data
 		if (auto && !Object.values(data).some(Boolean)) return;
-		const text =
-			`Einmalig in die Cloud-Firma „${target.name}“ übertragen:\n` +
-			`${c.customers} Kunden, ${c.projects} Projekte, ${c.time_entries} Zeiteinträge, ` +
-			`${c.invoices} Rechnungen, ${c.incoming_invoices} Eingangsrechnungen, ${c.recurring_entries} wiederkehrende Buchungen, ` +
-			`${c.vat_taxes} MwSt-Sätze, Firmenstammdaten und die Rechnungseinstellungen.\n\n` +
-			'Nur in eine leere Cloud-Firma möglich und nicht wiederholbar. Ausgestellte Rechnungen ' +
-			'behalten Nummer und Beträge; Zeiteinträge werden dir zugeordnet und sind nicht freigegeben. ' +
-			'Die lokale Datei bleibt unverändert.\n\n' +
-			`Nicht übertragen:\n- ${SKIPPED.join('\n- ')}`;
+		const text = tp('cloudSettings.importConfirm', {
+			name: target.name,
+			customers: c.customers,
+			projects: c.projects,
+			time_entries: c.time_entries,
+			invoices: c.invoices,
+			incoming: c.incoming_invoices,
+			recurring: c.recurring_entries,
+			vat: c.vat_taxes,
+			skipped: skipped().join('\n- ')
+		});
 		if (!auto && !confirm(text)) return;
 		try {
 			const r = await pushImport(doc);
 			await pushOrganization();
-			notice = `Lokale Daten übertragen: ${r.customers} Kunden, ${r.projects} Projekte, ${r.time_entries} Zeiteinträge, ${r.invoices} Rechnungen, ${r.incoming_invoices} Eingangsrechnungen, ${r.recurring_entries} wiederkehrende Buchungen. Nicht übertragen: ${SKIPPED.join(', ')}.`;
+			notice = tp('cloudSettings.imported', {
+				customers: r.customers,
+				projects: r.projects,
+				time_entries: r.time_entries,
+				invoices: r.invoices,
+				incoming: r.incoming_invoices,
+				recurring: r.recurring_entries,
+				skipped: skipped().join(', ')
+			});
 			await transferReceipts().catch((e) => (error = message(e))); // the import itself went through
 		} catch (e) {
 			const filled = e instanceof CloudError && e.code === 'company_not_empty';
@@ -225,9 +217,9 @@
 	let progress = $state<ReceiptProgress | null>(null);
 	async function transferReceipts() {
 		const r = await pushReceipts((p) => (progress = p)).finally(() => (progress = null));
-		const done = `${r.done} Belegdateien übertragen.`;
+		const done = tp('cloudSettings.receiptsDone', { count: r.done });
 		notice = notice ? `${notice} ${done}` : done;
-		if (r.failed.length) error = `Nicht übertragen (bitte von Hand anhängen):\n${r.failed.join('\n')}`;
+		if (r.failed.length) error = tp('cloudSettings.receiptsFailed', { list: r.failed.join('\n') });
 	}
 
 	// Back from the Stripe page in the browser: pick up the new subscription status.
@@ -243,10 +235,10 @@
 	<label class="flex items-start gap-2 text-sm">
 		<input type="checkbox" class="mt-1" bind:checked={terms} />
 		<span>
-			Ich bestelle als Unternehmer (§ 14 BGB) und akzeptiere die
-			<button type="button" class="text-accent-600 hover:underline dark:text-accent-400" onclick={() => legal('/agb')}>AGB</button>
-			und den
-			<button type="button" class="text-accent-600 hover:underline dark:text-accent-400" onclick={() => legal('/avv')}>Auftragsverarbeitungsvertrag</button>.
+			{t('cloudSettings.termsLead')}
+			<button type="button" class="text-accent-600 hover:underline dark:text-accent-400" onclick={() => legal('/agb')}>{t('cloudSettings.termsAgb')}</button>
+			{t('cloudSettings.termsAnd')}
+			<button type="button" class="text-accent-600 hover:underline dark:text-accent-400" onclick={() => legal('/avv')}>{t('cloudSettings.termsAvv')}</button>.
 		</span>
 	</label>
 {/snippet}
@@ -254,51 +246,47 @@
 <section class="card space-y-4">
 	<h2 class="text-base font-semibold">bookie Cloud</h2>
 	<p class="text-sm text-zinc-500 dark:text-zinc-400">
-		Angemeldet speichert bookie Firma, Kunden, Projekte und Zeiten auf dem Server, damit dein Team
-		gemeinsam daran arbeiten kann. Die übrigen Bereiche folgen; bis dahin sind sie im Cloud-Modus
-		gesperrt. Deine lokalen Daten bleiben unverändert auf diesem Gerät und sind nach dem Abmelden
-		wieder da.
+		{t('cloudSettings.intro')}
 	</p>
 
 	{#if !session && mode === 'verify'}
 		<div class="space-y-3">
 			<p class="text-sm">
-				Fast geschafft: Wir haben dir eine E-Mail an <strong>{email}</strong> geschickt. Klicke auf den
-				Link darin und komm hierher zurück, die Anmeldung läuft dann von selbst.
+				{t('cloudSettings.verifyLead')} <strong>{email}</strong>
+				{t('cloudSettings.verifyRest')}
 			</p>
 			<div class="flex flex-wrap gap-3">
-				<button class="btn-primary" onclick={signIn} disabled={busy}>Ich habe bestätigt</button>
-				<button class="btn-secondary" onclick={() => switchMode('login')}>Zurück</button>
+				<button class="btn-primary" onclick={signIn} disabled={busy}>{t('cloudSettings.confirmed')}</button>
+				<button class="btn-secondary" onclick={() => switchMode('login')}>{t('common.back')}</button>
 			</div>
 		</div>
 	{:else if !session}
 		{#if mode === 'register'}
 			<div class="rounded-lg bg-accent-500/10 p-3 text-sm ring-1 ring-accent-600/15">
-				<strong>14 Tage kostenlos testen</strong>, ohne Kreditkarte. Danach 5 € pro Platz und Monat,
-				monatlich kündbar. Deine lokalen Daten ziehen beim ersten Anmelden automatisch mit um.
+				<strong>{t('cloudSettings.trialStrong')}</strong>{t('cloudSettings.trialRest')}
 			</div>
 		{/if}
 		<div class="grid gap-3 md:grid-cols-2">
 			{#if mode === 'register'}
-				<TextInput bind:value={companyName} label="Firma" placeholder="Leer lassen, wenn du eingeladen wurdest" />
-				<TextInput bind:value={name} label="Name" />
+				<TextInput bind:value={companyName} label={t('cloudSettings.company')} placeholder={t('cloudSettings.companyPlaceholder')} />
+				<TextInput bind:value={name} label={t('common.name')} />
 			{/if}
-			<TextInput bind:value={email} label="E-Mail" type="email" />
+			<TextInput bind:value={email} label={t('cloudSettings.email')} type="email" />
 			{#if mode !== 'forgot'}
 				<TextInput
 					bind:value={password}
-					label={mode === 'register' ? 'Passwort (mind. 12 Zeichen)' : 'Passwort'}
+					label={mode === 'register' ? t('cloudSettings.passwordMin') : t('security.password')}
 					type="password"
 				/>
 			{/if}
 			{#if mode === 'register'}
-				<TextInput bind:value={password2} label="Passwort wiederholen" type="password" />
+				<TextInput bind:value={password2} label={t('cloudSettings.passwordRepeat')} type="password" />
 				{#if password2 && password2 !== password}
-					<p class="text-sm text-red-600 md:col-span-2">Die Passwörter stimmen nicht überein.</p>
+					<p class="text-sm text-red-600 md:col-span-2">{t('cloudSettings.passwordMismatch')}</p>
 				{/if}
 			{/if}
 			{#if mode === 'login' && needsCode}
-				<TextInput bind:value={code} label="2FA-Code oder Wiederherstellungscode" />
+				<TextInput bind:value={code} label={t('security.codeOrRecovery')} />
 			{/if}
 		</div>
 		{#if mode === 'register' && companyName.trim()}
@@ -314,17 +302,17 @@
 				class="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
 				onclick={() => (customServer = true)}
 			>
-				Eigener Server…
+				{t('cloudSettings.customServer')}
 			</button>
 		{/if}
 		<div class="flex flex-wrap items-center gap-3">
 			{#if mode === 'login'}
 				<button class="btn-primary" onclick={signIn} disabled={busy || !url || !email || !password}>
-					Anmelden
+					{t('cloudSettings.signIn')}
 				</button>
-				<button class="btn-secondary" onclick={() => switchMode('register')}>Konto erstellen</button>
+				<button class="btn-secondary" onclick={() => switchMode('register')}>{t('cloudSettings.createAccount')}</button>
 				<button class="btn-secondary" onclick={() => switchMode('forgot')}>
-					Passwort vergessen?
+					{t('cloudSettings.forgotPassword')}
 				</button>
 			{:else if mode === 'register'}
 				<button
@@ -338,28 +326,28 @@
 						password !== password2 ||
 						(!!companyName.trim() && !terms)}
 				>
-					Registrieren
+					{t('cloudSettings.register')}
 				</button>
-				<button class="btn-secondary" onclick={() => switchMode('login')}>Zurück</button>
+				<button class="btn-secondary" onclick={() => switchMode('login')}>{t('common.back')}</button>
 			{:else}
 				<button class="btn-primary" onclick={forgot} disabled={busy || !url || !email}>
-					Link zum Zurücksetzen senden
+					{t('cloudSettings.sendReset')}
 				</button>
-				<button class="btn-secondary" onclick={() => switchMode('login')}>Zurück</button>
+				<button class="btn-secondary" onclick={() => switchMode('login')}>{t('common.back')}</button>
 			{/if}
 		</div>
 	{:else}
-		<p class="text-sm">Angemeldet als <strong>{session.email}</strong> bei {session.url}</p>
+		<p class="text-sm">{t('cloudSettings.signedInAs')} <strong>{session.email}</strong> {tp('cloudSettings.signedInAt', { url: session.url })}</p>
 		{#if me?.invitations?.length}
 			<div class="space-y-2 rounded-lg bg-accent-500/10 p-3 ring-1 ring-accent-600/15">
-				<h3 class="text-sm font-semibold">Offene Einladungen</h3>
+				<h3 class="text-sm font-semibold">{t('cloudSettings.openInvitations')}</h3>
 				{#each me.invitations as inv (inv.id)}
 					<div class="flex flex-wrap items-center justify-between gap-3" data-testid="invitation-row">
 						<span class="text-sm">
-							<strong>{inv.company}</strong> · {inv.role === 'subcontractor' ? 'Subunternehmer' : 'Mitglied'}
+							<strong>{inv.company}</strong> · {t(inv.role === 'subcontractor' ? 'shell.roleSubcontractor' : 'shell.roleMember')}
 						</span>
 						<button class="btn-primary" onclick={() => joinInvited(inv.id)} disabled={busy}>
-							Beitreten
+							{t('cloudSettings.join')}
 						</button>
 					</div>
 				{/each}
@@ -367,30 +355,30 @@
 		{/if}
 		{#if me && !active}
 			<div class="flex flex-wrap items-end gap-3">
-				<TextInput bind:value={companyName} label="Firma anlegen" />
+				<TextInput bind:value={companyName} label={t('cloudSettings.createCompany')} />
 				<button
 					class="btn-primary"
 					onclick={createCompany}
 					disabled={busy || !companyName.trim() || !terms}
 				>
-					Anlegen
+					{t('cloudSettings.create')}
 				</button>
 			</div>
 			{@render termsBox()}
 			<p class="text-sm text-zinc-500 dark:text-zinc-400">
-				Neue Firmen starten mit 14 Tagen kostenloser Testphase, ohne Kreditkarte.
+				{t('cloudSettings.newCompanyTrial')}
 			</p>
-			<p class="text-sm text-zinc-500 dark:text-zinc-400">Oder einer Firma beitreten, die dich eingeladen hat:</p>
+			<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('cloudSettings.orJoin')}</p>
 			<div class="flex flex-wrap items-end gap-3">
-				<TextInput bind:value={inviteToken} label="Einladungslink oder Code" />
+				<TextInput bind:value={inviteToken} label={t('cloudSettings.inviteToken')} />
 				<button class="btn-primary" onclick={acceptInvite} disabled={busy || !inviteToken.trim()}>
-					Annehmen
+					{t('cloudSettings.accept')}
 				</button>
 			</div>
 		{:else if me && active}
 			{#if me.companies.length > 1}
 				<div class="flex flex-col gap-1">
-					<label for="cloud-company" class="label">Firma wechseln</label>
+					<label for="cloud-company" class="label">{t('cloudSettings.switchCompany')}</label>
 					<select
 						id="cloud-company"
 						class="input-base input-valid"
@@ -405,13 +393,13 @@
 				</div>
 			{/if}
 			<p class="text-sm">
-				Firma: <strong>{active.name}</strong> ·
+				{t('cloudSettings.companyLabel')} <strong>{active.name}</strong> ·
 				{active.trialEndsAt
-					? `Testphase bis ${trialEnd(active.trialEndsAt)}`
+					? tp('cloudSettings.trialUntil', { date: trialEnd(active.trialEndsAt) })
 					: active.paid
-						? 'Abo aktiv'
-						: 'Kein aktives Abo'}{#if me.active}
-					· {me.active.seats} {me.active.seats === 1 ? 'Platz' : 'Plätze'} à 5 €/Monat{/if}
+						? t('cloudSettings.subscriptionActive')
+						: t('cloudSettings.noSubscription')}{#if me.active}
+					· {tp(me.active.seats === 1 ? 'cloudSettings.seat' : 'cloudSettings.seats', { n: me.active.seats })}{/if}
 			</p>
 			<div class="flex flex-wrap gap-3">
 				{#if active.role === 'admin'}
@@ -421,7 +409,7 @@
 							onclick={() => openBilling('/billing/portal')}
 							disabled={busy}
 						>
-							Abo verwalten
+							{t('cloudSettings.manageSubscription')}
 						</button>
 					{:else}
 						<button
@@ -429,46 +417,44 @@
 							onclick={() => openBilling('/billing/checkout')}
 							disabled={busy}
 						>
-							Abo abschließen
+							{t('cloudSettings.subscribe')}
 						</button>
 					{/if}
 				{/if}
 				<button class="btn-secondary" onclick={() => run(loadMe)} disabled={busy}>
-					Status aktualisieren
+					{t('cloudSettings.refreshStatus')}
 				</button>
 			</div>
 			{#if active.role === 'admin' && active.paid && imported.includes(active.id)}
 				<div class="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
 					<p class="text-sm text-zinc-500 dark:text-zinc-400">
-						Belegdateien der übertragenen Eingangsrechnungen (lokaler S3-Speicher oder Festplatte)
-						an die Cloud-Einträge anhängen, die noch keinen Beleg haben.
+						{t('cloudSettings.receiptsNote')}
 					</p>
 					<button class="btn-secondary" onclick={() => run(transferReceipts)} disabled={busy}>
-						Belege übertragen
+						{t('cloudSettings.transferReceipts')}
 					</button>
 				</div>
 			{/if}
 			{#if active.role === 'admin' && active.paid && !imported.includes(active.id)}
 				<div class="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-700">
-					<h3 class="text-sm font-semibold">Lokale Daten in die Cloud übertragen</h3>
+					<h3 class="text-sm font-semibold">{t('cloudSettings.importTitle')}</h3>
 					<p class="text-sm text-zinc-500 dark:text-zinc-400">
-						Einmalig: Kunden, Projekte, Zeiten, Rechnungen und Einstellungen von diesem Gerät in
-						diese noch leere Cloud-Firma kopieren. Die lokale Datei bleibt unverändert.
+						{t('cloudSettings.importNote')}
 					</p>
 					<button class="btn-secondary" onclick={() => transfer(active)} disabled={busy}>
-						Lokale Daten übertragen
+						{t('cloudSettings.importButton')}
 					</button>
 				</div>
 			{/if}
 		{/if}
 		{#if me}<Security bind:me {busy} {run} />{/if}
-		<button class="btn-secondary" onclick={signOut} disabled={busy}>Abmelden</button>
+		<button class="btn-secondary" onclick={signOut} disabled={busy}>{t('cloudSettings.signOut')}</button>
 	{/if}
 
 	{#if progress}
 		<div class="space-y-1">
 			<p class="text-xs">
-				Belege übertragen: {progress.done} / {progress.total}
+				{tp('cloudSettings.receiptsProgress', { done: progress.done, total: progress.total })}
 			</p>
 			<progress class="w-full" value={progress.done} max={progress.total || 1}></progress>
 		</div>

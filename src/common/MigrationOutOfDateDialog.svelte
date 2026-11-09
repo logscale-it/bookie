@@ -19,6 +19,7 @@
 	 */
 	import { goto } from '$app/navigation';
 	import Dialog from './Dialog.svelte';
+	import { t, tp } from '$lib/i18n';
 
 	import {
 		saveAppDataAndClose,
@@ -64,7 +65,7 @@
 <!-- Opaque full-window backdrop: the window is transparent on macOS and
      nothing else is rendered behind this hard stop. -->
 <div class="h-screen w-screen bg-zinc-100 dark:bg-zinc-900">
-	<Dialog open title="Datenbankversion passt nicht zur Anwendung" dismissible={false}>
+	<Dialog open title={t('migrationDialog.title')} dismissible={false}>
 		<div class="space-y-4" data-testid="migration-out-of-date-dialog">
 			<div class="flex gap-3">
 				<span
@@ -80,29 +81,26 @@
 				</span>
 				<div class="space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
 					<p>
-						Die Datenbank auf diesem Gerät hat eine Schemaversion, die diese Version von Bookie nicht
-						verwenden kann. Aus Sicherheitsgründen werden keine weiteren Aktionen ausgeführt, bis das
-						Problem behoben ist.
+						{t('migrationDialog.body')}
 					</p>
 					{#if typeof actual === 'number' && typeof expected === 'number'}
 						<p class="font-mono text-xs text-zinc-500 dark:text-zinc-400">
-							Datenbank-Version: {actual} &nbsp;·&nbsp; Erwartete Version: {expected}
+							{t('migrationDialog.dbVersion')} {actual} &nbsp;·&nbsp; {t('migrationDialog.expectedVersion')} {expected}
 						</p>
 					{/if}
 					<p>
-						Bitte stelle ein passendes Backup wieder her oder sichere die aktuellen App-Daten und
-						schließe Bookie, bevor du eine kompatible Version installierst.
+						{t('migrationDialog.advice')}
 					</p>
 				</div>
 			</div>
 
 			{#if lastOutcome?.kind === 'cancelled'}
 				<p class="text-xs text-zinc-500 dark:text-zinc-400">
-					Speichern abgebrochen. Bitte einen Speicherort auswählen oder ein Backup wiederherstellen.
+					{t('migrationDialog.cancelled')}
 				</p>
 			{:else if lastOutcome?.kind === 'failed'}
 				<p class="text-xs text-red-600 dark:text-red-400">
-					Sichern fehlgeschlagen: {lastOutcome.message}
+					{tp('migrationDialog.failed', { message: lastOutcome.message })}
 				</p>
 			{/if}
 		</div>
@@ -114,7 +112,7 @@
 				disabled={saving}
 				data-testid="migration-restore-button"
 			>
-				Backup wiederherstellen
+				{t('migrationDialog.restore')}
 			</button>
 			<button
 				type="button"
@@ -123,7 +121,7 @@
 				disabled={saving}
 				data-testid="migration-save-button"
 			>
-				{saving ? 'Wird gesichert…' : 'App-Daten sichern und schließen'}
+				{saving ? t('migrationDialog.saving') : t('migrationDialog.saveAndClose')}
 			</button>
 		{/snippet}
 	</Dialog>

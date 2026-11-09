@@ -47,7 +47,7 @@
 		} catch (e) {
 			teError =
 				(e as { code?: string }).code === 'no_entries'
-					? 'Keine freigegebenen, abrechenbaren und noch nicht abgerechneten Zeiteinträge im Zeitraum.'
+					? t('fromTime.noEntries')
 					: String((e as Error).message ?? e);
 		} finally {
 			teBusy = false;
@@ -158,39 +158,38 @@
 
 	{#if cloud()}
 		<details class="card space-y-3">
-			<summary class="cursor-pointer text-sm font-medium marker:text-zinc-400">Rechnung aus Zeiteinträgen</summary>
+			<summary class="cursor-pointer text-sm font-medium marker:text-zinc-400">{t('fromTime.title')}</summary>
 			<p class="text-xs text-zinc-500 dark:text-zinc-400">
-				Übernommen werden nur freigegebene, abrechenbare Zeiteinträge, die noch auf keiner Rechnung stehen
-				— eine Position pro Eintrag zum Stundensatz des Projekts (19 % USt). Es entsteht ein Entwurf, den du vor dem Ausstellen prüfen kannst.
+				{t('fromTime.intro')}
 			</p>
 			<div class="grid gap-3 md:grid-cols-4">
 				<label class="text-sm">
-					<span class="label">Kunde</span>
+					<span class="label">{t('fromTime.customer')}</span>
 					<select bind:value={teCustomer} onchange={() => (teProject = '')} class="input-base">
-						<option value="">Kunde wählen</option>
+						<option value="">{t('fromTime.chooseCustomer')}</option>
 						{#each customers as c (c.id)}<option value={String(c.id)}>{c.name}</option>{/each}
 					</select>
 				</label>
 				<label class="text-sm">
-					<span class="label">Projekt</span>
+					<span class="label">{t('fromTime.project')}</span>
 					<select bind:value={teProject} class="input-base" disabled={!teCustomer}>
-						<option value="">Alle Projekte</option>
+						<option value="">{t('fromTime.allProjects')}</option>
 						{#each teProjects as p (p.id)}<option value={String(p.id)}>{p.name}</option>{/each}
 					</select>
 				</label>
 				<label class="text-sm">
-					<span class="label">Von</span>
+					<span class="label">{t('fromTime.from')}</span>
 					<input type="date" bind:value={teFrom} class="input-base" />
 				</label>
 				<label class="text-sm">
-					<span class="label">Bis</span>
+					<span class="label">{t('fromTime.to')}</span>
 					<input type="date" bind:value={teTo} class="input-base" />
 				</label>
 			</div>
 			{#if teError}<p class="text-sm text-red-600 dark:text-red-400">{teError}</p>{/if}
 			<div class="flex justify-end">
 				<button type="button" class="btn-primary" onclick={fromTimeEntries} disabled={teBusy || !teCustomer}>
-					{teBusy ? 'Erstelle…' : 'Entwurf erstellen'}
+					{teBusy ? t('fromTime.creating') : t('fromTime.create')}
 				</button>
 			</div>
 		</details>

@@ -15,17 +15,18 @@
 	import SkeletonRows from '../../common/SkeletonRows.svelte';
 	import EmptyState from '../../common/EmptyState.svelte';
 	import Avatar from '../../common/Avatar.svelte';
+	import { t, tp } from '$lib/i18n';
 
 	const MESSAGES: Record<string, string> = {
-		invalid_input: 'Bitte einen gültigen Zeitraum angeben (letzter Tag nicht vor dem ersten).',
-		overlap: 'Für diesen Zeitraum gibt es schon einen offenen oder genehmigten Antrag.',
-		not_pending: 'Über diesen Antrag wurde schon entschieden.'
+		invalid_input: 'leave.errInvalidInput',
+		overlap: 'leave.errOverlap',
+		not_pending: 'leave.errNotPending'
 	};
-	const message = (e: unknown) => (e instanceof CloudError && MESSAGES[e.code]) || messageForUnknown(e);
+	const message = (e: unknown) => (e instanceof CloudError && MESSAGES[e.code] && t(MESSAGES[e.code])) || messageForUnknown(e);
 	const STATUS = {
-		pending: { label: 'offen', cls: 'badge-amber' },
-		approved: { label: 'genehmigt', cls: 'badge-green' },
-		rejected: { label: 'abgelehnt', cls: 'badge-red' }
+		pending: { label: 'leave.statusPending', cls: 'badge-amber' },
+		approved: { label: 'leave.statusApproved', cls: 'badge-green' },
+		rejected: { label: 'leave.statusRejected', cls: 'badge-red' }
 	} as const;
 	const ICON =
 		'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5';
@@ -34,7 +35,7 @@
 		r.start_date === r.end_date ? team.dayLabel(r.start_date) : `${team.dayLabel(r.start_date)} – ${team.dayLabel(r.end_date)}`;
 	const days = (r: { start_date: string; end_date: string }) => {
 		const n = team.workdays(r.start_date, r.end_date);
-		return `${n} ${n === 1 ? 'Arbeitstag' : 'Arbeitstage'}`;
+		return tp(n === 1 ? 'leave.workday' : 'leave.workdays', { count: n });
 	};
 
 	// session.me is the dependency (cloud() reads localStorage, not reactive).
@@ -92,7 +93,7 @@
 	const submit = () =>
 		run(async () => {
 			await team.requestLeave(start, end, note);
-			notice = `Urlaub ${span({ start_date: start, end_date: end })} beantragt.`;
+			notice = tp('leave.requested', { span: span({ start_date: start, end_date: end }) });
 			start = end = note = '';
 			await load();
 		});
@@ -100,14 +101,14 @@
 	const decide = (r: team.LeaveRequest, approve: boolean, reason = '') =>
 		run(async () => {
 			await team.decideLeave(r.id, approve, reason);
-			notice = `Urlaub von ${r.user_name} ${approve ? 'genehmigt' : 'abgelehnt'}.`;
+			notice = tp(approve ? 'leave.approvedOf' : 'leave.rejectedOf', { name: r.user_name });
 			await load();
 		});
 
 	const remove = (r: team.LeaveRequest) =>
 		run(async () => {
 			await team.deleteLeave(r.id);
-			notice = `Urlaub ${span(r)} gelöscht.`;
+			notice = tp('leave.deleted', { span: span(r) });
 			await load();
 		});
 
@@ -122,25 +123,21 @@
 
 {#if !isCloud}
 	<CloudTeaser
-		title="Urlaub"
-		points={[
-			'Mitarbeiter beantragen Urlaub direkt in bookie, Arbeitstage werden automatisch gezählt',
-			'Du genehmigst oder lehnst mit Begründung ab, alle bekommen eine Mail',
-			'Überschneidungen im Team sofort sichtbar'
-		]}
+		title={t('nav.leave')}
+		points={[t('leave.teaser1'), t('leave.teaser2'), t('leave.teaser3')]}
 	/>
 {:else}
 	<section class="space-y-8">
 		<header class="flex flex-wrap items-end justify-between gap-4">
 			<div>
 				<span class="inline-flex rounded-full bg-accent-500/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-accent-700 ring-1 ring-accent-600/15 dark:text-accent-300">
-					Abwesenheit
+					{t('leave.eyebrow')}
 				</span>
-				<h1 class="page-header mt-2">Urlaub</h1>
+				<h1 class="page-header mt-2">{t('nav.leave')}</h1>
 				<p class="mt-1 max-w-xl text-sm text-zinc-500 dark:text-zinc-400">
 					{admin
-						? `Anträge von ${session.company?.name ?? 'deinem Team'} genehmigen und eigenen Urlaub eintragen.`
-						: 'Urlaub beantragen. Die Entscheidung kommt per E-Mail und steht hier. Zum Ändern löschen und neu beantragen.'}
+						? tp('leave.introAdmin', { name: session.company?.name ?? t('leave.yourTeam') })
+						: t('leave.intro')}
 				</p>
 			</div>
 		</header>
@@ -148,9 +145,9 @@
 		<!-- KPI strip: own days this year -->
 		<div class="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="leave-stats">
 			{#each [
-				{ k: `Genehmigt ${year}`, v: `${approvedDays}`, u: approvedDays === 1 ? 'Tag' : 'Tage' },
-				{ k: 'Beantragt, offen', v: `${openDays}`, u: openDays === 1 ? 'Tag' : 'Tage' },
-				{ k: 'Nächster Urlaub', v: next ? team.dayLabel(next.start_date) : '–', u: next ? days(next) : 'nichts geplant' }
+				{ k: tp('leave.statApproved', { year }), v: `${approvedDays}`, u: t(approvedDays === 1 ? 'leave.day' : 'leave.days') },
+				{ k: t('leave.statOpen'), v: `${openDays}`, u: t(openDays === 1 ? 'leave.day' : 'leave.days') },
+				{ k: t('leave.statNext'), v: next ? team.dayLabel(next.start_date) : '–', u: next ? days(next) : t('leave.nothingPlanned') }
 			] as s, i (s.k)}
 				<div class="bezel" in:fly={enter(i)}>
 					<div class="bezel-core">
@@ -175,34 +172,34 @@
 				}}
 			>
 				<div class="bezel-core space-y-4">
-					<h2 class="text-base font-semibold tracking-tight">Urlaub beantragen</h2>
+					<h2 class="text-base font-semibold tracking-tight">{t('leave.request')}</h2>
 					<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-						<DateInput id="leave-start" label="Erster Urlaubstag" bind:value={start} />
-						<DateInput id="leave-end" label="Letzter Urlaubstag" bind:value={end} min={start} error={start && end && end < start ? 'Vor dem ersten Tag' : ''} />
+						<DateInput id="leave-start" label={t('leave.firstDay')} bind:value={start} />
+						<DateInput id="leave-end" label={t('leave.lastDay')} bind:value={end} min={start} error={start && end && end < start ? t('leave.beforeFirst') : ''} />
 					</div>
 					<div class="flex flex-col gap-1.5">
-						<label for="leave-note" class="label">Notiz (optional)</label>
-						<textarea id="leave-note" rows="2" maxlength="1000" class="input-base input-valid rounded-lg" placeholder="z. B. Vertretung durch …" bind:value={note}></textarea>
+						<label for="leave-note" class="label">{t('leave.note')}</label>
+						<textarea id="leave-note" rows="2" maxlength="1000" class="input-base input-valid rounded-lg" placeholder={t('leave.notePlaceholder')} bind:value={note}></textarea>
 					</div>
 					<div class="flex items-center justify-between gap-3">
 						<span class="text-sm tabular-nums text-zinc-500 transition-opacity duration-300 ease-spring dark:text-zinc-400 {valid ? 'opacity-100' : 'opacity-0'}" aria-live="polite">
-							{valid ? `${preview} ${preview === 1 ? 'Arbeitstag' : 'Arbeitstage'}` : ''}
+							{valid ? tp(preview === 1 ? 'leave.workday' : 'leave.workdays', { count: preview }) : ''}
 						</span>
 						<button type="submit" class="group btn-primary rounded-full py-1.5 pr-1.5 pl-4" disabled={!valid || busy}>
-							Urlaub beantragen
+							{t('leave.request')}
 							<span class="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 transition-transform duration-300 ease-spring group-hover:translate-x-0.5 group-hover:-translate-y-px">
 								<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" /></svg>
 							</span>
 						</button>
 					</div>
-					<p class="text-xs text-zinc-500 dark:text-zinc-400">Gezählt werden Montag bis Freitag; Feiertage sind nicht abgezogen.</p>
+					<p class="text-xs text-zinc-500 dark:text-zinc-400">{t('leave.countNote')}</p>
 				</div>
 			</form>
 
 			<div class="space-y-6 lg:col-span-7">
 				{#if admin}
 					<section class="space-y-3" data-testid="leave-pending">
-						<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">Offene Anträge</h2>
+						<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">{t('leave.pendingTitle')}</h2>
 						{#if !loaded}
 							<div class="table-card"><SkeletonRows rows={2} cols={3} /></div>
 						{:else if pending.length}
@@ -218,8 +215,8 @@
 											</div>
 										</div>
 										<span class="flex gap-1.5">
-											<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => decide(r, true)}>Genehmigen</button>
-											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => ((rejectReason = ''), (rejectTarget = r))}>Ablehnen</button>
+											<button class="btn-primary px-3 py-1.5 text-xs" disabled={busy} onclick={() => decide(r, true)}>{t('leave.approve')}</button>
+											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => ((rejectReason = ''), (rejectTarget = r))}>{t('leave.reject')}</button>
 										</span>
 									</li>
 								{/each}
@@ -227,14 +224,14 @@
 						{:else}
 							<p class="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
 								<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-								Keine offenen Anträge.
+								{t('leave.noPending')}
 							</p>
 						{/if}
 					</section>
 				{/if}
 
 				<section class="space-y-3" data-testid="leave-history">
-					<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">{admin ? 'Alle Anträge' : 'Meine Anträge'}</h2>
+					<h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-300">{t(admin ? 'leave.allRequests' : 'leave.myRequests')}</h2>
 					<div class="table-card">
 						{#if !loaded}
 							<SkeletonRows rows={3} cols={3} />
@@ -246,20 +243,20 @@
 											{#if admin}<p class="font-medium text-zinc-900 dark:text-zinc-100">{r.user_name}</p>{/if}
 											<p class="tabular-nums text-zinc-700 dark:text-zinc-200">{span(r)} <span class="text-zinc-500">· {days(r)}</span></p>
 											{#if r.status === 'rejected' && r.reason}
-												<p class="text-xs text-red-700 dark:text-red-300">Abgelehnt von {r.decided_by_name}: „{r.reason}“</p>
+												<p class="text-xs text-red-700 dark:text-red-300">{tp('leave.rejectedBy', { name: r.decided_by_name ?? '', reason: r.reason })}</p>
 											{:else if r.status === 'approved' && r.decided_by_name}
-												<p class="text-xs text-zinc-500 dark:text-zinc-400">Genehmigt von {r.decided_by_name}</p>
+												<p class="text-xs text-zinc-500 dark:text-zinc-400">{tp('leave.approvedBy', { name: r.decided_by_name })}</p>
 											{/if}
 										</div>
 										<span class="flex items-center gap-2">
-											<span class="badge {STATUS[r.status].cls}">{STATUS[r.status].label}</span>
+											<span class="badge {STATUS[r.status].cls}">{t(STATUS[r.status].label)}</span>
 											{#if r.user_id === me}
-												<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => (r.status === 'approved' ? (deleteTarget = r) : remove(r))}>Löschen</button>
+												<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => (r.status === 'approved' ? (deleteTarget = r) : remove(r))}>{t('common.delete')}</button>
 											{/if}
 										</span>
 									</li>
 								{:else}
-									<li><EmptyState icon={ICON} title="Noch keine Urlaubsanträge." /></li>
+									<li><EmptyState icon={ICON} title={t('leave.empty')} /></li>
 								{/each}
 							</ul>
 						{/if}
@@ -270,15 +267,14 @@
 	</section>
 {/if}
 
-<Dialog open={deleteTarget !== null} title="Genehmigten Urlaub löschen?" size="sm" onclose={() => (deleteTarget = null)}>
+<Dialog open={deleteTarget !== null} title={t('leave.deleteTitle')} size="sm" onclose={() => (deleteTarget = null)}>
 	{#if deleteTarget}
 		<p class="text-sm text-zinc-600 dark:text-zinc-300">
-			Dein genehmigter Urlaub {span(deleteTarget)} ({days(deleteTarget)}) wird gelöscht. Der Admin bekommt eine E-Mail. Für einen neuen
-			Zeitraum stellst du danach einen neuen Antrag, der wieder genehmigt werden muss.
+			{tp('leave.deleteBody', { span: span(deleteTarget), days: days(deleteTarget) })}
 		</p>
 	{/if}
 	{#snippet footer()}
-		<button type="button" class="btn-secondary" onclick={() => (deleteTarget = null)}>Abbrechen</button>
+		<button type="button" class="btn-secondary" onclick={() => (deleteTarget = null)}>{t('common.cancel')}</button>
 		<button
 			type="button"
 			class="btn-danger"
@@ -286,11 +282,11 @@
 				const r = deleteTarget;
 				deleteTarget = null;
 				if (r) remove(r);
-			}}>Urlaub löschen</button>
+			}}>{t('leave.deleteConfirm')}</button>
 	{/snippet}
 </Dialog>
 
-<Dialog open={rejectTarget !== null} title="Urlaub ablehnen" size="sm" onclose={() => (rejectTarget = null)}>
+<Dialog open={rejectTarget !== null} title={t('leave.rejectTitle')} size="sm" onclose={() => (rejectTarget = null)}>
 	{#if rejectTarget}
 		<form
 			id="leave-reject-form"
@@ -300,14 +296,14 @@
 				confirmReject();
 			}}
 		>
-			<label for="leave-reject-reason" class="label">Warum lehnst du den Urlaub von {rejectTarget.user_name} ({span(rejectTarget)}) ab?</label>
+			<label for="leave-reject-reason" class="label">{tp('leave.rejectQuestion', { name: rejectTarget.user_name, span: span(rejectTarget) })}</label>
 			<!-- svelte-ignore a11y_autofocus -->
 			<textarea id="leave-reject-reason" rows="3" autofocus class="input-base input-valid rounded-lg" bind:value={rejectReason}></textarea>
-			<p class="text-xs text-zinc-500 dark:text-zinc-400">Der Grund geht per E-Mail an die Person.</p>
+			<p class="text-xs text-zinc-500 dark:text-zinc-400">{t('teamPage.reasonMailed')}</p>
 		</form>
 	{/if}
 	{#snippet footer()}
-		<button type="button" class="btn-secondary" onclick={() => (rejectTarget = null)}>Abbrechen</button>
-		<button type="submit" form="leave-reject-form" class="btn-primary" disabled={!rejectReason.trim()}>Ablehnen</button>
+		<button type="button" class="btn-secondary" onclick={() => (rejectTarget = null)}>{t('common.cancel')}</button>
+		<button type="submit" form="leave-reject-form" class="btn-primary" disabled={!rejectReason.trim()}>{t('leave.reject')}</button>
 	{/snippet}
 </Dialog>

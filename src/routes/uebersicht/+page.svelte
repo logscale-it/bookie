@@ -203,7 +203,7 @@
 			pending = pending.filter((r) => r.user_id !== p.user_id);
 			// One click without the team page's review: offer an undo (unapprove).
 			toasts.success(tp('overview.approvedPerson', { name: p.name }), 6000, {
-				label: 'Rückgängig',
+				label: t('undo.undo'),
 				run: async () => {
 					try {
 						for (const m of p.months) await unapproveMonth(p.user_id, m);

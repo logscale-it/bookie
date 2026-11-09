@@ -8,6 +8,7 @@
 	import { cubicOut } from 'svelte/easing';
 	import { beat, hasChanges, presence, refresh, startPresence } from '$lib/presence.svelte';
 	import Avatar from './Avatar.svelte';
+	import { t, tp } from '$lib/i18n';
 
 	const MAX = 4;
 
@@ -21,10 +22,10 @@
 	// Detail pages (/rechnungen/12) are one record: two people there can overwrite each other.
 	const sameRecord = $derived(/\/\d+$/.test(here) ? peers.filter((p) => p.path === here) : []);
 	const names = $derived(
-		sameRecord.length === 1 ? sameRecord[0]!.name : `${sameRecord.slice(0, -1).map((p) => p.name).join(', ')} und ${sameRecord.at(-1)?.name}`
+		sameRecord.length === 1 ? sameRecord[0]!.name : `${sameRecord.slice(0, -1).map((p) => p.name).join(', ')} ${t('presence.and')} ${sameRecord.at(-1)?.name}`
 	);
 	const label = (p: { name: string; path: string }) =>
-		p.path === here ? `${p.name} sieht diese Seite gerade` : `${p.name} ist gerade online`;
+		tp(p.path === here ? 'presence.viewingPage' : 'presence.online', { name: p.name });
 </script>
 
 {#if peers.length || hasChanges()}
@@ -37,7 +38,7 @@
 				in:fly={{ y: -6, duration: 320, easing: cubicOut }}
 			>
 				<Avatar id={sameRecord[0]!.userId} name={sameRecord[0]!.name} size="sm" />
-				<span><strong class="font-medium">{names}</strong> {sameRecord.length === 1 ? 'hat' : 'haben'} das hier gerade auch offen. Wer zuerst speichert, gewinnt.</span>
+				<span><strong class="font-medium">{names}</strong> {t(sameRecord.length === 1 ? 'presence.sameRecordOne' : 'presence.sameRecordMany')}</span>
 			</p>
 		{/if}
 
@@ -53,16 +54,16 @@
 					<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent-400 opacity-60"></span>
 					<span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent-500"></span>
 				</span>
-				Neue Änderungen im Team
+				{t('presence.teamChanges')}
 				<span class="flex h-6 w-6 items-center justify-center rounded-full bg-white/15 transition-transform duration-300 ease-spring group-hover:rotate-180 dark:bg-zinc-900/10">
 					<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
 				</span>
-				<span class="sr-only">Seite aktualisieren</span>
+				<span class="sr-only">{t('presence.refresh')}</span>
 			</button>
 		{/if}
 
 		{#if peers.length}
-			<div class="flex items-center -space-x-1.5" role="list" aria-label="Gerade online">
+			<div class="flex items-center -space-x-1.5" role="list" aria-label={t('presence.onlineList')}>
 				{#each peers.slice(0, MAX) as p (p.userId)}
 					<span role="listitem" aria-label={label(p)} title={label(p)} class="relative animate-pop rounded-full ring-2 ring-zinc-100 dark:ring-zinc-900">
 						<Avatar id={p.userId} name={p.name} title={label(p)} dim={p.path !== here} />

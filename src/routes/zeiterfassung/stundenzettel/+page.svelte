@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
 	import DateInput from '../../../common/DateInput.svelte';
 	import Select from '../../../common/Select.svelte';
 	import EmptyState from '../../../common/EmptyState.svelte';
@@ -194,7 +194,7 @@
 		].join(' · ');
 
 		const filePath = await save({
-			title: 'Stundenzettel speichern',
+			title: t('timeUi.saveTimesheet'),
 			defaultPath: `Stundenzettel-${new Date().toISOString().slice(0, 10)}.pdf`,
 			filters: [{ name: 'PDF', extensions: ['pdf'] }]
 		});
@@ -219,7 +219,7 @@
 			});
 			await writeBinaryFile(filePath, pdfBytes);
 		} catch (err) {
-			pdfError = `PDF-Export fehlgeschlagen: ${messageForUnknown(err)}`;
+			pdfError = tp('timeUi.pdfExportFailed', { error: messageForUnknown(err) });
 		} finally {
 			pdfLoading = false;
 		}

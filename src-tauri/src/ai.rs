@@ -102,6 +102,62 @@ pub fn build_request(
     }
 }
 
+/// Text-only request (Finanzberater): a system prompt plus one user turn,
+/// same three provider shapes as `build_request`.
+pub fn build_text_request(
+    provider: &str,
+    model: &str,
+    base_url: &str,
+    system: &str,
+    prompt: &str,
+    key: Option<&str>,
+) -> Result<AiRequest, String> {
+    let key = key.unwrap_or_default().to_string();
+    match provider {
+        "anthropic" => Ok(AiRequest {
+            url: "https://api.anthropic.com/v1/messages".into(),
+            headers: vec![
+                ("x-api-key", key),
+                ("anthropic-version", "2023-06-01".into()),
+            ],
+            body: json!({
+                "model": model,
+                "max_tokens": 2048,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}]
+            }),
+        }),
+        "gemini" => Ok(AiRequest {
+            url: format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            ),
+            headers: vec![("x-goog-api-key", key)],
+            body: json!({
+                "system_instruction": {"parts": [{"text": system}]},
+                "contents": [{"parts": [{"text": prompt}]}]
+            }),
+        }),
+        "openai" | "mistral" | "ollama" => {
+            let mut headers = vec![];
+            if !key.is_empty() {
+                headers.push(("authorization", format!("Bearer {key}")));
+            }
+            Ok(AiRequest {
+                url: format!("{}/chat/completions", trim_base(base_url)),
+                headers,
+                body: json!({
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt}
+                    ]
+                }),
+            })
+        }
+        other => Err(format!("Unbekannter KI-Anbieter: {other}")),
+    }
+}
+
 /// The model's answer text, or `None` when the response has an unexpected shape.
 pub fn response_text(provider: &str, v: &Value) -> Option<String> {
     let text = match provider {
@@ -189,6 +245,22 @@ mod tests {
             Some(PDF_UNSUPPORTED)
         );
         assert!(build_request("nope", "m", "", "image/png", b"x", None).is_err());
+    }
+
+    #[test]
+    fn text_request_shapes() {
+        let a = build_text_request("anthropic", "m", "", "sys", "q", Some("k")).unwrap();
+        assert_eq!(a.body["system"], "sys");
+        assert_eq!(a.body["messages"][0]["content"], "q");
+
+        let g = build_text_request("gemini", "flash", "", "sys", "q", Some("k")).unwrap();
+        assert_eq!(g.body["system_instruction"]["parts"][0]["text"], "sys");
+
+        let o = build_text_request("ollama", "m", "http://x/v1/", "sys", "q", None).unwrap();
+        assert_eq!(o.url, "http://x/v1/chat/completions");
+        assert_eq!(o.body["messages"][0]["role"], "system");
+        assert!(o.headers.is_empty());
+        assert!(build_text_request("nope", "m", "", "s", "q", None).is_err());
     }
 
     #[test]

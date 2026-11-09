@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '$lib/i18n';
 	let {
 		files = $bindable<FileList | null>(null),
 		label = '',
@@ -88,7 +89,7 @@
 		{#if fileNames}
 			<span class="break-all text-xs font-medium text-zinc-700 dark:text-zinc-200">{fileNames}</span>
 		{:else}
-			<span class="text-xs text-zinc-500 dark:text-zinc-400">Dateien hierher ziehen oder zum Auswählen klicken</span>
+			<span class="text-xs text-zinc-500 dark:text-zinc-400">{t('fileUpload.dropHint')}</span>
 		{/if}
 	</button>
 </div>

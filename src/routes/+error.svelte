@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
 </script>
 
 <div class="flex min-h-[60vh] items-center justify-center px-4">
@@ -9,12 +9,12 @@
 			<svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.25"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
 		</span>
 		<div class="space-y-1.5">
-			<p class="text-xs font-medium tabular-nums text-zinc-400">Fehler {page.status}</p>
+			<p class="text-xs font-medium tabular-nums text-zinc-400">{tp('errorPage.status', { status: page.status })}</p>
 			<h1 class="text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-				{page.status === 404 ? 'Seite nicht gefunden' : 'Etwas ist schiefgelaufen'}
+				{page.status === 404 ? t('errorPage.notFound') : t('errorPage.generic')}
 			</h1>
 			<p class="text-sm text-zinc-500 dark:text-zinc-400">{page.error?.message ?? t('common.unexpectedError')}</p>
 		</div>
-		<a href="/" class="btn-primary mt-1">Zur Übersicht</a>
+		<a href="/" class="btn-primary mt-1">{t('errorPage.toOverview')}</a>
 	</div>
 </div>

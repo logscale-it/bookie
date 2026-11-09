@@ -9,7 +9,7 @@
 	import { createCustomer, listCustomers, updateCustomer } from '$lib/db/customers';
 	import { anonymizeCustomer } from '$lib/db/dsgvo_erasure';
 	import type { Customer } from '$lib/db/types';
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
 	import { isValidVatId } from '$lib/validation';
 	import { toasts } from '$lib/ui/toasts.svelte';
 	import { isPlainKey } from '$lib/ui/shortcut';
@@ -213,14 +213,14 @@
 		erasingCustomerId = customer.id;
 		try {
 			await anonymizeCustomer(customer.id);
-			toasts.success(`„${customer.name}“ wurde anonymisiert.`);
+			toasts.success(tp('companies.anonymized', { name: customer.name }));
 			await loadCustomers();
 		} catch (e) {
 			const err = e as Error;
 			if (err?.name === 'RetentionViolation') {
-				toasts.error(`Löschung verweigert: ${err.message}`);
+				toasts.error(tp('companies.eraseRefused', { error: err.message }));
 			} else {
-				toasts.error(`Fehler bei der DSGVO-Löschung: ${err?.message ?? String(e)}`);
+				toasts.error(tp('companies.eraseFailed', { error: err?.message ?? String(e) }));
 			}
 		} finally {
 			erasingCustomerId = null;
@@ -233,7 +233,7 @@
 			const { exportCustomerData, suggestExportFileName } = await import('$lib/db/dsgvo_export');
 			const defaultName = suggestExportFileName(customer);
 			const filePath = await save({
-				title: 'DSGVO-Auskunft speichern',
+				title: t('companies.dsgvoExportSave'),
 				defaultPath: defaultName,
 				filters: [{ name: 'ZIP', extensions: ['zip'] }]
 			});
@@ -249,9 +249,9 @@
 				textEntries,
 				binaryEntries: binaryEntries.map(([name, bytes]) => [name, Array.from(bytes)])
 			});
-			toasts.success(`DSGVO-Auskunft für „${customer.name}“ gespeichert.`);
+			toasts.success(tp('companies.dsgvoExported', { name: customer.name }));
 		} catch (e) {
-			toasts.error(`Fehler beim Erstellen der DSGVO-Auskunft: ${(e as Error).message ?? String(e)}`);
+			toasts.error(tp('companies.dsgvoExportFailed', { error: (e as Error).message ?? String(e) }));
 		} finally {
 			exportingCustomerId = null;
 		}
@@ -343,13 +343,13 @@
 						<EmptyState
 							icon="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
 							title={t('companies.empty')}
-							hint="Passe Suche oder Filter an."
+							hint={t('companies.noMatchHint')}
 						/>
 					{:else}
 						<EmptyState
 							icon="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
 							title={t('companies.empty')}
-							hint="Lege Kunden und Lieferanten an, um sie in Rechnungen zu verwenden."
+							hint={t('companies.emptyHint')}
 							actionLabel={canWrite ? t('companies.addButton') : undefined}
 							onaction={canWrite ? () => (showAddForm = true) : undefined}
 						/>
@@ -440,8 +440,8 @@
 												type="button"
 												onclick={() => handleDsgvoExport(customer)}
 												disabled={exportingCustomerId === customer.id}
-												title="DSGVO-Auskunft (Art. 15 DSGVO) als ZIP exportieren"
-												aria-label="DSGVO-Auskunft exportieren"
+												title={t('companies.dsgvoExportTitle')}
+												aria-label={t('companies.dsgvoExportLabel')}
 												class="icon-btn icon-btn-blue"
 											>
 												{#if exportingCustomerId === customer.id}
@@ -454,8 +454,8 @@
 												type="button"
 												onclick={() => (eraseTarget = customer)}
 												disabled={erasingCustomerId === customer.id}
-												title="DSGVO-Löschung (Art. 17 DSGVO) — anonymisiert PII, soweit gesetzlich zulässig"
-												aria-label="DSGVO-Löschung"
+												title={t('companies.dsgvoEraseTitle')}
+												aria-label={t('companies.dsgvoErase')}
 												class="icon-btn icon-btn-danger"
 											>
 												{#if erasingCustomerId === customer.id}
@@ -477,16 +477,14 @@
 	</div>
 </section>
 
-<Dialog open={eraseTarget !== null} title="DSGVO-Löschung" size="sm" onclose={() => (eraseTarget = null)}>
+<Dialog open={eraseTarget !== null} title={t('companies.dsgvoErase')} size="sm" onclose={() => (eraseTarget = null)}>
 	{#if eraseTarget}
 		<p class="text-sm text-zinc-600 dark:text-zinc-300">
-			„{eraseTarget.name}“ gemäß DSGVO Art. 17 endgültig anonymisieren? Personenbezogene Daten werden
-			unwiderruflich entfernt. Rechnungen und Buchungsbelege bleiben aus gesetzlichen Gründen (§147 AO)
-			erhalten.
+			{tp('companies.dsgvoErasePrompt', { name: eraseTarget.name })}
 		</p>
 	{/if}
 	{#snippet footer()}
 		<button type="button" class="btn-secondary" onclick={() => (eraseTarget = null)}>{t('common.cancel')}</button>
-		<button type="button" class="btn-danger" onclick={() => eraseTarget && handleDsgvoErase(eraseTarget)}>Endgültig anonymisieren</button>
+		<button type="button" class="btn-danger" onclick={() => eraseTarget && handleDsgvoErase(eraseTarget)}>{t('companies.dsgvoEraseConfirm')}</button>
 	{/snippet}
 </Dialog>

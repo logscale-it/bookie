@@ -8,6 +8,7 @@
 	import Avatar from './Avatar.svelte';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import EmptyState from './EmptyState.svelte';
+	import { getLocaleFormatting, t } from '$lib/i18n';
 
 	let {
 		limit = 8,
@@ -15,17 +16,17 @@
 		projectName
 	}: { limit?: number; paged?: boolean; projectName?: (id: number) => string } = $props();
 
-	const KIND: Record<ActivityKind, { text: string; dot: string }> = {
-		created: { text: 'Rechnungsentwurf angelegt', dot: 'bg-zinc-400 dark:bg-zinc-500' },
-		issued: { text: 'Rechnung gestellt', dot: 'bg-accent-500' },
-		storno: { text: 'Stornorechnung erstellt', dot: 'bg-amber-500' },
-		paid: { text: 'Rechnung bezahlt', dot: 'bg-emerald-500' },
-		reopened: { text: 'Zahlung zurückgenommen', dot: 'bg-amber-500' },
-		cancelled: { text: 'Rechnung storniert', dot: 'bg-red-500' },
-		approved: { text: 'Stunden freigegeben', dot: 'bg-emerald-500' },
-		unapproved: { text: 'Freigabe zurückgenommen', dot: 'bg-amber-500' },
-		rejected: { text: 'Stunden zurückgegeben', dot: 'bg-red-500' },
-		team: { text: '', dot: 'bg-sky-500' }
+	const KIND: Record<ActivityKind, { dot: string }> = {
+		created: { dot: 'bg-zinc-400 dark:bg-zinc-500' },
+		issued: { dot: 'bg-accent-500' },
+		storno: { dot: 'bg-amber-500' },
+		paid: { dot: 'bg-emerald-500' },
+		reopened: { dot: 'bg-amber-500' },
+		cancelled: { dot: 'bg-red-500' },
+		approved: { dot: 'bg-emerald-500' },
+		unapproved: { dot: 'bg-amber-500' },
+		rejected: { dot: 'bg-red-500' },
+		team: { dot: 'bg-sky-500' }
 	};
 
 	let items = $state<ActivityItem[] | null>(null);
@@ -54,9 +55,9 @@
 	}
 
 	const text = (i: ActivityItem) =>
-		i.kind === 'team' ? describe({ action: i.action ?? '', actor_name: i.actor_name ?? '', subject_name: i.subject_name ?? null, data: i.data ?? {} }, projectName) : KIND[i.kind].text;
+		i.kind === 'team' ? describe({ action: i.action ?? '', actor_name: i.actor_name ?? '', subject_name: i.subject_name ?? null, data: i.data ?? {} }, projectName) : t(`activityFeed.kinds.${i.kind}`);
 
-	const rtf = new Intl.RelativeTimeFormat('de', { numeric: 'auto' });
+	const rtf = new Intl.RelativeTimeFormat(getLocaleFormatting(), { numeric: 'auto' });
 	const STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
 		['second', 60],
 		['minute', 60],
@@ -75,16 +76,16 @@
 		return '';
 	}
 	const month = (m: string) =>
-		new Date(`${m}-01T00:00:00Z`).toLocaleDateString('de-DE', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+		new Date(`${m}-01T00:00:00Z`).toLocaleDateString(getLocaleFormatting(), { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 	function subject(i: ActivityItem): string {
 		if (i.month) return [i.subject_name, month(i.month)].filter(Boolean).join(' · ');
-		return [i.invoice_number ?? 'Entwurf', i.customer_name].filter(Boolean).join(' · ');
+		return [i.invoice_number ?? t('activityFeed.draft'), i.customer_name].filter(Boolean).join(' · ');
 	}
 </script>
 
 <section class="card space-y-4" data-testid="activity-feed">
-	<h2 class="text-base font-semibold">Aktivität</h2>
+	<h2 class="text-base font-semibold">{t('activityFeed.title')}</h2>
 	{#if items === null}
 		<ul class="space-y-4" aria-hidden="true">
 			{#each { length: 4 } as _, i (i)}
@@ -100,8 +101,8 @@
 	{:else if items.length === 0}
 		<EmptyState
 			icon="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-			title="Noch keine Aktivität"
-			hint="Neue Rechnungen, Zahlungen und Freigaben erscheinen hier."
+			title={t('activityFeed.emptyTitle')}
+			hint={t('activityFeed.emptyHint')}
 		/>
 	{:else}
 		<ol class="relative">
@@ -127,7 +128,7 @@
 						{#if showActors && i.actor_name}
 							<Avatar id={i.actor_id} name={i.actor_name} size="sm" />
 						{/if}
-						<time datetime={i.at} title={new Date(i.at).toLocaleString('de-DE')} class="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
+						<time datetime={i.at} title={new Date(i.at).toLocaleString(getLocaleFormatting())} class="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
 							{ago(i.at)}
 						</time>
 					</div>
@@ -135,7 +136,7 @@
 			{/each}
 		</ol>
 		{#if more}
-			<button class="btn-secondary" disabled={loading} onclick={loadMore}>Mehr</button>
+			<button class="btn-secondary" disabled={loading} onclick={loadMore}>{t('activityFeed.more')}</button>
 		{/if}
 	{/if}
 </section>

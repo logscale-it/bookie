@@ -250,17 +250,17 @@
 		bind:open={showAddProjectForm}
 	>
 		<div class="grid gap-3 md:grid-cols-2">
-			<TextInput bind:value={name} label={t('projects.projectName')} placeholder="Website Relaunch" />
+			<TextInput bind:value={name} label={t('projects.projectName')} placeholder={t('projectsUi.namePlaceholder')} />
 			<Select bind:value={customerId} label={t('projects.customer')} options={customerOptions} placeholder={t('projects.customerPlaceholder')} />
 			<DateInput bind:value={startDate} label={t('projects.startDate')} />
 			<DateInput bind:value={endDate} label={t('projects.endDate')} />
 			{#if !ratesHidden}
-				<TextInput bind:value={rate} label="Stundensatz (€, netto)" placeholder="85,00" />
+				<TextInput bind:value={rate} label={t('projectsUi.rateLabel')} placeholder="85,00" />
 			{/if}
 			{#if isCloud}
-				<TextInput bind:value={budgetHours} label="Budget (Stunden)" placeholder="z. B. 40" />
+				<TextInput bind:value={budgetHours} label={t('projectsUi.budgetHoursLabel')} placeholder={t('projectsUi.budgetHoursPlaceholder')} />
 				{#if !ratesHidden}
-					<TextInput bind:value={budgetEur} label="Budget (€, netto)" placeholder="z. B. 5.000" />
+					<TextInput bind:value={budgetEur} label={t('projectsUi.budgetEurLabel')} placeholder={t('projectsUi.budgetEurPlaceholder')} />
 				{/if}
 			{/if}
 		</div>
@@ -284,8 +284,8 @@
 			<div class="px-4 py-3">{t('projects.customer')}</div>
 			<div class="px-4 py-3">{t('projects.timeframe')}</div>
 			<div class="px-4 py-3 text-right">{t('projects.hours')}</div>
-			<div class="px-4 py-3 text-right">Stundensatz</div>
-			{#if isCloud}<div class="px-4 py-3">Budget</div>{/if}
+			<div class="px-4 py-3 text-right">{t('projectsUi.rate')}</div>
+			{#if isCloud}<div class="px-4 py-3">{t('projectsUi.budget')}</div>{/if}
 			<div class="px-4 py-3 text-right">{t('common.action')}</div>
 		</div>
 
@@ -295,7 +295,7 @@
 			<EmptyState
 				icon="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"
 				title={t('projects.empty')}
-				hint="Lege dein erstes Projekt an, um Zeiten darauf zu buchen."
+				hint={t('projectsUi.emptyHint')}
 				actionLabel={canWrite ? t('projects.addButton') : undefined}
 				onaction={canWrite ? () => (showAddProjectForm = true) : undefined}
 			/>
@@ -325,16 +325,16 @@
 							<div class="px-4 py-2 text-right tabular-nums text-zinc-500 dark:text-zinc-400">{hoursAvailable ? `${hoursLabel(hoursOf(project))} h` : '—'}</div>
 							<div class="px-4 py-2">
 								{#if project.hourly_rate_hidden}
-									<div class="text-right text-zinc-400" title="Stundensätze sind nur mit Berechtigung für Rechnungen oder Berichte sichtbar">verborgen</div>
+									<div class="text-right text-zinc-400" title={t('projectsUi.rateHiddenTitle')}>{t('projectsUi.hidden')}</div>
 								{:else}
-									<input bind:value={editingRate} inputmode="decimal" placeholder="€/h" aria-label="Stundensatz" class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" />
+									<input bind:value={editingRate} inputmode="decimal" placeholder="€/h" aria-label={t('projectsUi.rate')} class="input-base input-valid rounded-lg px-2 py-1 text-right tabular-nums" />
 								{/if}
 							</div>
 							{#if isCloud}
 								<div class="grid gap-2 px-4 py-2">
-									<input bind:value={editingBudgetHours} inputmode="decimal" placeholder="Stunden" aria-label="Budget Stunden" class="input-base input-valid rounded-lg px-2 py-1" />
+									<input bind:value={editingBudgetHours} inputmode="decimal" placeholder={t('projectsUi.hoursPlaceholder')} aria-label={t('projectsUi.budgetHoursAria')} class="input-base input-valid rounded-lg px-2 py-1" />
 									{#if project.budget_cents !== undefined}
-										<input bind:value={editingBudgetEur} inputmode="decimal" placeholder="€" aria-label="Budget Euro" class="input-base input-valid rounded-lg px-2 py-1" />
+										<input bind:value={editingBudgetEur} inputmode="decimal" placeholder="€" aria-label={t('projectsUi.budgetEurAria')} class="input-base input-valid rounded-lg px-2 py-1" />
 									{/if}
 								</div>
 							{/if}
@@ -373,7 +373,7 @@
 					{#if isCloud && isAdmin && members.length > 1}
 						{@const staffed = members.filter((m) => m.project_ids.includes(project.id))}
 						<div class="flex flex-wrap items-center gap-2 border-b border-zinc-100 px-4 pb-2 text-xs text-zinc-500 dark:border-zinc-700/70">
-							<span>Team:</span>
+							<span>{t('projectsUi.teamLabel')}</span>
 							{#if editingProjectId === project.id}
 								{#each members.filter((m) => m.role !== 'admin') as m (m.user_id)}
 									<label class="flex items-center gap-1">
@@ -386,7 +386,7 @@
 									<span class="badge badge-zinc" title={m.name}>{initials(m.name)}</span>
 								{/each}
 							{:else}
-								<span>niemand zugewiesen</span>
+								<span>{t('projectsUi.nobodyAssigned')}</span>
 							{/if}
 						</div>
 					{/if}

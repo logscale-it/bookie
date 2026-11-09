@@ -70,7 +70,7 @@
 {:else}
 	<div class="space-y-6">
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Beträge & Fristen" title={t('settings.invoiceTitle')} desc="Währung, Rundung und Zahlungsziel für neue Rechnungen." />
+			<SectionHead eyebrow={t('settingsUi.amountsEyebrow')} title={t('settings.invoiceTitle')} desc={t('settingsUi.amountsDesc')} />
 			<div class="grid gap-3 md:grid-cols-2">
 				<TextInput bind:value={form.currency} label={t('settings.currencyLabel')} />
 				<TextInput bind:value={decimalPlaces} label={t('settings.decimalPlaces')} type="number" />
@@ -81,7 +81,7 @@
 		</section>
 
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Nummernkreis" title={t('settings.invoiceNumberFormat')} desc="Platzhalter: {'{YYYY}'} = Jahr, {'{COUNT}'} = fortlaufende Nummer. Rechnungsnummern müssen lückenlos und eindeutig sein." />
+			<SectionHead eyebrow={t('settingsUi.numberEyebrow')} title={t('settings.invoiceNumberFormat')} desc={t('settingsUi.numberDesc')} />
 			<div class="grid gap-3 md:grid-cols-2">
 				<TextInput bind:value={form.invoice_number_format} label={t('settings.invoiceNumberFormat')} />
 				<TextInput bind:value={incrementor} label={t('settings.invoiceNumberIncrement')} type="number" />
@@ -89,7 +89,7 @@
 		</section>
 
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Branding" title={t('settings.companyLogo')} desc="Wird oben auf jeder Rechnung gedruckt." />
+			<SectionHead eyebrow={t('settingsUi.brandingEyebrow')} title={t('settings.companyLogo')} desc={t('settingsUi.brandingDesc')} />
 			<div class="flex flex-col gap-4 sm:flex-row sm:items-start">
 				{#if form.company_logo_data_url}
 					<img src={form.company_logo_data_url} alt={t('settings.companyLogo')} class="h-[88px] w-auto max-w-[200px] rounded-xl bg-white object-contain p-2 ring-1 ring-zinc-900/10 dark:ring-white/10" />

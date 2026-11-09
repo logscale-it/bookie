@@ -4,7 +4,7 @@
 	import { open, save } from '@tauri-apps/plugin-dialog';
 	import { getS3Settings, saveS3Settings, type UpsertS3Settings } from '$lib/db/settings';
 	import { performBackup } from '$lib/s3/auto-backup';
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
 	import { cloud } from '$lib/cloud';
 	import { saveCloudExport } from '$lib/cloud-export';
 	import Dialog from '../../../common/Dialog.svelte';
@@ -167,7 +167,7 @@
 		</section>
 	{:else}
 	<section class="card space-y-4 p-5">
-		<SectionHead eyebrow="Lokal" title={t('settings.backupTitle')} desc={t('settings.backupDesc')} />
+		<SectionHead eyebrow={t('settingsUi.localEyebrow')} title={t('settings.backupTitle')} desc={t('settings.backupDesc')} />
 		<div class="flex flex-wrap gap-2">
 			<button type="button" onclick={handleBackupDownload} disabled={loading} class="btn-primary">
 				{t('settings.downloadDb')}
@@ -180,7 +180,7 @@
 	</section>
 
 	<section class="card space-y-4 p-5">
-		<SectionHead eyebrow="Betriebsprüfung" title={t('settings.gobdTitle')} desc={t('settings.gobdDesc')} />
+		<SectionHead eyebrow={t('settingsUi.auditEyebrow')} title={t('settings.gobdTitle')} desc={t('settings.gobdDesc')} />
 		<div class="flex flex-wrap items-end gap-3">
 			<label class="flex flex-col gap-1.5">
 				<span class="label">{t('settings.gobdFromYear')}</span>
@@ -195,7 +195,7 @@
 			</button>
 		</div>
 		{#if gobdFeedback}
-			{@render note(gobdFeedback, gobdFeedback.startsWith('Fehler') || gobdFeedback.startsWith('Error') || gobdFeedback === t('settings.gobdInvalidRange'))}
+			{@render note(gobdFeedback, gobdFeedback.startsWith(t('common.error')) || gobdFeedback === t('settings.gobdInvalidRange'))}
 		{/if}
 	</section>
 
@@ -213,7 +213,7 @@
 			</label>
 			<p class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
 				{#if lastBackupFormatted}
-					{t('settings.lastBackup')}: {lastBackupFormatted} Uhr
+					{t('settings.lastBackup')}: {tp('settingsUi.atTime', { time: lastBackupFormatted })}
 				{:else}
 					{t('settings.noBackupYet')}
 				{/if}
@@ -221,7 +221,7 @@
 			<button type="button" onclick={handleS3Backup} disabled={s3BackupLoading} class="btn-primary">
 				{s3BackupLoading ? t('settings.backingUp') : t('settings.backupNow')}
 			</button>
-			{#if s3Feedback}{@render note(s3Feedback, s3Feedback.startsWith('Fehler'))}{/if}
+			{#if s3Feedback}{@render note(s3Feedback, s3Feedback.startsWith(t('common.error')))}{/if}
 		{:else if s3}
 			<p class="text-sm text-zinc-500 dark:text-zinc-400">
 				<a href="/einstellungen/s3" class="font-medium text-accent-600 hover:underline dark:text-accent-400">{t('settings.enableS3')}</a>{t('settings.enableS3Hint')}

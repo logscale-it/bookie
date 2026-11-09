@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import * as team from "$lib/team";
+import { setLocale } from "$lib/i18n";
 
 const saved = {
   localStorage: (globalThis as any).localStorage,
@@ -188,4 +189,13 @@ test("describe turns feed rows into German sentences", () => {
     "Anna hat x@y.de als Subunternehmer eingeladen",
   );
   expect(team.describe(a("something.new"))).toBe("Anna: something.new");
+  expect(team.describe(a("month.reject", { month: "2026-03", reason: "kostet $& mehr" }))).toBe(
+    "Anna hat März 2026 an Ben zurückgegeben: „kostet $& mehr“",
+  );
+  setLocale("en");
+  try {
+    expect(team.describe(a("month.approve", { month: "2026-03" }))).toBe("Anna approved March 2026 of Ben");
+  } finally {
+    setLocale("de");
+  }
 });

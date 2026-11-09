@@ -4,6 +4,7 @@
 // ponytail: if the app quits inside the window the delete simply never
 // happens (safe direction); add a beforeunload flush if that ever matters.
 import { toasts } from "./toasts.svelte";
+import { t } from "../i18n";
 
 const UNDO_MS = 5000;
 
@@ -29,12 +30,12 @@ export function deferDelete(opts: {
     } catch (e) {
       opts.restore();
       toasts.error(
-        `${opts.errorMessage ?? "Löschen fehlgeschlagen"}: ${e instanceof Error ? e.message : String(e)}`,
+        `${opts.errorMessage ?? t("undo.deleteFailed")}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }, UNDO_MS);
   toasts.info(opts.message, UNDO_MS, {
-    label: "Rückgängig",
+    label: t("undo.undo"),
     run: () => {
       undone = true;
       clearTimeout(timer);

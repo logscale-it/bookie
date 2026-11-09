@@ -12,7 +12,7 @@
 	import { getS3Settings } from '$lib/db/settings';
 	import { deleteFile } from '$lib/s3/client';
 	import { createLogger } from '$lib/logger';
-	import { t } from '$lib/i18n';
+	import { t, tp } from '$lib/i18n';
 	import { cloud } from '$lib/cloud';
 	import { can } from '$lib/session.svelte';
 	import type { Invoice, InvoiceItem, Payment } from '$lib/db/types';
@@ -34,6 +34,16 @@
 	let payments = $state<Payment[]>([]);
 	let payAmount = $state('');
 	let payDate = $state(new Date().toISOString().slice(0, 10));
+	// Stored as German values (existing rows); only the label is translated.
+	const METHODS: Record<string, string> = {
+		Überweisung: 'invoiceDetail.methodTransfer',
+		Lastschrift: 'invoiceDetail.methodDebit',
+		Bar: 'invoiceDetail.methodCash',
+		Karte: 'invoiceDetail.methodCard',
+		PayPal: 'invoiceDetail.methodPaypal',
+		Sonstiges: 'invoiceDetail.methodOther'
+	};
+	const methodLabel = (m: string) => (METHODS[m] ? t(METHODS[m]) : m);
 	let payMethod = $state('Überweisung');
 	let busy = $state(false);
 
@@ -181,7 +191,7 @@
 	function addPayment() {
 		const cents = Math.round(Number(payAmount.replace(',', '.')) * 100);
 		if (!invoice || !Number.isInteger(cents) || cents <= 0 || !payDate) {
-			toasts.error('Bitte Betrag und Datum angeben');
+			toasts.error(t('invoiceDetail.amountDateRequired'));
 			return;
 		}
 		const invoice_id = invoice.id;
@@ -254,7 +264,7 @@
 				</p>
 				{#if invoice.references_invoice_id != null}
 					<p class="text-sm text-zinc-600 dark:text-zinc-300">
-						Storno zu <a href="/rechnungen/{invoice.references_invoice_id}" class="text-accent-600 underline-offset-2 hover:underline dark:text-accent-400">Rechnung #{invoice.references_invoice_id}</a>{invoice.cancellation_reason ? ` — Grund: ${invoice.cancellation_reason}` : ''}
+						{t('invoiceDetail.stornoOf')} <a href="/rechnungen/{invoice.references_invoice_id}" class="text-accent-600 underline-offset-2 hover:underline dark:text-accent-400">{tp('invoiceDetail.invoiceRef', { id: invoice.references_invoice_id })}</a>{invoice.cancellation_reason ? tp('invoiceDetail.stornoReason', { reason: invoice.cancellation_reason }) : ''}
 					</p>
 				{/if}
 			</div>
@@ -339,22 +349,22 @@
 		{#if !isDraft}
 			<div class="card space-y-4">
 				<div class="flex items-baseline justify-between gap-4">
-					<h2 class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Zahlungen</h2>
+					<h2 class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('invoiceDetail.payments')}</h2>
 					<span class="text-sm text-zinc-500 dark:text-zinc-400">
 						<span class="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{eur(paidCents)}</span>
-						von <span class="tabular-nums">{eur(invoice.gross_cents)}</span> bezahlt
+						{t('invoiceDetail.paidOfLead')} <span class="tabular-nums">{eur(invoice.gross_cents)}</span> {t('invoiceDetail.paidOfRest')}
 					</span>
 				</div>
 				<div class="h-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700/60">
 					<div class="h-full origin-left rounded-full bg-emerald-500 transition-transform duration-500 ease-out-expo" style="transform: scaleX({invoice.gross_cents > 0 ? Math.min(1, paidCents / invoice.gross_cents) : 0})"></div>
 				</div>
 				{#if visiblePayments.length === 0}
-					<p class="text-sm text-zinc-500 dark:text-zinc-400">Noch keine Zahlungen erfasst.</p>
+					<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('invoiceDetail.noPayments')}</p>
 				{:else}
 					<ul class="divide-y divide-zinc-100 text-sm dark:divide-zinc-700/70">
 						{#each visiblePayments as p (p.id)}
 							<li class="group flex items-center justify-between gap-3 py-2">
-								<span class="text-zinc-600 dark:text-zinc-300"><span class="tabular-nums">{p.payment_date.split('-').reverse().join('.')}</span> · {p.method ?? '—'}</span>
+								<span class="text-zinc-600 dark:text-zinc-300"><span class="tabular-nums">{p.payment_date.split('-').reverse().join('.')}</span> · {p.method ? methodLabel(p.method) : '—'}</span>
 								<span class="flex items-center gap-2">
 									<span class="font-medium tabular-nums">{eur(p.amount_cents)}</span>
 									{#if canEdit}
@@ -372,20 +382,20 @@
 				{#if isOpen && canEdit}
 					<div class="grid items-end gap-3 border-t border-zinc-100 pt-4 md:grid-cols-4 dark:border-zinc-700/70">
 						<label class="text-sm">
-							<span class="label">Betrag (€)</span>
+							<span class="label">{t('invoiceDetail.amount')}</span>
 							<input bind:value={payAmount} inputmode="decimal" placeholder={((invoice.gross_cents - paidCents) / 100).toFixed(2).replace('.', ',')} class="input-base input-valid tabular-nums" />
 						</label>
 						<label class="text-sm">
-							<span class="label">Datum</span>
+							<span class="label">{t('invoiceDetail.date')}</span>
 							<input type="date" bind:value={payDate} class="input-base input-valid" />
 						</label>
 						<label class="text-sm">
-							<span class="label">Zahlungsart</span>
+							<span class="label">{t('invoiceDetail.method')}</span>
 							<select bind:value={payMethod} class="input-base input-valid">
-								{#each ['Überweisung', 'Lastschrift', 'Bar', 'Karte', 'PayPal', 'Sonstiges'] as m}<option value={m}>{m}</option>{/each}
+								{#each Object.keys(METHODS) as m}<option value={m}>{methodLabel(m)}</option>{/each}
 							</select>
 						</label>
-						<button type="button" class="btn-primary" disabled={busy} onclick={addPayment}>Zahlung erfassen</button>
+						<button type="button" class="btn-primary" disabled={busy} onclick={addPayment}>{t('invoiceDetail.addPayment')}</button>
 					</div>
 				{/if}
 			</div>

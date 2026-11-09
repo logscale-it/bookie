@@ -56,9 +56,9 @@
 <div class="space-y-6">
 	{#if canEdit}
 	<section class="card space-y-4 p-5">
-		<SectionHead eyebrow="Neuer Satz" title={t('settings.vatTitle')} desc="Steuersätze, die du in Rechnungspositionen auswählen kannst." />
+		<SectionHead eyebrow={t('settingsUi.vatEyebrow')} title={t('settings.vatTitle')} desc={t('settingsUi.vatDesc')} />
 		<div class="grid gap-3 md:grid-cols-[1fr_1fr_160px]">
-			<TextInput bind:value={form.name} label={t('settings.vatName')} placeholder="USt. 19 %" />
+			<TextInput bind:value={form.name} label={t('settings.vatName')} placeholder={t('settingsUi.vatPlaceholder')} />
 			<TextInput bind:value={form.description} label={t('settings.vatDescription')} />
 			<TextInput bind:value={form.goods_value_percent} label={t('settings.vatPercent')} type="number" />
 		</div>

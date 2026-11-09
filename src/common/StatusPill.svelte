@@ -201,8 +201,8 @@
 				<div class="space-y-2.5 p-2">
 					<p class="text-xs leading-relaxed text-zinc-600 dark:text-zinc-300">
 						{confirmTo === 'void'
-							? 'Rechnung stornieren? Das lässt sich nicht rückgängig machen.'
-							: 'Rechnung ausstellen? Sie erhält ihre Nummer und ist danach nicht mehr änderbar (GoBD).'}
+							? t('statusPill.voidConfirm')
+							: t('statusPill.issueConfirm')}
 					</p>
 					<div class="flex justify-between gap-2">
 						<button type="button" class="icon-btn" aria-label={t('common.back')} onclick={() => (view = 'menu')}>

@@ -86,7 +86,7 @@
 
 <section class="space-y-4">
 	<div class="card p-5">
-		<SectionHead eyebrow="Automatisierung" title={t('recurring.title')} desc={t('recurring.manageHint')} />
+		<SectionHead eyebrow={t('settingsUi.automationEyebrow')} title={t('recurring.title')} desc={t('recurring.manageHint')} />
 	</div>
 
 	{#if loading}
@@ -101,7 +101,7 @@
 			<EmptyState
 				icon="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
 				title={t('recurring.empty')}
-				hint="Markiere eine Rechnung oder Eingangsrechnung als „monatlich“, um sie hier zu verwalten."
+				hint={t('settingsUi.recurringHint')}
 			/>
 		</div>
 	{:else}
@@ -110,7 +110,7 @@
 				<div class="flex flex-wrap items-center justify-between gap-2">
 					<div class="flex items-center gap-2">
 						<span class="badge {r.kind === 'invoice' ? 'badge-blue' : 'badge-amber'}">{t(KINDS[r.kind])}</span>
-						{#if !r.active}<span class="badge badge-zinc">pausiert</span>{/if}
+						{#if !r.active}<span class="badge badge-zinc">{t('settingsUi.paused')}</span>{/if}
 					</div>
 					<span class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{tp('recurring.lastGenerated', { date: day(r.last_run_date) })}</span>
 				</div>

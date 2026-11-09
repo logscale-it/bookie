@@ -16,6 +16,7 @@ import {
   saveOrganizationSettings,
 } from "$lib/db/settings";
 import { messageForUnknown } from "$lib/shared/errors";
+import { t } from "$lib/i18n";
 import { buildConfig } from "$lib/s3/client";
 
 type Row = Record<string, unknown>;
@@ -36,7 +37,7 @@ export type ImportCounts = {
 };
 
 /** Not transferred. */
-export const SKIPPED = ["S3-Backup-Einstellungen"];
+export const skipped = () => [t("cloudImport.skippedS3")];
 
 const byInvoice = (rows: Row[]) => {
   const m = new Map<unknown, Row[]>();

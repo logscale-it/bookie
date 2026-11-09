@@ -1,5 +1,6 @@
 <script lang="ts">
 	// Local mode: what a cloud-only page would offer, with the way into the trial.
+	import { t } from '$lib/i18n';
 	let { title, points }: { title: string; points: string[] } = $props();
 </script>
 
@@ -14,8 +15,7 @@
 		{#each points as p (p)}<li>{p}</li>{/each}
 	</ul>
 	<p class="text-sm text-zinc-500 dark:text-zinc-400">
-		14 Tage kostenlos, ohne Kreditkarte. Danach 5 € pro Platz und Monat, monatlich kündbar. Deine
-		lokalen Daten ziehen mit um.
+		{t('cloudTeaser.pricing')}
 	</p>
-	<a href="/einstellungen/cloud?neu=1" class="btn-primary inline-flex">Kostenlos testen</a>
+	<a href="/einstellungen/cloud?neu=1" class="btn-primary inline-flex">{t('cloudTeaser.cta')}</a>
 </section>

@@ -1,4 +1,5 @@
 import { api, cloud, CloudError, resource } from "$lib/cloud";
+import { t, tp } from "$lib/i18n";
 import { getDb, withTransaction, safeFields } from "./connection";
 import { assertOutsideRetention } from "./retention";
 import {
@@ -272,7 +273,7 @@ export async function updateInvoice(
   const existing = await getInvoiceById(id);
   if (existing && existing.status !== "draft") {
     throw invoiceImmutableError(
-      `Rechnung im Status '${existing.status}' kann nicht geändert werden`,
+      tp("dbErrors.invoiceNotEditable", { status: existing.status }),
     );
   }
 
@@ -345,7 +346,7 @@ export async function deleteInvoice(id: number): Promise<void> {
   const existing = await getInvoiceById(id);
   if (existing && existing.status !== "draft") {
     throw invoiceImmutableError(
-      `Rechnung im Status '${existing.status}' kann nicht gelöscht werden`,
+      tp("dbErrors.invoiceNotDeletable", { status: existing.status }),
     );
   }
 
@@ -468,7 +469,7 @@ export async function updateInvoicePaidDate(
   paidDate: string,
 ): Promise<void> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
-    throw new Error(`Ungültiges Zahlungsdatum: ${paidDate}`);
+    throw new Error(tp("dbErrors.invalidPaidDate", { date: paidDate }));
   }
   if (cloud())
     return void (await api(`/api/invoices/${id}/paid-date`, "POST", {
@@ -477,7 +478,7 @@ export async function updateInvoicePaidDate(
       Promise.reject(
         e instanceof CloudError && e.code === "not_paid"
           ? new Error(
-              "Zahlungsdatum kann nur bei bezahlten Rechnungen geändert werden",
+              t("dbErrors.paidDateOnlyPaid"),
             )
           : e,
       ),
@@ -491,7 +492,7 @@ export async function updateInvoicePaidDate(
   );
   if (res.rowsAffected === 0) {
     throw new Error(
-      "Zahlungsdatum kann nur bei bezahlten Rechnungen geändert werden",
+      t("dbErrors.paidDateOnlyPaid"),
     );
   }
 }
@@ -544,13 +545,13 @@ export async function cancelInvoice(
   }
   if (original.status === "draft") {
     throw invoiceImmutableError(
-      "Entwurfsrechnungen können nicht storniert werden — bitte löschen statt stornieren",
+      t("dbErrors.draftNoStorno"),
     );
   }
 
   if (original.references_invoice_id != null) {
     throw invoiceImmutableError(
-      "Eine Stornorechnung kann nicht storniert werden",
+      t("dbErrors.stornoNoStorno"),
     );
   }
 
@@ -562,7 +563,7 @@ export async function cancelInvoice(
       [id, original.company_id],
     );
     if (existingStornos.length > 0) {
-      throw invoiceImmutableError("Rechnung ist bereits storniert");
+      throw invoiceImmutableError(t("dbErrors.alreadyStorno"));
     }
     const stornoNumber = `${original.invoice_number}-storno-1`;
     const today = new Date().toISOString().slice(0, 10);
@@ -702,7 +703,7 @@ export async function createInvoiceFromTimeEntries(opts: {
   to?: string | null;
 }): Promise<number> {
   if (!cloud())
-    throw new Error("Rechnung aus Zeiteinträgen gibt es nur in bookie Cloud");
+    throw new Error(t("dbErrors.fromTimeCloudOnly"));
   const body = Object.fromEntries(
     Object.entries(opts).filter(([, v]) => v != null && v !== ""),
   );

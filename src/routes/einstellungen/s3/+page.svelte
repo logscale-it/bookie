@@ -84,7 +84,7 @@
 		<FormSkeleton fields={6} />
 	{:else}
 		<div class="flex flex-wrap items-start justify-between gap-4">
-			<SectionHead eyebrow="Speicher" title={t('settings.s3Title')} desc={t('settings.s3Desc')} />
+			<SectionHead eyebrow={t('settingsUi.storageEyebrow')} title={t('settings.s3Title')} desc={t('settings.s3Desc')} />
 			<label class="flex cursor-pointer items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-200">
 				<input
 					type="checkbox"

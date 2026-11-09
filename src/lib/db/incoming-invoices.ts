@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { api, cloud, CloudError, resource } from "$lib/cloud";
+import { t, tp } from "$lib/i18n";
 import { getDb, safeFields } from "./connection";
 import type { IncomingInvoice } from "./types";
 
@@ -212,15 +213,14 @@ export async function updateIncomingInvoiceStatus(
  * stamp records when the user clicked, not when the payment left the
  * account. Only legal while the bill is 'bezahlt'.
  */
-const NOT_PAID =
-  "Zahlungsdatum kann nur bei bezahlten Rechnungen geändert werden";
+const notPaid = () => t("dbErrors.paidDateOnlyPaid");
 
 export async function updateIncomingInvoicePaidDate(
   id: number,
   paidDate: string,
 ): Promise<void> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
-    throw new Error(`Ungültiges Zahlungsdatum: ${paidDate}`);
+    throw new Error(tp("dbErrors.invalidPaidDate", { date: paidDate }));
   }
   if (cloud())
     return remote
@@ -228,7 +228,7 @@ export async function updateIncomingInvoicePaidDate(
       .catch((e) =>
         Promise.reject(
           e instanceof CloudError && e.code === "not_paid"
-            ? new Error(NOT_PAID)
+            ? new Error(notPaid())
             : e,
         ),
       );
@@ -240,7 +240,7 @@ export async function updateIncomingInvoicePaidDate(
     [paidDate, id],
   );
   if (res.rowsAffected === 0) {
-    throw new Error(NOT_PAID);
+    throw new Error(notPaid());
   }
 }
 
@@ -327,6 +327,6 @@ export async function downloadReceipt(id: number): Promise<Uint8Array> {
     `/api/incoming-invoices/${id}/receipt`,
   );
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Beleg-Download fehlgeschlagen: ${res.status}`);
+  if (!res.ok) throw new Error(tp("dbErrors.receiptDownloadFailed", { status: res.status }));
   return new Uint8Array(await res.arrayBuffer());
 }

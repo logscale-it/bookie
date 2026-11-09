@@ -2,6 +2,7 @@
 // the wire in cents; the UI works in euros.
 
 import { api } from "$lib/cloud";
+import { getLocaleFormatting, t, tp } from "$lib/i18n";
 
 export type Role = "admin" | "member" | "subcontractor";
 
@@ -17,19 +18,19 @@ export const AREAS = [
 export type Area = (typeof AREAS)[number];
 export type Grant = { area: Area; level: "view" | "edit" };
 
-/** Grant presets for invites; the admin can still change grants per member later. */
+/** Grant presets for invites (label = i18n key); the admin can still change grants per member later. */
 export const PRESETS: Record<string, { label: string; grants: Grant[] }> = {
-  member: { label: "Mitarbeiter (nur eigene Zeiten und Belege)", grants: [] },
+  member: { label: "teamSettings.presetMember", grants: [] },
   bookkeeper: {
-    label: "Buchhaltung",
+    label: "teamSettings.presetBookkeeper",
     grants: (["invoices", "incoming_invoices", "reports", "recurring"] as const).map((area) => ({ area, level: "edit" })),
   },
   advisor: {
-    label: "Steuerberater (nur lesen)",
+    label: "teamSettings.presetAdvisor",
     grants: (["invoices", "incoming_invoices", "reports"] as const).map((area) => ({ area, level: "view" })),
   },
   lead: {
-    label: "Teamleitung (Zeiten freigeben)",
+    label: "teamSettings.presetLead",
     grants: [{ area: "team_time", level: "edit" }, { area: "reports", level: "view" }],
   },
 };
@@ -126,7 +127,7 @@ export type Activity = {
 export function toCents(eur: string | number | null): number | null {
   if (eur == null || String(eur).trim() === "") return null;
   const n = Number(String(eur).trim().replace(",", "."));
-  if (!Number.isFinite(n) || n < 0) throw new Error("Ungültiger Betrag");
+  if (!Number.isFinite(n) || n < 0) throw new Error(t("teamSettings.invalidAmount"));
   return Math.round(n * 100);
 }
 
@@ -309,54 +310,46 @@ export function summarize(rows: TeamRow[]): TeamSummary[] {
 }
 
 export const monthLabel = (month: string) =>
-  new Date(`${month}-01T00:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+  new Date(`${month}-01T00:00:00`).toLocaleDateString(getLocaleFormatting(), { month: "long", year: "numeric" });
 
-/** "2026-12-21" -> "21.12.2026" */
+/** "2026-12-21" -> "21.12.2026" (de) */
 export const dayLabel = (day: string) =>
-  new Date(`${day}T00:00:00`).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+  new Date(`${day}T00:00:00`).toLocaleDateString(getLocaleFormatting(), { day: "2-digit", month: "2-digit", year: "numeric" });
 
-const AREA_NAMES: Record<Area, string> = {
-  invoices: "Rechnungen",
-  incoming_invoices: "Eingangsrechnungen",
-  reports: "Berichte",
-  recurring: "Wiederkehrend",
-  team_time: "Team-Zeiten",
-  settings: "Einstellungen",
+const ROLE_KEYS: Record<Role, string> = { admin: "shell.roleAdmin", member: "shell.roleMember", subcontractor: "shell.roleSubcontractor" };
+const roleName = (r: unknown) => (ROLE_KEYS[r as Role] ? t(ROLE_KEYS[r as Role]) : String(r));
+
+// ponytail: tp() replaces each placeholder once; every key here uses each at most once.
+const FEED_KEYS: Record<string, string> = {
+  "invite.create": "inviteCreate", "invite.revoke": "inviteRevoke", "invite.accept": "inviteAccept",
+  "member.role": "memberRole", "member.rate": "memberRate", "member.remove": "memberRemove",
+  "member.grants": "memberGrants", "member.admin": "memberAdmin",
+  "assign.add": "assignAdd", "assign.remove": "assignRemove",
+  "month.approve": "monthApprove", "month.unapprove": "monthUnapprove", "month.submit": "monthSubmit",
+  "month.withdraw": "monthWithdraw", "month.reject": "monthReject",
+  "leave.request": "leaveRequest", "leave.approve": "leaveApprove", "leave.reject": "leaveReject",
 };
-const ROLE_NAMES: Record<Role, string> = { admin: "Admin", member: "Mitglied", subcontractor: "Subunternehmer" };
 
-/** One feed row as a German sentence; projectName resolves assignment rows. */
+/** One feed row as a sentence in the current locale; projectName resolves assignment rows. */
 export function describe(
   a: Pick<Activity, "action" | "actor_name" | "subject_name" | "data">,
   projectName: (id: number) => string = (id) => `#${id}`): string {
-  const who = a.actor_name;
-  const whom = a.subject_name ?? "jemand";
   const d = a.data;
-  switch (a.action) {
-    case "invite.create": return `${who} hat ${d.email} als ${ROLE_NAMES[d.role as Role] ?? d.role} eingeladen`;
-    case "invite.revoke": return `${who} hat die Einladung an ${d.email} widerrufen`;
-    case "invite.accept": return `${who} ist als ${ROLE_NAMES[d.role as Role] ?? d.role} beigetreten`;
-    case "member.role": return `${who} hat ${whom} zum ${ROLE_NAMES[d.role as Role] ?? d.role} gemacht`;
-    case "member.rate": return `${who} hat den Kostensatz von ${whom} geändert`;
-    case "member.remove": return `${who} hat ${whom} entfernt`;
-    case "member.grants": {
-      const list = (d.grants as Grant[] | undefined) ?? [];
-      return `${who} hat die Rechte von ${whom} gesetzt: ${
-        list.length ? list.map((g) => `${AREA_NAMES[g.area]}${g.level === "view" ? " (lesen)" : ""}`).join(", ") : "keine"
-      }`;
-    }
-    case "member.admin": return `${who} hat die Admin-Rolle an ${whom} übergeben`;
-    case "assign.add": return `${who} hat ${whom} dem Projekt ${projectName(d.project_id)} zugewiesen`;
-    case "assign.remove": return `${who} hat ${whom} vom Projekt ${projectName(d.project_id)} abgezogen`;
-    case "month.approve": return `${who} hat ${monthLabel(d.month)} von ${whom} freigegeben`;
-    case "month.unapprove": return `${who} hat die Freigabe ${monthLabel(d.month)} von ${whom} zurückgenommen`;
-    case "month.submit": return `${who} hat ${monthLabel(d.month)} zur Freigabe eingereicht`;
-    case "month.withdraw": return `${who} hat ${monthLabel(d.month)} nach der Einreichung geändert (Einreichung zurückgezogen)`;
-    case "month.reject": return `${who} hat ${monthLabel(d.month)} an ${whom} zurückgegeben: „${d.reason}“`;
-    case "leave.request": return `${who} hat Urlaub vom ${dayLabel(d.start_date)} bis ${dayLabel(d.end_date)} beantragt`;
-    case "leave.delete": return `${who} hat ${d.status === "approved" ? "den genehmigten Urlaub" : "den Urlaubsantrag"} ${dayLabel(d.start_date)} – ${dayLabel(d.end_date)} gelöscht`;
-    case "leave.approve": return `${who} hat den Urlaub von ${whom} (${dayLabel(d.start_date)} – ${dayLabel(d.end_date)}) genehmigt`;
-    case "leave.reject": return `${who} hat den Urlaub von ${whom} (${dayLabel(d.start_date)} – ${dayLabel(d.end_date)}) abgelehnt: „${d.reason}“`;
-    default: return `${who}: ${a.action}`;
-  }
+  const key = a.action === "leave.delete" ? (d.status === "approved" ? "leaveDeleteApproved" : "leaveDelete") : FEED_KEYS[a.action];
+  if (!key) return `${a.actor_name}: ${a.action}`;
+  const grants = (d.grants as Grant[] | undefined) ?? [];
+  return tp(`feed.${key}`, {
+    who: a.actor_name,
+    whom: a.subject_name ?? t("feed.someone"),
+    email: String(d.email ?? ""),
+    role: roleName(d.role),
+    project: d.project_id == null ? "" : projectName(d.project_id),
+    month: d.month ? monthLabel(d.month) : "",
+    start: d.start_date ? dayLabel(d.start_date) : "",
+    end: d.end_date ? dayLabel(d.end_date) : "",
+    reason: String(d.reason ?? ""),
+    list: grants.length
+      ? grants.map((g) => `${t(`feed.areas.${g.area}`)}${g.level === "view" ? t("feed.readOnly") : ""}`).join(", ")
+      : t("feed.none"),
+  });
 }

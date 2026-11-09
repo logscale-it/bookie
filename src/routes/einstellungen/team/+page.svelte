@@ -10,40 +10,34 @@
 	import Dialog from '../../../common/Dialog.svelte';
 	import SectionHead from '../SectionHead.svelte';
 	import { deferDelete } from '$lib/ui/undo';
+	import { getLocaleFormatting, t, tp } from '$lib/i18n';
 
 	const MESSAGES: Record<string, string> = {
-		invalid_input: 'Eingabe ungültig.',
-		invalid_token: 'Einladung ungültig oder abgelaufen.',
-		wrong_account: 'Die Einladung gilt für eine andere E-Mail-Adresse.',
-		already_member: 'Du bist bereits Mitglied dieser Firma.',
-		too_many_requests: 'Zu viele Einladungen heute, bitte später erneut probieren.',
-		rejected: 'Zuweisung nicht möglich.',
-		not_found: 'Nicht gefunden.',
-		no_grants_for_role: 'Admin und Subunternehmer erhalten keine Bereichsrechte.',
-		not_a_member: 'Nur Mitglieder (keine Subunternehmer) können Admin werden.'
+		invalid_input: 'teamSettings.errInvalidInput',
+		invalid_token: 'teamSettings.errInvalidToken',
+		wrong_account: 'teamSettings.errWrongAccount',
+		already_member: 'teamSettings.errAlreadyMember',
+		too_many_requests: 'teamSettings.errTooManyRequests',
+		rejected: 'teamSettings.errRejected',
+		not_found: 'teamSettings.errNotFound',
+		no_grants_for_role: 'teamSettings.errNoGrantsForRole',
+		not_a_member: 'teamSettings.errNotAMember'
 	};
 	const message = (e: unknown) =>
-		(e instanceof CloudError && MESSAGES[e.code]) || messageForUnknown(e);
+		(e instanceof CloudError && MESSAGES[e.code] && t(MESSAGES[e.code])) || messageForUnknown(e);
 	const ROLES: Record<team.Role, string> = {
-		admin: 'Admin',
-		member: 'Mitglied',
-		subcontractor: 'Subunternehmer'
+		admin: 'shell.roleAdmin',
+		member: 'shell.roleMember',
+		subcontractor: 'shell.roleSubcontractor'
 	};
-	const AREA_LABELS: Record<team.Area, string> = {
-		invoices: 'Rechnungen',
-		incoming_invoices: 'Eingangsrechnungen',
-		reports: 'Berichte',
-		recurring: 'Wiederkehrend',
-		team_time: 'Team-Zeiten',
-		settings: 'Einstellungen'
-	};
+	const areaLabel = (a: team.Area) => t(`feed.areas.${a}`);
 	type GrantLevel = '' | team.Grant['level'];
 	const eur = (cents: number | null) => (cents == null ? '' : String(cents / 100).replace('.', ','));
-	const day = (iso: string) => new Date(iso).toLocaleDateString('de-DE');
+	const day = (iso: string) => new Date(iso).toLocaleDateString(getLocaleFormatting());
 	const INVITE_STATUS: Record<team.Invitation['status'], [string, string]> = {
-		pending: ['Offen', 'badge-amber'],
-		accepted: ['Angenommen', 'badge-green'],
-		expired: ['Abgelaufen', 'badge-zinc']
+		pending: ['teamSettings.statusPending', 'badge-amber'],
+		accepted: ['teamSettings.statusAccepted', 'badge-green'],
+		expired: ['teamSettings.statusExpired', 'badge-zinc']
 	};
 
 	const session = cloud();
@@ -108,12 +102,12 @@
 			await team.invite(inviteEmail.trim(), inviteRole, inviteRate, team.PRESETS[invitePreset].grants);
 			inviteEmail = inviteRate = '';
 			invitations = await team.listInvitations();
-		}, 'Einladung gesendet.');
+		}, t('teamSettings.inviteSent'));
 
 	const revoke = (i: team.Invitation) => {
 		const before = invitations;
 		deferDelete({
-			message: `Einladung an ${i.email} ${i.status === 'pending' ? 'widerrufen' : 'entfernt'}`,
+			message: tp(i.status === 'pending' ? 'teamSettings.inviteRevoked' : 'teamSettings.inviteRemoved', { email: i.email }),
 			hide: () => (invitations = invitations.filter((x) => x.id !== i.id)),
 			restore: () => (invitations = before),
 			run: () => team.revokeInvitation(i.id),
@@ -132,7 +126,7 @@
 		run(async () => {
 			await team.setCostRate(userId, rates[userId]);
 			await load();
-		}, 'Kostensatz gespeichert.');
+		}, t('teamSettings.rateSaved'));
 
 	const saveGrants = (userId: number) =>
 		run(async () => {
@@ -142,7 +136,7 @@
 				team.AREAS.flatMap((area) => (g[area] ? [{ area, level: g[area] }] : []))
 			);
 			await load();
-		}, 'Rechte gespeichert.');
+		}, t('teamSettings.grantsSaved'));
 
 	const changeRole = (m: team.TeamMember, select: HTMLSelectElement) => {
 		const role = select.value as 'member' | 'subcontractor';
@@ -150,12 +144,12 @@
 			run(async () => {
 				await team.setRole(m.user_id, role);
 				await load();
-			}, 'Rolle geändert.');
+			}, t('teamSettings.roleChanged'));
 		if (role === 'subcontractor' && m.grants.length > 0) {
 			ask = {
-				title: 'Rolle ändern',
-				body: `${m.name} wird Subunternehmer und verliert alle Bereichsrechte.`,
-				label: 'Rolle ändern',
+				title: t('teamSettings.changeRole'),
+				body: tp('teamSettings.changeRoleBody', { name: m.name }),
+				label: t('teamSettings.changeRole'),
 				ok: go,
 				cancel: () => (select.value = m.role)
 			};
@@ -167,9 +161,9 @@
 	// Admin moves to the other member; this page then shows the member view.
 	const handOver = (m: team.TeamMember) => {
 		ask = {
-			title: 'Admin übergeben',
-			body: `${m.name} wird Admin von ${active?.name} (Abo, Team, alle Bereiche). Du bleibst Mitglied mit Bearbeitungsrechten in allen Bereichen.`,
-			label: 'Zum Admin machen',
+			title: t('teamSettings.handOverTitle'),
+			body: tp('teamSettings.handOverBody', { name: m.name, company: active?.name ?? '' }),
+			label: t('teamSettings.makeAdmin'),
 			ok: () =>
 				run(async () => {
 					await team.makeAdmin(m.user_id);
@@ -180,15 +174,15 @@
 
 	const remove = (m: team.TeamMember) => {
 		ask = {
-			title: 'Mitglied entfernen',
-			body: `${m.name} aus der Firma entfernen? Der Platz wird anteilig aus deinem Abo genommen.`,
-			label: 'Entfernen',
+			title: t('teamSettings.removeTitle'),
+			body: tp('teamSettings.removeBody', { name: m.name }),
+			label: t('teamSettings.remove'),
 			danger: true,
 			ok: () =>
 				run(async () => {
 					await team.removeMember(m.user_id);
 					await load();
-				}, 'Mitglied entfernt.')
+				}, t('teamSettings.removed'))
 		};
 	};
 
@@ -196,7 +190,7 @@
 
 {#if !session}
 	<section class="card">
-		<p class="text-sm">Die Teamverwaltung ist nur mit bookie Cloud verfügbar.</p>
+		<p class="text-sm">{t('teamSettings.cloudOnly')}</p>
 	</section>
 {:else}
 	<div class="space-y-6">
@@ -209,43 +203,45 @@
 
 		{#if admin}
 			<section class="card space-y-3 p-5" data-testid="team-seats">
-				<SectionHead eyebrow="Abo" title="Lizenzen" />
+				<SectionHead eyebrow={t('teamSettings.seatsEyebrow')} title={t('teamSettings.seatsTitle')} />
 				<p class="text-sm">
-					<strong>{members.length} {members.length === 1 ? 'Platz' : 'Plätze'}</strong> im Abo von
-					{active?.name}: {members.filter((m) => m.role === 'admin').length} Admin,
-					{members.filter((m) => m.role === 'member').length} Mitglieder, {subs.length} Subunternehmer.
+					<strong>{tp(members.length === 1 ? 'teamSettings.seatOne' : 'teamSettings.seatMany', { count: members.length })}</strong>
+					{tp('teamSettings.seatsRest', {
+						company: active?.name ?? '',
+						admins: members.filter((m) => m.role === 'admin').length,
+						members: members.filter((m) => m.role === 'member').length,
+						subs: subs.length
+					})}
 				</p>
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">
-					Jedes Mitglied, auch jeder Subunternehmer, ist ein bezahlter Platz in deinem Abo. Nimmt
-					jemand eine Einladung an oder wird entfernt, passt bookie die Anzahl automatisch an und
-					rechnet anteilig ab. Offene Einladungen ({pending}) kosten nichts. Abo und Rechnungen:
-					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/einstellungen/cloud">Einstellungen → Konto & Abo</a>.
+					{tp('teamSettings.seatsInfo', { pending })}
+					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/einstellungen/cloud">{t('teamSettings.seatsLink')}</a>.
 				</p>
 			</section>
 		{/if}
 
 		{#if active && active.role !== 'subcontractor' && (can('team_time') || can('reports'))}
 			<section class="card space-y-3 p-5">
-				<SectionHead eyebrow="Zeiten" title="Stunden & Freigaben" />
+				<SectionHead eyebrow={t('teamSettings.hoursEyebrow')} title={t('teamSettings.hoursTitle')} />
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">
-					Stunden je Person, Monatsfreigaben und die Team-Aktivität stehen unter
-					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/team">Team</a>. Wer an welchem Projekt arbeitet, legst du unter
-					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/projekte">Projekte</a> fest (Subunternehmer sehen nur ihre Projekte).
+					{t('teamSettings.hoursLead')}
+					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/team">{t('nav.team')}</a>{t('teamSettings.hoursMid')}
+					<a class="font-medium text-accent-600 hover:underline dark:text-accent-400" href="/projekte">{t('nav.projects')}</a> {t('teamSettings.hoursRest')}
 				</p>
 			</section>
 		{/if}
 
 		{#if admin}
 			<section class="card space-y-4 p-5">
-				<SectionHead eyebrow="Team" title="Mitglieder" desc="Rollen, Kostensätze und Bereichsrechte je Person." />
+				<SectionHead eyebrow={t('nav.team')} title={t('teamSettings.membersTitle')} desc={t('teamSettings.membersDesc')} />
 				<div class="table-scroll overflow-hidden rounded-lg ring-1 ring-zinc-900/5 dark:ring-white/10">
 					<table class="w-full text-sm">
 						<thead class="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
 							<tr>
-								<th class="px-3 py-2 text-left">Name</th>
-								<th class="px-3 py-2 text-left">E-Mail</th>
-								<th class="px-3 py-2 text-left">Rolle</th>
-								<th class="px-3 py-2 text-left">Kostensatz (€/h)</th>
+								<th class="px-3 py-2 text-left">{t('common.name')}</th>
+								<th class="px-3 py-2 text-left">{t('teamSettings.email')}</th>
+								<th class="px-3 py-2 text-left">{t('teamSettings.role')}</th>
+								<th class="px-3 py-2 text-left">{t('teamSettings.rateHeader')}</th>
 								<th class="px-3 py-2"></th>
 							</tr>
 						</thead>
@@ -256,17 +252,17 @@
 									<td class="px-3 py-2">{m.email}</td>
 									<td class="px-3 py-2">
 										{#if m.role === 'admin'}
-											<span class="badge badge-zinc">{ROLES[m.role]}</span>
+											<span class="badge badge-zinc">{t(ROLES[m.role])}</span>
 										{:else}
 											<select
 												class="input-base input-valid rounded-lg py-1.5"
-												aria-label="Rolle"
+												aria-label={t('teamSettings.role')}
 												disabled={busy}
 												value={m.role}
 												onchange={(e) => changeRole(m, e.currentTarget)}
 											>
-												<option value="member">{ROLES.member}</option>
-												<option value="subcontractor">{ROLES.subcontractor}</option>
+												<option value="member">{t(ROLES.member)}</option>
+												<option value="subcontractor">{t(ROLES.subcontractor)}</option>
 											</select>
 										{/if}
 									</td>
@@ -276,13 +272,13 @@
 												<input
 													class="input-base input-valid w-28 rounded-lg py-1.5 tabular-nums"
 													inputmode="decimal"
-													aria-label="Kostensatz"
+													aria-label={t('teamSettings.rate')}
 													bind:value={rates[m.user_id]}
 												/>
 												<button
 													class="btn-secondary px-3 py-1.5 text-xs"
 													disabled={busy}
-													onclick={() => saveRate(m.user_id)}>Speichern</button
+													onclick={() => saveRate(m.user_id)}>{t('common.save')}</button
 												>
 											</div>
 										{/if}
@@ -290,11 +286,11 @@
 									<td class="whitespace-nowrap px-3 py-2 text-right">
 										{#if m.role === 'member'}
 											<button class="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onclick={() => handOver(m)}
-												>Zum Admin machen</button
+												>{t('teamSettings.makeAdmin')}</button
 											>
 										{/if}
 										{#if m.role !== 'admin'}
-											<button class="icon-btn icon-btn-danger" disabled={busy} onclick={() => remove(m)} title="Entfernen" aria-label="{m.name} entfernen">
+											<button class="icon-btn icon-btn-danger" disabled={busy} onclick={() => remove(m)} title={t('teamSettings.remove')} aria-label={tp('teamSettings.removeAria', { name: m.name })}>
 												<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M22 10.5h-6m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
 											</button>
 										{/if}
@@ -307,23 +303,23 @@
 												{#each team.AREAS as area (area)}
 													<div class="flex flex-col gap-1.5">
 														<label for={`grant-${m.user_id}-${area}`} class="label"
-															>{AREA_LABELS[area]}</label
+															>{areaLabel(area)}</label
 														>
 														<select
 															id={`grant-${m.user_id}-${area}`}
 															class="input-base input-valid rounded-lg py-1.5"
 															bind:value={grants[m.user_id][area]}
 														>
-															<option value="">Kein Zugriff</option>
-															<option value="view">Lesen</option>
-															<option value="edit">Bearbeiten</option>
+															<option value="">{t('teamSettings.noAccess')}</option>
+															<option value="view">{t('teamSettings.levelView')}</option>
+															<option value="edit">{t('common.edit')}</option>
 														</select>
 													</div>
 												{/each}
 												<button
 													class="btn-secondary px-3 py-1.5 text-xs"
 													disabled={busy}
-													onclick={() => saveGrants(m.user_id)}>Rechte speichern</button
+													onclick={() => saveGrants(m.user_id)}>{t('teamSettings.saveGrants')}</button
 												>
 											</div>
 										</td>
@@ -336,41 +332,41 @@
 			</section>
 
 			<section class="card space-y-4 p-5">
-				<SectionHead eyebrow="Zugang" title="Einladen" desc="Die Einladung geht per E-Mail an die Person." />
+				<SectionHead eyebrow={t('teamSettings.inviteEyebrow')} title={t('teamSettings.inviteTitle')} desc={t('teamSettings.inviteDesc')} />
 				<div class="grid gap-3 sm:grid-cols-3">
-					<TextInput bind:value={inviteEmail} label="E-Mail" type="email" />
+					<TextInput bind:value={inviteEmail} label={t('teamSettings.email')} type="email" />
 					<div class="flex flex-col gap-1.5">
-						<label for="invite-role" class="label">Rolle</label>
+						<label for="invite-role" class="label">{t('teamSettings.role')}</label>
 						<select id="invite-role" class="input-base input-valid rounded-lg py-1.5" bind:value={inviteRole}>
-							<option value="member">Mitglied</option>
-							<option value="subcontractor">Subunternehmer</option>
+							<option value="member">{t('shell.roleMember')}</option>
+							<option value="subcontractor">{t('shell.roleSubcontractor')}</option>
 						</select>
 					</div>
 					{#if inviteRole === 'subcontractor'}
-						<TextInput bind:value={inviteRate} label="Kostensatz (€/h)" placeholder="z. B. 55,00" />
+						<TextInput bind:value={inviteRate} label={t('teamSettings.rateHeader')} placeholder={t('teamSettings.ratePlaceholder')} />
 					{:else}
 						<div class="flex flex-col gap-1.5">
-							<label for="invite-preset" class="label">Rechte</label>
+							<label for="invite-preset" class="label">{t('teamSettings.rights')}</label>
 							<select id="invite-preset" class="input-base input-valid rounded-lg py-1.5" bind:value={invitePreset}>
 								{#each Object.entries(team.PRESETS) as [key, p] (key)}
-									<option value={key}>{p.label}</option>
+									<option value={key}>{t(p.label)}</option>
 								{/each}
 							</select>
 						</div>
 					{/if}
 				</div>
 				<button class="btn-primary" disabled={busy || !inviteEmail.trim()} onclick={sendInvite}
-					>Einladung senden</button
+					>{t('teamSettings.sendInvite')}</button
 				>
 				{#if invitations.length > 0}
 					<div class="table-scroll overflow-hidden rounded-lg ring-1 ring-zinc-900/5 dark:ring-white/10">
 						<table class="w-full text-sm">
 							<thead class="border-b border-zinc-200 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
 								<tr>
-									<th class="px-3 py-2 text-left">E-Mail</th>
-									<th class="px-3 py-2 text-left">Rolle</th>
-									<th class="px-3 py-2 text-left">Status</th>
-									<th class="px-3 py-2 text-left">Gültig bis</th>
+									<th class="px-3 py-2 text-left">{t('teamSettings.email')}</th>
+									<th class="px-3 py-2 text-left">{t('teamSettings.role')}</th>
+									<th class="px-3 py-2 text-left">{t('common.status')}</th>
+									<th class="px-3 py-2 text-left">{t('teamSettings.validUntil')}</th>
 									<th class="px-3 py-2"></th>
 								</tr>
 							</thead>
@@ -379,9 +375,9 @@
 									<tr class="border-b border-zinc-100 text-zinc-700 transition duration-200 ease-spring hover:bg-zinc-50/70 dark:border-zinc-700/70 dark:text-zinc-200 dark:hover:bg-white/[0.02]">
 										<td class="px-3 py-2">{i.email}</td>
 										<td class="px-3 py-2">
-											{ROLES[i.role]}{#if i.grants.length}
+											{t(ROLES[i.role])}{#if i.grants.length}
 												<span class="text-zinc-500">
-													· {i.grants.map((g) => `${AREA_LABELS[g.area]}${g.level === 'view' ? ' (lesen)' : ''}`).join(', ')}</span
+													· {i.grants.map((g) => `${areaLabel(g.area)}${g.level === 'view' ? t('feed.readOnly') : ''}`).join(', ')}</span
 												>
 											{/if}{#if i.cost_rate_cents != null}
 												<span class="text-zinc-500"> · {formatCents(i.cost_rate_cents)}/h</span>
@@ -389,17 +385,17 @@
 										</td>
 										<td class="px-3 py-2">
 											<span class={`badge ${INVITE_STATUS[i.status][1]}`}
-												>{INVITE_STATUS[i.status][0]}</span
+												>{t(INVITE_STATUS[i.status][0])}</span
 											>
 										</td>
 										<td class="px-3 py-2 tabular-nums">
 											{i.status === 'accepted' && i.accepted_at
-												? `angenommen ${day(i.accepted_at)}`
+												? tp('teamSettings.acceptedOn', { date: day(i.accepted_at) })
 												: day(i.expires_at)}
 										</td>
 										<td class="px-3 py-2 text-right">
 											{#if i.status !== 'accepted'}
-												<button class="icon-btn icon-btn-danger" disabled={busy} onclick={() => revoke(i)} title={i.status === 'pending' ? 'Widerrufen' : 'Entfernen'} aria-label={i.status === 'pending' ? 'Widerrufen' : 'Entfernen'}>
+												<button class="icon-btn icon-btn-danger" disabled={busy} onclick={() => revoke(i)} title={t(i.status === 'pending' ? 'teamSettings.revoke' : 'teamSettings.remove')} aria-label={t(i.status === 'pending' ? 'teamSettings.revoke' : 'teamSettings.remove')}>
 													<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
 												</button>
 											{/if}
@@ -415,9 +411,9 @@
 		{/if}
 
 		<section class="card space-y-4 p-5">
-			<SectionHead eyebrow="Beitreten" title="Einladung annehmen" desc="Füge den Einladungslink aus der E-Mail (oder nur den Code) ein." />
-			<TextInput bind:value={token} label="Einladungslink oder Code" />
-			<button class="btn-primary" disabled={busy || !token.trim()} onclick={accept}>Annehmen</button>
+			<SectionHead eyebrow={t('teamSettings.joinEyebrow')} title={t('teamSettings.joinTitle')} desc={t('teamSettings.joinDesc')} />
+			<TextInput bind:value={token} label={t('teamSettings.tokenLabel')} />
+			<button class="btn-primary" disabled={busy || !token.trim()} onclick={accept}>{t('teamSettings.accept')}</button>
 		</section>
 	</div>
 {/if}
@@ -425,7 +421,7 @@
 <Dialog open={ask !== null} title={ask?.title} size="sm" onclose={closeAsk}>
 	<p class="text-sm text-zinc-600 dark:text-zinc-300">{ask?.body}</p>
 	{#snippet footer()}
-		<button type="button" class="btn-secondary" onclick={closeAsk}>Abbrechen</button>
+		<button type="button" class="btn-secondary" onclick={closeAsk}>{t('common.cancel')}</button>
 		<button
 			type="button"
 			class={ask?.danger ? 'btn-danger' : 'btn-primary'}

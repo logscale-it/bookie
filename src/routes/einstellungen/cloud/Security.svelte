@@ -3,6 +3,7 @@
 	import { renderSVG } from 'uqr';
 	import TextInput from '../../../common/TextInput.svelte';
 	import { api, secondFactor, type Me } from '$lib/cloud';
+	import { t } from '$lib/i18n';
 
 	let {
 		me = $bindable(),
@@ -26,7 +27,7 @@
 	const changePassword = () =>
 		run(async () => {
 			await api('/auth/password/change', 'POST', { password, newPassword });
-			await done('Passwort geändert. Andere Geräte wurden abgemeldet.');
+			await done(t('security.passwordChanged'));
 		});
 
 	const startSetup = () =>
@@ -42,70 +43,69 @@
 			});
 			recoveryCodes = r.recoveryCodes;
 			setup = null;
-			await done('2FA aktiviert. Andere Geräte wurden abgemeldet.');
+			await done(t('security.totpEnabled'));
 		});
 
 	const disable = () =>
 		run(async () => {
 			await api('/auth/totp/disable', 'POST', { password, ...secondFactor(code) });
-			await done('2FA deaktiviert.');
+			await done(t('security.totpDisabled'));
 		});
 </script>
 
 <div class="space-y-3 border-t border-zinc-100 pt-5 dark:border-zinc-700/70">
-	<h3 class="text-sm font-semibold tracking-tight">Passwort ändern</h3>
+	<h3 class="text-sm font-semibold tracking-tight">{t('security.changePassword')}</h3>
 	<div class="grid gap-3 md:grid-cols-2">
-		<TextInput bind:value={password} label="Aktuelles Passwort" type="password" />
-		<TextInput bind:value={newPassword} label="Neues Passwort (mind. 12 Zeichen)" type="password" />
+		<TextInput bind:value={password} label={t('security.currentPassword')} type="password" />
+		<TextInput bind:value={newPassword} label={t('security.newPassword')} type="password" />
 	</div>
 	<button
 		class="btn-secondary"
 		onclick={changePassword}
 		disabled={busy || !password || newPassword.length < 12}
 	>
-		Passwort ändern
+		{t('security.changePassword')}
 	</button>
 </div>
 
 <div class="space-y-3 border-t border-zinc-100 pt-5 dark:border-zinc-700/70">
-	<h3 class="text-sm font-semibold tracking-tight">Zwei-Faktor-Authentifizierung</h3>
+	<h3 class="text-sm font-semibold tracking-tight">{t('security.totpTitle')}</h3>
 
 	{#if recoveryCodes}
 		<p class="text-sm text-zinc-600 dark:text-zinc-300">
-			Wiederherstellungscodes – jetzt sicher aufbewahren, sie werden nur dieses eine Mal angezeigt.
-			Jeder Code funktioniert einmal, falls die Authenticator-App fehlt.
+			{t('security.recoveryCodesNote')}
 		</p>
 		<pre class="select-all rounded-xl bg-zinc-50 p-4 text-sm leading-relaxed tabular-nums ring-1 ring-zinc-900/5 dark:bg-zinc-900/60 dark:ring-white/10">{recoveryCodes.join('\n')}</pre>
 		<button class="btn-secondary" onclick={() => (recoveryCodes = null)}>
-			Ich habe die Codes gespeichert
+			{t('security.codesSaved')}
 		</button>
 	{:else if me.user.totpEnabled}
-		<p class="text-sm text-zinc-600 dark:text-zinc-300">2FA ist aktiv. Zum Deaktivieren Passwort und Code eingeben.</p>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('security.totpActive')}</p>
 		<div class="grid gap-3 md:grid-cols-2">
-			<TextInput bind:value={password} label="Passwort" type="password" />
-			<TextInput bind:value={code} label="2FA-Code oder Wiederherstellungscode" />
+			<TextInput bind:value={password} label={t('security.password')} type="password" />
+			<TextInput bind:value={code} label={t('security.codeOrRecovery')} />
 		</div>
 		<button class="btn-secondary" onclick={disable} disabled={busy || !password || !code.trim()}>
-			2FA deaktivieren
+			{t('security.disableTotp')}
 		</button>
 	{:else if setup}
 		<p class="text-sm text-zinc-600 dark:text-zinc-300">
-			Scanne den QR-Code mit deiner Authenticator-App oder gib den Schlüssel manuell ein.
+			{t('security.scanQr')}
 		</p>
 		<div class="w-40 rounded-xl bg-white p-2 ring-1 ring-zinc-900/10">{@html renderSVG(setup.uri)}</div>
-		<p class="text-sm text-zinc-600 dark:text-zinc-300">Schlüssel: <code class="select-all rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">{setup.secret}</code></p>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('security.key')} <code class="select-all rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">{setup.secret}</code></p>
 		<p class="text-xs break-all text-zinc-500 dark:text-zinc-400">
 			<code class="select-all">{setup.uri}</code>
 		</p>
 		<div class="flex flex-wrap items-end gap-3">
-			<TextInput bind:value={code} label="Code aus der App" />
+			<TextInput bind:value={code} label={t('security.appCode')} />
 			<button class="btn-primary" onclick={enable} disabled={busy || !/^\d{6}$/.test(code.trim())}>
-				Aktivieren
+				{t('security.activate')}
 			</button>
 		</div>
 	{:else}
-		<p class="text-sm text-zinc-600 dark:text-zinc-300">Schützt dein Konto zusätzlich mit einem Code aus einer Authenticator-App.</p>
-		<button class="btn-secondary" onclick={startSetup} disabled={busy}>2FA einrichten</button>
+		<p class="text-sm text-zinc-600 dark:text-zinc-300">{t('security.totpPitch')}</p>
+		<button class="btn-secondary" onclick={startSetup} disabled={busy}>{t('security.setupTotp')}</button>
 	{/if}
 </div>
 
