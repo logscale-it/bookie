@@ -10,8 +10,8 @@
 #
 #   scripts/release-check.sh assets vX.Y.Z RELEASE_ID
 #       GitHub release RELEASE_ID holds every installer and updater signature
-#       for all three platforms, and its latest.json (updater manifest) lists
-#       linux, windows and macOS with signatures and download URLs that point at
+#       for both platforms, and its latest.json (updater manifest) lists
+#       windows and macOS with signatures and download URLs that point at
 #       assets that really exist. Exists because a published release is
 #       immutable: a release missing a platform can never be repaired, and the
 #       tag name is lost for good.
@@ -50,12 +50,9 @@ assets)
         "bookie_aarch64.app.tar.gz" "bookie_aarch64.app.tar.gz.sig"
         "bookie_${ver}_x64_en-US.msi" "bookie_${ver}_x64_en-US.msi.sig"
         "bookie_${ver}_x64-setup.exe" "bookie_${ver}_x64-setup.exe.sig"
-        "bookie_${ver}_amd64.AppImage" "bookie_${ver}_amd64.AppImage.sig"
-        "bookie_${ver}_amd64.deb" "bookie_${ver}_amd64.deb.sig"
-        "bookie-${ver}-1.x86_64.rpm" "bookie-${ver}-1.x86_64.rpm.sig"
         "latest.json"
         # Version-free copies for the website's direct download links (release.yml).
-        "bookie_aarch64.dmg" "bookie_x64_en-US.msi" "bookie_amd64.AppImage"
+        "bookie_aarch64.dmg" "bookie_x64_en-US.msi"
     )
     names="$(jq -r '.assets[].name' <<<"$release")"
     missing=()
@@ -68,7 +65,7 @@ assets)
     manifest="$(gh api -H "Accept: application/octet-stream" "repos/$repo/releases/assets/$asset_id")"
 
     [[ "$(jq -r .version <<<"$manifest")" == "$ver" ]] || die "latest.json version is not $ver"
-    for p in linux-x86_64 windows-x86_64 darwin-aarch64; do
+    for p in windows-x86_64 darwin-aarch64; do
         jq -e --arg p "$p" '.platforms[$p] | (.url // "") != "" and (.signature // "") != ""' <<<"$manifest" >/dev/null \
             || die "latest.json has no usable '$p' entry (platform lost in a merge race?)"
     done

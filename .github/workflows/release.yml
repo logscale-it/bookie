@@ -82,7 +82,7 @@ jobs:
       # parallel writers can drop each other's platform.
       max-parallel: 1
       matrix:
-        platform: [ubuntu-latest, macos-latest, windows-latest]
+        platform: [macos-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v6
@@ -92,19 +92,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: oven-sh/setup-bun@v2
-
-      - name: Install Linux Tauri dependencies
-        if: matrix.platform == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            pkg-config \
-            libssl-dev \
-            libdbus-1-dev
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -141,8 +128,7 @@ jobs:
           ver="${TAG#v}"
           assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --paginate --jq '.[] | "\(.id) \(.name)"')"
           for pair in "bookie_${ver}_aarch64.dmg=bookie_aarch64.dmg" \
-                      "bookie_${ver}_x64_en-US.msi=bookie_x64_en-US.msi" \
-                      "bookie_${ver}_amd64.AppImage=bookie_amd64.AppImage"; do
+                      "bookie_${ver}_x64_en-US.msi=bookie_x64_en-US.msi"; do
             src="${pair%%=*}" dst="${pair#*=}"
             if grep -q " $dst$" <<<"$assets"; then echo "$dst already there"; continue; fi
             id="$(awk -v n="$src" '$2 == n {print $1}' <<<"$assets")"
