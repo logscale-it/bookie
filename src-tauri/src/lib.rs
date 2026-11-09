@@ -3569,7 +3569,7 @@ mod frontend_log_tests {
 /// Returns the `WorkerGuard` of the non-blocking file writer; the caller MUST
 /// keep it alive for the lifetime of the app (we stash it in Tauri-managed
 /// state) — dropping it flushes and stops the background writer thread.
-fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::error::Error>> {
+pub fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::error::Error>> {
     fs::create_dir_all(log_dir)?;
 
     let file_appender = RollingBuilder::new()
@@ -3621,12 +3621,11 @@ fn init_tracing(log_dir: &std::path::Path) -> Result<WorkerGuard, Box<dyn std::e
         .with_writer(nb_writer)
         .with_filter(env_filter());
 
-    // Bridge classic `log` macros into `tracing` so existing call sites in this
-    // crate (and dependencies that emit through `log`) flow into both layers.
-    // Best-effort: if another component already installed a `log` logger we
-    // keep going rather than panicking on startup.
-    let _ = tracing_log::LogTracer::init();
-
+    // `try_init` also installs the `log` -> `tracing` bridge (tracing-subscriber's
+    // default `tracing-log` feature), so `log` macros reach both layers. Do NOT
+    // call `LogTracer::init()` first: the second install fails, `try_init`
+    // returns Err *after* setting the global subscriber, `?` drops the
+    // WorkerGuard and the file writer dies — every log file stays empty.
     tracing_subscriber::registry()
         .with(stdout_layer)
         .with(file_layer)
@@ -4046,7 +4045,6 @@ pub fn run() {
                     // yet at this point.
                     eprintln!("tracing init failed, falling back to stdout-only logging: {err}");
                     let _ = tracing_subscriber::fmt().try_init();
-                    let _ = tracing_log::LogTracer::init();
                     info!("Bookie starting (file logging disabled)");
                 }
             }

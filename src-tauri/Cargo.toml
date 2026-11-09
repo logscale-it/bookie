@@ -51,7 +51,6 @@ tracing = "0.1"
 # the binary).
 tracing-subscriber = { version = "0.3", features = ["json", "fmt"] }
 tracing-appender = "0.2"
-tracing-log = "0.2"
 # Secret storage. `keyring-core` provides `Entry`; the platform store crates
 # below provide the OS backend. Deliberately NOT the `keyring` facade crate:
 # its v4 release is the project's sample-code/CLI package and unconditionally
