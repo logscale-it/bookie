@@ -50,6 +50,7 @@ const ORGANIZATION_DEFAULT: UpsertOrganizationSettings = {
   datev_consultant_number: "",
   datev_client_number: "",
   datev_skr: "03",
+  datev_private_accounts: "",
 };
 
 const INVOICE_DEFAULT: UpsertInvoiceSettings = {
@@ -74,6 +75,7 @@ const SETTINGS_KEYS = [
   "datev_consultant_number",
   "datev_client_number",
   "datev_skr",
+  "datev_private_accounts",
 ] as const;
 const INVOICE_KEYS = Object.keys(
   INVOICE_DEFAULT,
@@ -122,6 +124,7 @@ async function saveRemoteOrganization({
   datev_consultant_number,
   datev_client_number,
   datev_skr,
+  datev_private_accounts,
   ...company
 }: UpsertOrganizationSettings): Promise<void> {
   await api("/api/company", "PATCH", {
@@ -138,6 +141,7 @@ async function saveRemoteOrganization({
     datev_consultant_number,
     datev_client_number,
     datev_skr,
+    datev_private_accounts,
   });
 }
 
@@ -179,8 +183,8 @@ export async function saveOrganizationSettings(
   if (cloud()) return saveRemoteOrganization(data);
   const db = await getDb();
   await db.execute(
-    `INSERT INTO settings_organization (id, name, country, address, street, postal_code, city, email, phone_number, registering_id, bank_name, bank_iban, bank_account_holder, vatin, website, default_locale, default_legal_country, einvoice_format, datev_consultant_number, datev_client_number, datev_skr)
-		 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+    `INSERT INTO settings_organization (id, name, country, address, street, postal_code, city, email, phone_number, registering_id, bank_name, bank_iban, bank_account_holder, vatin, website, default_locale, default_legal_country, einvoice_format, datev_consultant_number, datev_client_number, datev_skr, datev_private_accounts)
+		 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		 ON CONFLICT(id) DO UPDATE SET
 		 name = excluded.name,
 		 country = excluded.country,
@@ -202,6 +206,7 @@ export async function saveOrganizationSettings(
 		 datev_consultant_number = excluded.datev_consultant_number,
 		 datev_client_number = excluded.datev_client_number,
 		 datev_skr = excluded.datev_skr,
+		 datev_private_accounts = excluded.datev_private_accounts,
 		 updated_at = CURRENT_TIMESTAMP`,
     [
       data.name,
@@ -224,6 +229,7 @@ export async function saveOrganizationSettings(
       data.datev_consultant_number,
       data.datev_client_number,
       data.datev_skr,
+      data.datev_private_accounts,
     ],
   );
 }

@@ -43,7 +43,7 @@ const LEGACY_ID: &str = "com.ranelkarimov.bookie";
 /// migration directories disagree, and the integration test suite for
 /// `schema_version_check` will fail if this constant disagrees with
 /// `app_migrations()`.
-pub const EXPECTED_SCHEMA_VERSION: i64 = 33;
+pub const EXPECTED_SCHEMA_VERSION: i64 = 34;
 
 /// Typed error enum for all Bookie backend operations.
 ///
@@ -1317,6 +1317,18 @@ fn app_migrations() -> Vec<Migration> {
             version: 33,
             description: "issuer_address_down",
             sql: include_str!("../migrations/0033_down/01_issuer_address.sql"),
+            kind: MigrationKind::Down,
+        },
+        Migration {
+            version: 34,
+            description: "bank_transactions_up",
+            sql: include_str!("../migrations/0034/01_bank_transactions.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 34,
+            description: "bank_transactions_down",
+            sql: include_str!("../migrations/0034_down/01_bank_transactions.sql"),
             kind: MigrationKind::Down,
         },
     ]

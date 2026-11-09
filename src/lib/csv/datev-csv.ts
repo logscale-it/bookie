@@ -10,7 +10,8 @@
  */
 
 export interface DatevBooking {
-  /** Gross booking amount in cents; rows with 0 are skipped (DATEV rejects zero postings). */
+  /** Gross booking amount in cents; rows with 0 are skipped (DATEV rejects zero postings).
+   *  kind "bank": signed, > 0 inflow (Bank an Gegenkonto), < 0 outflow. */
   grossCents: number;
   /** Normalized VAT rate: 19, 7, or 0. Drives account + BU key selection. */
   taxRate: number;
@@ -20,7 +21,9 @@ export interface DatevBooking {
   documentNumber: string;
   /** Buchungstext (customer / supplier name). */
   text: string;
-  kind: "revenue" | "expense";
+  kind: "revenue" | "expense" | "bank";
+  /** kind "bank": line to/from the owner's private account (Privatentnahme / -einlage). */
+  private?: boolean;
 }
 
 export interface DatevExportOptions {
@@ -38,6 +41,9 @@ const ACCOUNTS: Record<
   {
     receivables: number;
     payables: number;
+    bank: number;
+    privateOut: number;
+    privateIn: number;
     expense: number;
     revenue: Record<number, number>;
   }
@@ -45,12 +51,18 @@ const ACCOUNTS: Record<
   "03": {
     receivables: 1400,
     payables: 1600,
+    bank: 1200,
+    privateOut: 1800,
+    privateIn: 1890,
     expense: 4900,
     revenue: { 19: 8400, 7: 8300, 0: 8120 },
   },
   "04": {
     receivables: 1200,
     payables: 3300,
+    bank: 1800,
+    privateOut: 2100,
+    privateIn: 2180,
     expense: 6300,
     revenue: { 19: 4400, 7: 4300, 0: 4120 },
   },
@@ -184,10 +196,44 @@ const COLUMN_CAPTIONS = [
   "Buchungstext",
 ];
 
+function buildBankLine(
+  b: DatevBooking,
+  accounts: (typeof ACCOUNTS)["03"],
+): string {
+  // Konto = bank: inflow debits it (S), outflow credits it (H). The other
+  // side clears the receivable/payable booked from the invoice, or is
+  // Privatentnahme / Privateinlage for the owner's private account.
+  const inflow = b.grossCents > 0;
+  const gegenkonto = b.private
+    ? inflow
+      ? accounts.privateIn
+      : accounts.privateOut
+    : inflow
+      ? accounts.receivables
+      : accounts.payables;
+  return [
+    centsToDe(Math.abs(b.grossCents)),
+    quote(inflow ? "S" : "H"),
+    quote("EUR"),
+    "",
+    "",
+    "",
+    String(accounts.bank),
+    String(gegenkonto),
+    "",
+    toBelegdatum(b.date),
+    quote(sanitizeDocumentNumber(b.documentNumber)),
+    "",
+    "",
+    quote(b.text.slice(0, 60)),
+  ].join(";");
+}
+
 function buildBookingLine(
   b: DatevBooking,
   accounts: (typeof ACCOUNTS)["03"],
 ): string {
+  if (b.kind === "bank") return buildBankLine(b, accounts);
   // Revenue: debit receivables against the rate's Automatikkonto (no BU key
   // allowed on automatic accounts). Expense: credit payables against the
   // generic expense account with an explicit input-tax BU key.

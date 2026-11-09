@@ -9,6 +9,8 @@
 	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
 	import { getUstvaData, getEuerData, getEuerReport } from '$lib/db/tax-reports';
 	import { getDatevBookingRows } from '$lib/db/datev';
+	import { importBankTransactions } from '$lib/db/bank-transactions';
+	import { parseBankCsv } from '$lib/csv/bank-csv';
 	import { generateUstvaCsv } from '$lib/csv/ustva-csv';
 	import { generateEuerCsv } from '$lib/csv/euer-csv';
 	import { generateDatevBuchungsstapel } from '$lib/csv/datev-csv';
@@ -370,6 +372,24 @@
 		}
 	}
 
+	let importingBank = $state(false);
+
+	async function importBank(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		importingBank = true;
+		try {
+			const r = await importBankTransactions(await ensureCompanyId(), parseBankCsv(await file.text()));
+			toasts.success(tp('overview.importBankDone', { imported: r.imported, duplicates: r.duplicates }));
+		} catch (err) {
+			toasts.error(messageForUnknown(err));
+		} finally {
+			input.value = '';
+			importingBank = false;
+		}
+	}
+
 	async function exportDatev() {
 		exportingDatev = true;
 		try {
@@ -646,6 +666,19 @@
 				<button onclick={exportDatev} disabled={exportingDatev} class="btn-primary">
 					{exportingDatev ? t('overview.exporting') : t('overview.exportDatev')}
 				</button>
+				{#if can('reports', 'edit')}
+					<label class="btn-secondary cursor-pointer" class:opacity-50={importingBank}>
+						{t('overview.importBank')}
+						<input
+							type="file"
+							accept=".csv,text/csv"
+							class="sr-only"
+							disabled={importingBank}
+							onchange={importBank}
+							data-testid="bank-import-input"
+						/>
+					</label>
+				{/if}
 			</div>
 
 			<!-- EÜR für frei wählbaren Zeitraum (§ 4 Abs. 3 EStG, Zufluss-/Abflussprinzip) -->

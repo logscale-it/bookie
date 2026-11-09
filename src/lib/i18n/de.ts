@@ -184,6 +184,9 @@ export default {
     exportUstva: "UStVA als CSV exportieren",
     exportEuer: "EÜR als CSV exportieren",
     exportDatev: "DATEV-Export (Buchungsstapel)",
+    importBank: "Kontoauszug importieren (CSV)",
+    importBankDone:
+      "{imported} Buchungen importiert, {duplicates} bereits vorhandene übersprungen.",
     euerPeriodFrom: "Von",
     euerPeriodTo: "Bis",
     exportEuerPeriod: "EÜR als PDF erstellen",
@@ -564,6 +567,9 @@ export default {
     datevConsultantNumber: "DATEV-Beraternummer",
     datevClientNumber: "DATEV-Mandantennummer",
     datevSkr: "DATEV-Kontenrahmen (SKR)",
+    datevPrivateAccounts: "Private Konten (Kontoauszug-Import)",
+    datevPrivateAccountsHint:
+      "Empfänger-/Absendernamen privater Konten, kommagetrennt (z. B. Hauptkonto). Überweisungen dorthin werden als Privatentnahme, von dort als Privateinlage gebucht.",
     invoiceTitle: "Rechnung",
     currencyLabel: "Währung",
     decimalPlaces: "Dezimalstellen",

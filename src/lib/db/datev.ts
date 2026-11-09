@@ -22,6 +22,41 @@ interface ExpenseRow {
   tax_cents: number;
 }
 
+interface BankRow {
+  booking_date: string;
+  partner_name: string;
+  partner_iban: string | null;
+  type: string;
+  reference: string;
+  amount_cents: number;
+}
+
+/** Imported bank line as signed booking, or null for a move between Spaces
+ *  of the same account (transfer without partner IBAN, e.g. a tax reserve Space):
+ *  the money never leaves the bank account, so there is nothing to book.
+ *  `privateAccounts`: comma-separated partner names of the owner's private
+ *  accounts (setting datev_private_accounts), booked as Privatentnahme/-einlage. */
+export function bankBooking(
+  b: BankRow,
+  privateAccounts: string,
+): DatevBooking | null {
+  const names = privateAccounts
+    .split(",")
+    .map((n) => n.trim().toLowerCase())
+    .filter(Boolean);
+  const isPrivate = names.includes(b.partner_name.trim().toLowerCase());
+  if (!isPrivate && !b.partner_iban && /transfer/i.test(b.type)) return null;
+  return {
+    grossCents: b.amount_cents,
+    taxRate: 0,
+    date: b.booking_date,
+    documentNumber: "",
+    text: [b.partner_name, b.reference].filter(Boolean).join(" "),
+    kind: "bank",
+    private: isPrivate,
+  };
+}
+
 /** Snap a derived percentage to the German standard rates used for
  *  account/BU mapping; anything else falls through as 0 (booked gross). */
 function normalizeRate(rate: number): number {
@@ -99,6 +134,21 @@ export async function getDatevBookingRows(
       text: e.partner,
       kind: "expense",
     });
+  }
+
+  const bankRows = await db.select<BankRow[]>(
+    `SELECT booking_date, partner_name, partner_iban, type, reference, amount_cents
+     FROM bank_transactions
+     WHERE company_id = $1 AND booking_date >= $2 AND booking_date < $3
+     ORDER BY booking_date, id`,
+    [companyId, ...yearBounds(year)],
+  );
+  const [org] = await db.select<{ datev_private_accounts: string }[]>(
+    "SELECT datev_private_accounts FROM settings_organization WHERE id = 1",
+  );
+  for (const b of bankRows) {
+    const booking = bankBooking(b, org?.datev_private_accounts ?? "");
+    if (booking) bookings.push(booking);
   }
 
   log.debug("DATEV booking rows", { year, count: bookings.length });

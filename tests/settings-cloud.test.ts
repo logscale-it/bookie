@@ -70,6 +70,7 @@ test("organisation settings merge company + settings and map field names", async
   expect(Object.keys(settings.body).sort()).toEqual([
     "datev_client_number",
     "datev_consultant_number",
+    "datev_private_accounts",
     "datev_skr",
     "default_legal_country",
     "default_locale",

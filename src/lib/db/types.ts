@@ -178,6 +178,7 @@ export interface OrganizationSettings {
   datev_consultant_number: string;
   datev_client_number: string;
   datev_skr: string;
+  datev_private_accounts: string;
   created_at: string;
   updated_at: string;
 }
