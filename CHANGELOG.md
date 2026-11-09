@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-09
+
+- Faster start: the app no longer waits for an S3 test upload before showing the window (it took up to ~30 s on
+  slow object storage). S3 problems still show in the backup status and under Einstellungen → S3.
+- Log files are written again (they stayed empty since the logging rework).
+- Finanzberater: the AI advisor is now a conversation. Ask follow-up questions; earlier answers stay in context.
+  "Neues Gespräch" starts over. A failed answer puts the question back in the field to send again.
+- Zeiterfassung and Projekte: "Ohne Kundenbezug" / "Ohne Projektbezug" can be chosen again; the prefilled
+  customer or project no longer sticks (#353).
+- macOS: the app is signed with a Developer ID and notarized by Apple, so it opens without the "unidentified
+  developer" warning.
+
 ## [0.1.14] - 2026-11-09
 
 - Finanzberater (new page): Liquiditätsplan, Steuerrücklage, Leisten-, Mieten-oder-kaufen- and Investitionsrechner;
