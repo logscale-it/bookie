@@ -183,5 +183,4 @@ fn boot_status_serde_round_trip_preserves_all_variants() {
     let parsed: BootStatus = serde_json::from_str(&json).expect("deserialise BootStatus");
     let json2 = serde_json::to_string(&parsed).expect("re-serialise BootStatus");
     assert_eq!(json, json2);
-
 }

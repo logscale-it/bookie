@@ -17,7 +17,13 @@ fn init_tracing_writes_tracing_and_log_lines_to_file() {
         .unwrap()
         .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap())
         .collect();
-    assert!(contents.contains("hello-from-tracing"), "log file: {contents:?}");
-    assert!(contents.contains("hello-from-log"), "log file: {contents:?}");
+    assert!(
+        contents.contains("hello-from-tracing"),
+        "log file: {contents:?}"
+    );
+    assert!(
+        contents.contains("hello-from-log"),
+        "log file: {contents:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
