@@ -1,6 +1,8 @@
 name: Release
 
-# Builds start the moment the run starts, both platforms in parallel, no gate:
+# Started by hand only (Actions → Release → Run workflow, with an existing tag).
+# Both builds use the `release` environment, which requires a reviewer: GitHub asks
+# once ("Review deployments"), and on approval both platforms build in parallel:
 #   build    macOS + Windows at once: build, sign (Apple Developer ID + notarization
 #            on macOS, Tauri updater key everywhere), upload the bundles as artifacts.
 #            Builds never touch the GitHub release, so nothing races.
@@ -10,12 +12,9 @@ name: Release
 # A published release is immutable, so nothing goes public before the check passes.
 # A failed run can be re-run: the draft is reused and its files are replaced.
 # To release: bump versions (package.json, Cargo.toml, tauri.conf.json), merge, push
-# tag vX.Y.Z (or run this workflow by hand with an existing tag).
+# tag vX.Y.Z, then run this workflow on GitHub with that tag and approve the deployment.
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -26,17 +25,17 @@ permissions:
   contents: write
 
 env:
-  TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  TAG: ${{ inputs.tag }}
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.platform }}
-    environment: release # holds TAURI_SIGNING_*; no protection rules, so no waiting
+    environment: release # holds TAURI_SIGNING_*; required reviewer, one approval covers both builds
     strategy:
       fail-fast: true
       matrix:
