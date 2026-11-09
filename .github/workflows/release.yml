@@ -79,6 +79,21 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      # The bundler notarizes the .app inside; the .dmg people download is notarized
+      # here too, so opening it raises no Gatekeeper prompt. stapler fails if Apple
+      # rejected it (no ticket), which stops the release.
+      - name: Notarize and staple the DMG
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          dmg="$(ls src-tauri/target/release/bundle/dmg/*.dmg)"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$dmg"
+
       - uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.platform }}

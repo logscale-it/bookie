@@ -45,10 +45,10 @@ Bookie updates itself from GitHub Releases.
 
 ### "Unknown publisher" / "can't be opened" warnings
 
-Bookie is not yet code-signed, so your OS may warn you. The app is open source and you can inspect or build it yourself.
+Since v0.1.15 the macOS app is signed with a Developer ID and notarized by Apple, so it opens without the "unidentified developer" warning. The Windows build is not yet code-signed, so SmartScreen may warn you. The app is open source and you can inspect or build it yourself.
 
 - **Windows (SmartScreen):** click **More info** → **Run anyway**.
-- **macOS (Gatekeeper):** right-click the app → **Open** → **Open**. Or: System Settings → Privacy & Security → scroll down → **Open Anyway**.
+- **macOS before v0.1.15 (Gatekeeper):** right-click the app → **Open** → **Open**. Or: System Settings → Privacy & Security → scroll down → **Open Anyway**.
 - **Linux:** `chmod +x Bookie*.AppImage`, then run it.
 
 ## Cloud mode (optional)
