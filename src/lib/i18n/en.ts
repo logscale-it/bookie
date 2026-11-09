@@ -29,8 +29,6 @@ export default {
     account: "Account & security",
     manageTeam: "Manage team",
     signOut: "Sign out",
-    s3Warning:
-      "S3 storage is unreachable. Automatic backups may not work. Please check the S3 settings.",
     unpaidAdmin:
       "The subscription of {name} is not active: data is locked, only export still works.",
     unpaidSubscribe: "Subscribe",
@@ -828,7 +826,6 @@ export default {
     slots: {
       app_data: "App data directory",
       keyring: "Keychain (OS keyring)",
-      s3: "S3 storage",
       schema: "Database schema",
     },
     fixByKind: {
@@ -838,20 +835,11 @@ export default {
         "The OS keychain is not reachable. On Linux you need a running Secret Service (e.g. gnome-keyring or KWallet).",
       MigrationOutOfDate:
         "The database is on an older schema version. Please restart the app so migrations run.",
-      S3CredsInvalid:
-        "The S3 credentials are invalid. Check access key and secret key in the settings.",
-      S3Unreachable:
-        "The S3 endpoint is not reachable. Check the endpoint URL and network connection.",
-      S3BucketMissing:
-        "The given S3 bucket does not exist. Check the bucket name in the settings.",
-      S3EndpointInvalid:
-        "The S3 endpoint URL is invalid. It must start with https:// (or http:// on localhost).",
     },
     fixBySlot: {
       app_data: "Make sure the app data directory exists and is writable.",
       keyring:
         "The OS keychain could not be reached. Please enable a Secret Service.",
-      s3: "Check the S3 settings and the network connection.",
       schema: "Please restart the app so migrations run again.",
     },
   },

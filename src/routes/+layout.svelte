@@ -27,7 +27,6 @@
 	import {
 		runBootCheck,
 		hasBlockingFailure,
-		hasS3Warning,
 		type BootStatus
 	} from '$lib/diagnostics/boot';
 	import { createLogger } from '$lib/logger';
@@ -71,7 +70,6 @@
 			bootStatus = {
 				app_data: { kind: 'Failed', error: { kind: 'Unknown', message: bootError } },
 				keyring: { kind: 'Skipped' },
-				s3: { kind: 'Skipped' },
 				schema: { kind: 'Skipped' }
 			};
 		}
@@ -526,18 +524,6 @@
 			<div class="p-4 md:p-6">
 				<!-- Cloud: who else is online; collapses when alone or local. -->
 				<Presence />
-				{#if hasS3Warning(bootStatus)}
-					<!-- OPS-1.b: S3 failure is a warning, not blocking. Surface a
-					     non-modal banner so the user knows auto-backup is broken
-					     without locking them out of the app. -->
-					<div
-						class="mb-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-600/15 dark:bg-amber-900/20 dark:text-amber-100 dark:ring-amber-400/20"
-						role="status"
-						data-testid="boot-s3-warning"
-					>
-						{t('shell.s3Warning')}
-					</div>
-				{/if}
 				{#if company && !company.paid}
 					<div
 						class="mb-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-600/15 dark:bg-amber-900/20 dark:text-amber-100 dark:ring-amber-400/20"

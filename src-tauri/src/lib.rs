@@ -369,7 +369,6 @@ pub enum BootCheck {
 pub struct BootStatus {
     pub app_data: BootCheck,
     pub keyring: BootCheck,
-    pub s3: BootCheck,
     pub schema: BootCheck,
 }
 
@@ -462,128 +461,6 @@ pub fn probe_schema(db_path: &Path, expected: i64) -> BootCheck {
     }
 }
 
-/// Persisted S3 configuration loaded from the DB. The schema is defined by
-/// migration 0008 (`settings_s3`); credentials columns are kept empty by
-/// migration 0012 since OBS-1 moved them into the OS keyring. We read the
-/// non-secret half here and fetch the secret half from the keyring below.
-struct PersistedS3Settings {
-    enabled: bool,
-    endpoint_url: String,
-    region: String,
-    bucket_name: String,
-}
-
-/// Open the on-disk SQLite DB read-only and load the persisted S3
-/// settings. Returns `Ok(None)` when the DB exists but has no row in
-/// `settings_s3` yet, when the table does not exist (fresh install before
-/// migration 0008 has run — should not happen in practice because boot
-/// also probes schema), or when the DB file itself is absent.
-///
-/// A real I/O / SQL error opening or reading the file is returned as an
-/// `IoError`. The caller maps the various "no S3 here" branches into
-/// `BootCheck::Skipped`.
-fn load_persisted_s3_settings(db_path: &Path) -> Result<Option<PersistedS3Settings>, BookieError> {
-    if !db_path.exists() {
-        return Ok(None);
-    }
-    let conn = rusqlite::Connection::open_with_flags(
-        db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    )
-    .map_err(|e| BookieError::IoError {
-        message: format!(
-            "Failed to open {} for S3 settings probe: {e}",
-            db_path.display()
-        ),
-    })?;
-
-    // If the table is not there (e.g. pre-0008 schema, which should be
-    // caught by the schema probe in its own right), treat as "no S3
-    // configured" rather than a hard failure.
-    let table_exists: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master \
-             WHERE type='table' AND name='settings_s3'",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| BookieError::IoError {
-            message: format!("Failed to inspect sqlite_master: {e}"),
-        })?;
-    if table_exists == 0 {
-        return Ok(None);
-    }
-
-    let row: Option<PersistedS3Settings> = conn
-        .query_row(
-            "SELECT enabled, endpoint_url, region, bucket_name \
-             FROM settings_s3 WHERE id = 1",
-            [],
-            |row| {
-                let enabled: i64 = row.get(0)?;
-                let endpoint_url: String = row.get(1)?;
-                let region: String = row.get(2)?;
-                let bucket_name: String = row.get(3)?;
-                Ok(PersistedS3Settings {
-                    enabled: enabled != 0,
-                    endpoint_url,
-                    region,
-                    bucket_name,
-                })
-            },
-        )
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(BookieError::IoError {
-                message: format!("Failed to read settings_s3: {other}"),
-            }),
-        })?;
-
-    Ok(row)
-}
-
-/// Compose the persisted S3 settings (DB) with the keyring credentials into
-/// the same `S3Config` shape every other S3 command consumes. Returns
-/// `Ok(None)` whenever S3 is not usable at boot — disabled in settings,
-/// missing bucket/region, or no credentials in the keyring — so the caller
-/// reports `BootCheck::Skipped` rather than a noisy failure.
-fn build_s3_config_for_boot(db_path: &Path) -> Result<Option<S3Config>, BookieError> {
-    let Some(settings) = load_persisted_s3_settings(db_path)? else {
-        return Ok(None);
-    };
-    if !settings.enabled {
-        return Ok(None);
-    }
-    if settings.bucket_name.is_empty() {
-        return Ok(None);
-    }
-
-    // Pull credentials from the keyring; `NoEntry` means "no creds saved"
-    // which we surface as `Skipped`, matching the behaviour for "S3 not
-    // configured". Other keyring errors propagate so the caller can map
-    // them to a `BootCheck::Failed` for the *S3* probe — there's no point
-    // running an S3 round-trip without credentials.
-    let entry = keyring_core::Entry::new(KEYRING_SERVICE, KEYRING_USER)?;
-    let json = match entry.get_password() {
-        Ok(j) => j,
-        Err(keyring_core::error::Error::NoEntry) => return Ok(None),
-        Err(e) => return Err(BookieError::from(e)),
-    };
-    let creds: S3Credentials = serde_json::from_str(&json)?;
-    if creds.access_key_id.is_empty() || creds.secret_access_key.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(S3Config {
-        endpoint_url: settings.endpoint_url,
-        region: settings.region,
-        bucket_name: settings.bucket_name,
-        access_key_id: creds.access_key_id,
-        secret_access_key: creds.secret_access_key,
-    }))
-}
-
 /// `boot_check` Tauri command. See the module-level OPS-1.a docs at the top
 /// of this block for the contract. The frontend wiring (OPS-1.b / issue
 /// #81) lives in a follow-up PR; this command exists so that work can
@@ -592,10 +469,10 @@ fn build_s3_config_for_boot(db_path: &Path) -> Result<Option<S3Config>, BookieEr
 async fn boot_check(app: AppHandle) -> Result<BootStatus, BookieError> {
     info!("boot_check: probing environment");
 
-    // Keychain read, rusqlite opens and the probe-file write are all
-    // blocking; keep them off the async workers. `s3_config` is `None` when
-    // `db_path` failed — we cannot tell whether S3 is configured without the DB.
-    let (app_data, keyring, schema, s3_config) = run_blocking(move || {
+    // Keychain read, rusqlite open and the probe-file write are all
+    // blocking; keep them off the async workers. No S3 round-trip here: it
+    // gated the splash on a slow remote (up to ~30s) for a non-blocking warning.
+    let (app_data, keyring, schema) = run_blocking(move || {
         let app_data_dir = app
             .path()
             .app_data_dir()
@@ -606,34 +483,19 @@ async fn boot_check(app: AppHandle) -> Result<BootStatus, BookieError> {
         let app_data = probe_app_data_dir(&app_data_dir);
         let keyring = probe_keyring(KEYRING_SERVICE, KEYRING_USER);
 
-        // The probes use `db_path(&app)` (app_config_dir, the same file
+        // The probe uses `db_path(&app)` (app_config_dir, the same file
         // `tauri-plugin-sql` opens at boot), not `app_data_dir`.
-        let (schema, s3_config) = match db_path(&app) {
-            Ok(db_file) => (
-                probe_schema(&db_file, EXPECTED_SCHEMA_VERSION),
-                Some(build_s3_config_for_boot(&db_file)),
-            ),
-            Err(e) => (BootCheck::Failed { error: e }, None),
+        let schema = match db_path(&app) {
+            Ok(db_file) => probe_schema(&db_file, EXPECTED_SCHEMA_VERSION),
+            Err(e) => BootCheck::Failed { error: e },
         };
-        Ok((app_data, keyring, schema, s3_config))
+        Ok((app_data, keyring, schema))
     })
     .await?;
-
-    // S3 probe: if configured, run the same `s3_test_connection` round-trip
-    // the settings page uses.
-    let s3 = match s3_config {
-        None | Some(Ok(None)) => BootCheck::Skipped,
-        Some(Ok(Some(config))) => match s3_test_connection(config).await {
-            Ok(()) => BootCheck::Ok,
-            Err(e) => BootCheck::Failed { error: e },
-        },
-        Some(Err(e)) => BootCheck::Failed { error: e },
-    };
 
     Ok(BootStatus {
         app_data,
         keyring,
-        s3,
         schema,
     })
 }
@@ -831,8 +693,7 @@ mod boot_check_tests {
         // updated in lockstep.
         let status = BootStatus {
             app_data: BootCheck::Ok,
-            keyring: BootCheck::Ok,
-            s3: BootCheck::Skipped,
+            keyring: BootCheck::Skipped,
             schema: BootCheck::Failed {
                 error: BookieError::MigrationOutOfDate {
                     actual: 21,
@@ -844,7 +705,6 @@ mod boot_check_tests {
         // Field names: snake_case on the wire.
         assert!(json.contains(r#""app_data""#), "missing app_data: {json}");
         assert!(json.contains(r#""keyring""#), "missing keyring: {json}");
-        assert!(json.contains(r#""s3""#), "missing s3: {json}");
         assert!(json.contains(r#""schema""#), "missing schema: {json}");
         // Discriminator on each variant.
         assert!(json.contains(r#""kind":"Ok""#), "missing Ok kind: {json}");
@@ -877,9 +737,6 @@ mod boot_check_tests {
             app_data: BootCheck::Ok,
             keyring: BootCheck::Failed {
                 error: BookieError::KeyringUnavailable,
-            },
-            s3: BootCheck::Failed {
-                error: BookieError::S3CredsInvalid,
             },
             schema: BootCheck::Ok,
         };

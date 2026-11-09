@@ -5,9 +5,7 @@
 	// 'wie behebe ich das' links. App nav is not reachable until all
 	// blocking checks pass").
 	//
-	// The s3 slot is `Skipped` when the user has not configured S3, so this
-	// view treats only `kind === "Failed"` as a failure (see `isFailure` in
-	// ./boot.ts).
+	// Only `kind === "Failed"` counts as a failure (see `isFailure` in ./boot.ts).
 	import {
 		ALL_SLOTS,
 		isFailure,
@@ -21,7 +19,7 @@
 	// Per-slot fix-it copy (i18n bootDiagnostics.*). Keyed by `BookieError.kind`
 	// first, then by slot name as a fallback for unrecognised error kinds.
 	const slotTitle = (slot: Slot) => t(`bootDiagnostics.slots.${slot}`);
-	const FIX_IT_KINDS = ['IoError', 'KeyringUnavailable', 'MigrationOutOfDate', 'S3CredsInvalid', 'S3Unreachable', 'S3BucketMissing', 'S3EndpointInvalid'];
+	const FIX_IT_KINDS = ['IoError', 'KeyringUnavailable', 'MigrationOutOfDate'];
 
 	function renderStatus(slot: Slot): string {
 		const r = status[slot];

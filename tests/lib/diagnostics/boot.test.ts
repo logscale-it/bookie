@@ -38,7 +38,6 @@ import {
   ALL_SLOTS,
   BLOCKING_SLOTS,
   hasBlockingFailure,
-  hasS3Warning,
   isFailure,
   runBootCheck,
   type BootStatus,
@@ -48,7 +47,6 @@ function freshStatus(overrides: Partial<BootStatus> = {}): BootStatus {
   return {
     app_data: { kind: "Ok" },
     keyring: { kind: "Ok" },
-    s3: { kind: "Skipped" },
     schema: { kind: "Ok" },
     ...overrides,
   };
@@ -73,13 +71,6 @@ describe("isFailure", () => {
 describe("hasBlockingFailure", () => {
   test("all-ok status has no blocking failure", () => {
     expect(hasBlockingFailure(freshStatus())).toBe(false);
-  });
-
-  test("S3 failure alone is NOT blocking (per OPS-1.b: warning only)", () => {
-    const s = freshStatus({
-      s3: { kind: "Failed", error: { kind: "S3Unreachable" } },
-    });
-    expect(hasBlockingFailure(s)).toBe(false);
   });
 
   test("schema failure is not gated here (handled by schema-version flow)", () => {
@@ -113,27 +104,12 @@ describe("hasBlockingFailure", () => {
     expect([...BLOCKING_SLOTS].sort()).toEqual(["app_data", "keyring"]);
   });
 
-  test("ALL_SLOTS covers the four BootStatus fields", () => {
+  test("ALL_SLOTS covers the three BootStatus fields", () => {
     expect([...ALL_SLOTS].sort()).toEqual([
       "app_data",
       "keyring",
-      "s3",
       "schema",
     ]);
-  });
-});
-
-describe("hasS3Warning", () => {
-  test("S3 Ok / Skipped is not a warning", () => {
-    expect(hasS3Warning(freshStatus())).toBe(false);
-    expect(hasS3Warning(freshStatus({ s3: { kind: "Ok" } }))).toBe(false);
-  });
-
-  test("S3 Failed is a warning", () => {
-    const s = freshStatus({
-      s3: { kind: "Failed", error: { kind: "S3CredsInvalid" } },
-    });
-    expect(hasS3Warning(s)).toBe(true);
   });
 });
 

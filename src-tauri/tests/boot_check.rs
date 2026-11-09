@@ -172,7 +172,6 @@ fn boot_status_serde_round_trip_preserves_all_variants() {
         keyring: BootCheck::Failed {
             error: BookieError::KeyringUnavailable,
         },
-        s3: BootCheck::Skipped,
         schema: BootCheck::Failed {
             error: BookieError::MigrationOutOfDate {
                 actual: EXPECTED_SCHEMA_VERSION - 1,
@@ -185,32 +184,4 @@ fn boot_status_serde_round_trip_preserves_all_variants() {
     let json2 = serde_json::to_string(&parsed).expect("re-serialise BootStatus");
     assert_eq!(json, json2);
 
-    // The issue's verification scenario, encoded as a shape assertion:
-    // a BootStatus with S3CredsInvalid in the s3 slot must surface that
-    // discriminator verbatim, and the other slots must remain unmolested.
-    let bad_s3 = BootStatus {
-        app_data: BootCheck::Ok,
-        keyring: BootCheck::Ok,
-        s3: BootCheck::Failed {
-            error: BookieError::S3CredsInvalid,
-        },
-        schema: BootCheck::Ok,
-    };
-    let json = serde_json::to_string(&bad_s3).unwrap();
-    assert!(
-        json.contains(r#""s3":{"kind":"Failed","error":{"kind":"S3CredsInvalid"}}"#),
-        "expected nested S3CredsInvalid discriminator: {json}"
-    );
-    assert!(
-        json.contains(r#""app_data":{"kind":"Ok"}"#),
-        "expected app_data Ok untouched: {json}"
-    );
-    assert!(
-        json.contains(r#""keyring":{"kind":"Ok"}"#),
-        "expected keyring Ok untouched: {json}"
-    );
-    assert!(
-        json.contains(r#""schema":{"kind":"Ok"}"#),
-        "expected schema Ok untouched: {json}"
-    );
 }

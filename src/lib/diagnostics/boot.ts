@@ -40,18 +40,16 @@ export type BootCheckResult =
 export interface BootStatus {
   app_data: BootCheckResult;
   keyring: BootCheckResult;
-  s3: BootCheckResult;
   schema: BootCheckResult;
 }
 
-/** Slots whose failure must block the app (per OPS-1.b: "S3 failure is a
- *  warning, not blocking"). The schema slot is handled by the dedicated
+/** Slots whose failure must block the app. The schema slot is handled by the dedicated
  *  schema-version recovery flow in the root layout (OBS-3.b), so it is not
  *  gated here. */
 export const BLOCKING_SLOTS = ["app_data", "keyring"] as const;
 export type BlockingSlot = (typeof BLOCKING_SLOTS)[number];
 
-export const ALL_SLOTS = ["app_data", "keyring", "s3", "schema"] as const;
+export const ALL_SLOTS = ["app_data", "keyring", "schema"] as const;
 export type Slot = (typeof ALL_SLOTS)[number];
 
 /** True iff the slot's probe failed. `Ok` and `Skipped` are NOT failures. */
@@ -65,13 +63,7 @@ export function hasBlockingFailure(status: BootStatus): boolean {
   return BLOCKING_SLOTS.some((slot) => isFailure(status[slot]));
 }
 
-/** True iff S3 failed. Rendered as a non-blocking warning above the nav. */
-export function hasS3Warning(status: BootStatus): boolean {
-  return isFailure(status.s3);
-}
-
-/** Tauri command bridge. Takes no arguments: the backend reads S3 settings
- *  (DB + keychain) itself and skips the probe when S3 is unconfigured. */
+/** Tauri command bridge. Takes no arguments. */
 export async function runBootCheck(): Promise<BootStatus> {
   return invoke<BootStatus>("boot_check");
 }

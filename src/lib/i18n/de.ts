@@ -29,8 +29,6 @@ export default {
     account: "Konto & Sicherheit",
     manageTeam: "Team verwalten",
     signOut: "Abmelden",
-    s3Warning:
-      "S3-Speicher ist nicht erreichbar. Automatische Backups funktionieren möglicherweise nicht. Prüfen Sie die S3-Einstellungen.",
     unpaidAdmin:
       "Das Abo von {name} ist nicht aktiv: Daten sind gesperrt, nur der Export geht noch.",
     unpaidSubscribe: "Abo abschließen",
@@ -834,7 +832,6 @@ export default {
     slots: {
       app_data: "Anwendungsdaten-Verzeichnis",
       keyring: "Schlüsselbund (OS Keyring)",
-      s3: "S3-Speicher",
       schema: "Datenbank-Schema",
     },
     fixByKind: {
@@ -844,21 +841,12 @@ export default {
         "Der OS-Schlüsselbund ist nicht erreichbar. Unter Linux benötigen Sie einen laufenden Secret Service (z.B. gnome-keyring oder KWallet).",
       MigrationOutOfDate:
         "Die Datenbank ist auf einem älteren Schema-Stand. Bitte starten Sie die App neu, damit Migrationen ausgeführt werden.",
-      S3CredsInvalid:
-        "Die S3-Zugangsdaten sind ungültig. Prüfen Sie Access Key und Secret Key in den Einstellungen.",
-      S3Unreachable:
-        "Der S3-Endpunkt ist nicht erreichbar. Prüfen Sie Endpoint-URL und Netzwerkverbindung.",
-      S3BucketMissing:
-        "Der angegebene S3-Bucket existiert nicht. Prüfen Sie den Bucket-Namen in den Einstellungen.",
-      S3EndpointInvalid:
-        "Die S3-Endpoint-URL ist ungültig. Sie muss mit https:// beginnen (oder http:// auf localhost).",
     },
     fixBySlot: {
       app_data:
         "Stellen Sie sicher, dass das Anwendungsdaten-Verzeichnis existiert und beschreibbar ist.",
       keyring:
         "Der OS-Schlüsselbund konnte nicht erreicht werden. Bitte aktivieren Sie einen Secret-Service-Dienst.",
-      s3: "Prüfen Sie die S3-Einstellungen und die Netzwerkverbindung.",
       schema:
         "Bitte starten Sie die App neu, damit Migrationen erneut ausgeführt werden.",
     },
