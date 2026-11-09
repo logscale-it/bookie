@@ -40,7 +40,7 @@ describe("organization settings", () => {
       registering_id: "", bank_name: "", bank_iban: "", bank_account_holder: "",
       vatin: "", website: "", default_locale: "de", default_legal_country: "DE",
       einvoice_format: "plain",
-      datev_consultant_number: "", datev_client_number: "", datev_skr: "03",
+      datev_consultant_number: "", datev_client_number: "", datev_skr: "03", datev_private_accounts: "",
     });
     let got = await settings.getOrganizationSettings();
     expect(got.name).toBe("First");
@@ -66,7 +66,7 @@ describe("organization settings", () => {
         registering_id: "", bank_name: "", bank_iban: "",
         bank_account_holder: "", vatin: "", website: "",
         default_locale: "de", default_legal_country: "DE",
-        datev_consultant_number: "", datev_client_number: "", datev_skr: "03",
+        datev_consultant_number: "", datev_client_number: "", datev_skr: "03", datev_private_accounts: "",
       } as const;
 
       for (const fmt of ["plain", "zugferd", "xrechnung"] as const) {
@@ -85,7 +85,7 @@ describe("organization settings", () => {
         bank_name: "", bank_iban: "", bank_account_holder: "", vatin: "",
         website: "", default_locale: "de", default_legal_country: "DE",
         einvoice_format: "plain",
-        datev_consultant_number: "", datev_client_number: "", datev_skr: "03",
+        datev_consultant_number: "", datev_client_number: "", datev_skr: "03", datev_private_accounts: "",
       });
 
       expect(() =>

@@ -44,7 +44,8 @@
 		einvoice_format: 'plain' as EInvoiceFormat,
 		datev_consultant_number: '',
 		datev_client_number: '',
-		datev_skr: '03'
+		datev_skr: '03',
+		datev_private_accounts: ''
 	});
 	let loading = $state(true);
 	let saving = $state(false);
@@ -133,6 +134,12 @@
 				<TextInput bind:value={form.datev_client_number} label={t('settings.datevClientNumber')} placeholder="10001" />
 				<Select bind:value={form.datev_skr} label={t('settings.datevSkr')} options={datevSkrOptions} />
 			</div>
+			<TextInput
+				bind:value={form.datev_private_accounts}
+				label={t('settings.datevPrivateAccounts')}
+				placeholder="Hauptkonto"
+			/>
+			<p class="text-xs text-zinc-500">{t('settings.datevPrivateAccountsHint')}</p>
 		</section>
 
 		<SaveBar {saving} onsave={handleSave} />

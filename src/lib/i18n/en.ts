@@ -184,6 +184,9 @@ export default {
     exportUstva: "Export VAT return as CSV",
     exportEuer: "Export EÜR as CSV",
     exportDatev: "DATEV export (posting batch)",
+    importBank: "Import bank statement (CSV)",
+    importBankDone:
+      "{imported} transactions imported, {duplicates} already imported skipped.",
     euerPeriodFrom: "From",
     euerPeriodTo: "To",
     exportEuerPeriod: "Create EÜR as PDF",
@@ -561,6 +564,9 @@ export default {
     datevConsultantNumber: "DATEV consultant number",
     datevClientNumber: "DATEV client number",
     datevSkr: "DATEV chart of accounts (SKR)",
+    datevPrivateAccounts: "Private accounts (bank statement import)",
+    datevPrivateAccountsHint:
+      "Partner names of private accounts, comma-separated (e.g. Hauptkonto). Transfers to them are booked as Privatentnahme, from them as Privateinlage.",
     invoiceTitle: "Invoice",
     currencyLabel: "Currency",
     decimalPlaces: "Decimal places",

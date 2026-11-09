@@ -5,6 +5,13 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+- Kontoauszug importieren (CSV, N26 layout) under Übersicht → Exporte. Already imported lines are skipped, also
+  from overlapping exports; two identical transfers on one day stay two. The DATEV-Export books each line on the bank
+  account (SKR03 1200 / SKR04 1800): inflow Soll against Forderungen, outflow Haben against Verbindlichkeiten.
+  Accounts listed under Einstellungen → Organisation → DATEV → "Private Konten" are booked as Privatentnahme
+  (1800 / 2100) and Privateinlage (1890 / 2180); other transfers without partner IBAN (moves between Spaces of the
+  same account) are not booked.
+
 ## [0.1.13] - 2026-11-04
 
 - Cloud signup from the app: the register form asks for the company and AGB/AVV acceptance; new companies get a
