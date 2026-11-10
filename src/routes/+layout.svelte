@@ -455,6 +455,7 @@
 			<div class="mt-auto flex flex-col gap-1 pt-4">
 				<TimerWidget />
 
+				{#if !isSub()}
 				<button
 					type="button"
 					onclick={toggleChat}
@@ -466,6 +467,7 @@
 					<span class="truncate">{t('chat.launcher')}</span>
 					<kbd class="kbd ml-auto">{MOD}J</kbd>
 				</button>
+				{/if}
 
 				{#if statusChip}
 					<a

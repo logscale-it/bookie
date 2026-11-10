@@ -27,6 +27,9 @@ export default {
     seesNothing: "Sees no page data",
     sentNote: "This is exactly what is sent to {provider}.",
     placeholder: "Ask about the numbers here…",
+    quota: "{used} / {limit} this month",
+    unavailableTitle: "Assistant not available",
+    unavailableHint: "The assistant is not enabled for your bookie Cloud account yet.",
     send: "Send",
     emptyTitle: "Ask about what you see",
     emptyHint: "The assistant reads this page's numbers and works them out for you. It changes nothing.",
@@ -782,7 +785,7 @@ export default {
     intro:
       "When you upload an incoming invoice (PDF or image), the AI reads supplier, invoice number, date, net and VAT and prefills the form. Nothing is saved until you have checked it.",
     cloudNote:
-      "With bookie Cloud the server reads your receipts (Mistral OCR, EU), no API key of your own needed. The settings here apply to receipt capture in local mode.",
+      "With bookie Cloud the server reads your receipts and answers the assistant's questions (Mistral, EU), no API key of your own needed. The settings here apply to local mode.",
     enable: "Enable AI capture",
     provider: "Provider",
     model: "Model",
@@ -1005,6 +1008,9 @@ export default {
     sessionExpired: "Session expired, please sign in again",
     reload: "Reload",
     notSignedIn: "Not signed in to bookie Cloud",
+    quotaExceeded: "This month's quota is used up, it starts over on the 1st.",
+    tooManyRequests: "Too many requests, please wait a moment",
+    aiFailed: "The assistant did not answer just now, please try again",
   },
   undo: {
     undo: "Undo",

@@ -27,6 +27,9 @@ export default {
     seesNothing: "Sieht keine Seitendaten",
     sentNote: "Genau das geht beim Senden an {provider}.",
     placeholder: "Frag etwas zu den Zahlen hier…",
+    quota: "{used} / {limit} diesen Monat",
+    unavailableTitle: "Assistent nicht verfügbar",
+    unavailableHint: "Der Assistent ist für dein bookie Cloud Konto noch nicht freigeschaltet.",
     send: "Senden",
     emptyTitle: "Frag zu dem, was du siehst",
     emptyHint: "Der Assistent liest die Zahlen dieser Seite und rechnet sie für dich durch. Er ändert nichts.",
@@ -793,7 +796,7 @@ export default {
     intro:
       "Beim Hochladen einer Eingangsrechnung (PDF oder Bild) liest die KI Lieferant, Rechnungsnummer, Datum, Netto und MwSt. aus und füllt das Formular vor. Gespeichert wird erst nach deiner Prüfung.",
     cloudNote:
-      "Mit bookie Cloud liest der Server deine Belege (Mistral OCR, EU) – kein eigener API-Key nötig. Die Einstellungen hier gelten für die Belegerfassung im lokalen Modus.",
+      "Mit bookie Cloud liest der Server deine Belege und beantwortet Fragen des Assistenten (Mistral, EU) – kein eigener API-Key nötig. Die Einstellungen hier gelten für den lokalen Modus.",
     enable: "KI-Erfassung aktivieren",
     provider: "Anbieter",
     model: "Modell",
@@ -1025,6 +1028,9 @@ export default {
     sessionExpired: "Sitzung abgelaufen, bitte neu anmelden",
     reload: "Neu laden",
     notSignedIn: "Nicht mit bookie Cloud angemeldet",
+    quotaExceeded: "Kontingent für diesen Monat aufgebraucht, neues Kontingent am 1.",
+    tooManyRequests: "Zu viele Anfragen, bitte kurz warten",
+    aiFailed: "Der Assistent hat gerade nicht geantwortet, bitte noch einmal versuchen",
   },
   undo: {
     undo: "Rückgängig",

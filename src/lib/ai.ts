@@ -4,7 +4,7 @@
 // live in localStorage, so the feature works in local and cloud mode alike.
 
 import { invoke } from "@tauri-apps/api/core";
-import { api } from "./cloud";
+import { api, cloud } from "./cloud";
 
 const KEY = "bookie.ai";
 
@@ -136,6 +136,15 @@ export function complete(
 ): Promise<string> {
   return invoke<string>("ai_complete", { args: { ...c, system, messages } });
 }
+
+export type AiUsage = { enabled: boolean; used: number; limit: number; resetsAt: string };
+
+/** Cloud mode: is the assistant on for this server, and how much of the month's quota is used. */
+export const aiUsage = () => api<AiUsage>("/api/ai/usage");
+
+/** Cloud mode: the server holds the key, owns the system prompt and meters the quota. */
+export const completeCloud = (messages: ChatMessage[]) =>
+  api<{ text: string; used: number; limit: number }>("/api/ai/chat", "POST", { messages });
 
 /** Cloud mode: bookie-server reads the receipt (Mistral OCR), no own key or config needed. */
 export async function extractInvoiceCloud(file: File): Promise<Extracted> {

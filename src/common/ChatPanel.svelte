@@ -5,11 +5,12 @@
 	// the root layout; ⌘J / Ctrl+J toggles it.
 	import { tick } from 'svelte';
 	import { t, tp } from '$lib/i18n';
-	import { aiConfig, PROVIDERS } from '$lib/ai';
+	import { aiConfig, aiUsage, PROVIDERS } from '$lib/ai';
+	import { cloud } from '$lib/cloud';
 	import { chat, sendChat, resetChat, toggleChat } from '$lib/chat/chat.svelte';
 	import { pageContext } from '$lib/chat/context.svelte';
 	import { valueCount } from '$lib/chat/prompt';
-	import { session } from '$lib/session.svelte';
+	import { isSub, session } from '$lib/session.svelte';
 	import StreamText from './StreamText.svelte';
 
 	let draft = $state('');
@@ -20,12 +21,21 @@
 
 	const ctx = $derived(pageContext.current);
 	const open = $derived(chat.mode !== 'closed');
-	const provider = $derived(PROVIDERS[aiConfig()?.provider ?? 'anthropic'].label);
+	const provider = () => (cloud() ? 'Mistral (EU)' : PROVIDERS[aiConfig()?.provider ?? 'anthropic'].label);
 	const quick = ['chat.quick1', 'chat.quick2', 'chat.quick3'] as const;
 
-	// localStorage is not reactive: re-read the config whenever the panel opens.
+	// localStorage is not reactive: re-check whenever the panel opens. Cloud: the server says
+	// whether the assistant is on and how much of the month's quota is used.
 	$effect(() => {
-		if (open) configured = aiConfig() !== null;
+		if (!open) return;
+		if (cloud()) {
+			aiUsage()
+				.then((u) => {
+					configured = u.enabled;
+					chat.quota = { used: u.used, limit: u.limit };
+				})
+				.catch(() => (configured = false));
+		} else configured = aiConfig() !== null;
 	});
 
 	// The textarea exists only once configured; focus it whenever it appears while open.
@@ -66,6 +76,7 @@
 
 	function onkey(e: KeyboardEvent) {
 		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+			if (isSub()) return;
 			e.preventDefault();
 			toggleChat();
 		} else if (e.key === 'Escape' && open && (e.target as HTMLElement)?.closest('[data-chat]')) {
@@ -89,7 +100,8 @@
 >
 	<div class="flex h-full flex-col md:h-screen {chat.mode === 'wide' ? 'md:w-[560px]' : 'md:w-[380px]'}">
 		<header class="flex items-center gap-1 px-4 pb-2 pt-4">
-			<h2 class="mr-auto text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('chat.title')}</h2>
+			<h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('chat.title')}</h2>
+			<span class="mr-auto ml-2 text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500" data-testid="chat-quota">{chat.quota && cloud() ? tp('chat.quota', chat.quota) : ''}</span>
 			{#if chat.turns.length}
 				<button type="button" class="icon-btn" title={t('chat.clear')} aria-label={t('chat.clear')} onclick={resetChat} data-testid="chat-new">
 					<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992V4.356M2.985 19.644v-4.992h4.992m10.5-4.304A8.25 8.25 0 005.4 8.4M3.523 14.652A8.25 8.25 0 0018.6 15.6" /></svg>
@@ -126,16 +138,21 @@
 			{#if showData && ctx}
 				<div class="mt-2 animate-pop rounded-md bg-zinc-50 p-2.5 dark:bg-zinc-800/60">
 					<pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-300">{JSON.stringify(ctx.facts, null, 1)}</pre>
-					<p class="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{tp('chat.sentNote', { provider })}</p>
+					<p class="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{tp('chat.sentNote', { provider: provider() })}</p>
 				</div>
 			{/if}
 		</div>
 
 		{#if !configured}
 			<div class="flex flex-1 flex-col justify-center gap-3 px-6 pb-10">
-				<p class="text-sm font-medium text-zinc-800 dark:text-zinc-100">{t('chat.setupTitle')}</p>
-				<p class="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{t('chat.setupHint')}</p>
-				<a href="/einstellungen/ki" class="btn-primary self-start" onclick={() => (chat.mode = 'closed')}>{t('chat.setupAction')}</a>
+				{#if cloud()}
+					<p class="text-sm font-medium text-zinc-800 dark:text-zinc-100">{t('chat.unavailableTitle')}</p>
+					<p class="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{t('chat.unavailableHint')}</p>
+				{:else}
+					<p class="text-sm font-medium text-zinc-800 dark:text-zinc-100">{t('chat.setupTitle')}</p>
+					<p class="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{t('chat.setupHint')}</p>
+					<a href="/einstellungen/ki" class="btn-primary self-start" onclick={() => (chat.mode = 'closed')}>{t('chat.setupAction')}</a>
+				{/if}
 			</div>
 		{:else}
 			<div bind:this={list} class="flex-1 space-y-4 overflow-y-auto px-4 pb-4" aria-live="polite">

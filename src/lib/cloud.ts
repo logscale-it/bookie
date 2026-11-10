@@ -91,7 +91,13 @@ export class CloudError extends Error {
         ? t("cloudErrors.forbidden")
         : code === "conflict"
           ? t("cloudErrors.conflict")
-          : `Server: ${status} ${code}`,
+          : code === "quota_exceeded"
+            ? t("cloudErrors.quotaExceeded")
+            : code === "too_many_requests"
+              ? t("cloudErrors.tooManyRequests")
+              : code === "ai_failed"
+                ? t("cloudErrors.aiFailed")
+                : `Server: ${status} ${code}`,
   ) {
     super(message);
   }
