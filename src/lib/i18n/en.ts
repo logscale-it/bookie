@@ -1,8 +1,6 @@
 export default {
   nav: {
     overview: "Overview",
-    advisor: "Financial advisor",
-    advisorShort: "Advisor",
     invoices: "Invoices",
     incomingInvoices: "Incoming Invoices",
     incomingShort: "Incoming",
@@ -672,154 +670,6 @@ export default {
       "Protects your account additionally with a code from an authenticator app.",
     setupTotp: "Set up 2FA",
   },
-  advisorCalc: {
-    liquidityGap:
-      "Liquidity gap: in {month} the balance drops to {amount}. Collect receivables, postpone expenses or arrange an overdraft.",
-    bufferShort:
-      "Buffer undercut: in {month} {amount} remain; recommended are {buffer} reserve ({months} months of costs) plus {reserve} tax reserve.",
-    taxReserveMissing:
-      "Tax reserve missing: the profit so far ({profit}) carries about {reserve} in taxes, the account holds {cash}.",
-    overdue:
-      "{count} overdue invoice(s) totalling {amount}: send reminders (payment reminder, then dunning letter with default interest § 288 BGB).",
-    doubtful:
-      "{amount} are more than 120 days overdue and planned at 0 €. Consider debt collection or a court payment order (Mahnbescheid).",
-    unbilled:
-      "{amount} of work done but not yet billed: invoicing now speeds up incoming cash.",
-    concentration:
-      "Concentration risk: {name} accounts for {share} % of revenue over the last 12 months. If this customer drops out, {amount} is missing.",
-    slowPayers:
-      "Customers pay after {dso} days on average ({delay} days past due). Consider shorter payment terms, early-payment discount (e.g. 2 % within 10 days) or partial invoices.",
-    burn: "Costs ({cost}/month) exceed income ({revenue}/month). At this rate the account lasts {months} more months.",
-    allGood:
-      "Nothing stands out: liquidity, receivables and tax reserve are within range.",
-  },
-  advisor: {
-    title: "Financial advisor",
-    subtitle:
-      "Liquidity, tax reserve and investment decisions from your real numbers.",
-    loading: "Loading numbers…",
-    emptyTitle: "No data yet",
-    emptyHint: "Create a company and invoices first.",
-    assumptions: "Assumptions",
-    cash: "Account balance today (€)",
-    taxRate: "Tax rate on profit (%)",
-    prepay: "Income tax prepayment / quarter (€)",
-    buffer: "Buffer (months of costs)",
-    vatPeriod: "VAT return",
-    monthly: "monthly",
-    quarterly: "quarterly",
-    trend: "Extrapolate the trend of the last 6 months",
-    cashNote:
-      "The account balance is not on any invoice – enter it here, everything else comes from the books.",
-    keyFigures: "Key figures",
-    revenuePerMonth: "Revenue / month",
-    costPerMonth: "Costs / month",
-    taxReserveNeeded: "Tax reserve needed",
-    recommendedBuffer: "Recommended buffer",
-    openReceivables: "Open receivables",
-    overdueOfIt: "Of which overdue",
-    openPayables: "Open payables",
-    dso: "Days sales outstanding (DSO)",
-    days: "{n} days",
-    profitYtd: "Profit this year",
-    unbilled: "Not yet billed",
-    topCustomers: "Top customers (12 months)",
-    recommendations: "Recommendations",
-    liquidityPlan: "Liquidity plan 6 months",
-    lowPoint: "Low point {month}:",
-    haircut: "{amount} overdue receivables written down",
-    colMonth: "Month",
-    colOpening: "Opening",
-    colReceivables: "Receivables",
-    colRecurringIn: "Recurring in",
-    colTrendIn: "Trend in",
-    colPayables: "Bills",
-    colRecurringOut: "Recurring out",
-    colTrendOut: "Trend out",
-    colTaxes: "Taxes",
-    colClosing: "Closing",
-    planNote:
-      "Receivables by due date plus average delay ({days} days); 60–120 days overdue at 50 %, older at 0 %. Taxes: VAT liability from the average of the last 6 months, income tax prepayment in March/June/Sept./Dec.",
-    toolAfford: "Can I afford this?",
-    toolRentBuy: "Rent or buy?",
-    toolInvest: "Investment appraisal",
-    oneOff: "One-off amount (€)",
-    extraPerMonth: "Additional per month (€, optional)",
-    fromMonth: "From month",
-    verdictYes: "Yes, that works.",
-    verdictTight: "Tight – eats into the buffer.",
-    verdictNo: "No, not without countermeasures.",
-    affordLead:
-      "In the tightest month ({month}), after the purchase, tax reserve ({reserve}) and buffer ({buffer}) there remain",
-    affordMaxLead: "Without touching the buffer you can spend at most",
-    affordMaxRest: "in total.",
-    price: "Purchase price net (€)",
-    rent: "Rent / leasing net per month (€)",
-    horizon: "Planned use (months)",
-    life: "Useful life for depreciation (months)",
-    residualAfterUse: "Residual value after use (€)",
-    ownerCost: "Own running costs per month (€)",
-    rate: "Discount rate (% p. a.)",
-    npvCosts: "Present value of costs",
-    buy: "Buy:",
-    rentLabel: "Rent:",
-    afterTaxGwg:
-      "after taxes ({rate} %), low-value asset (GWG): written off immediately",
-    afterTaxAfa:
-      "after taxes ({rate} %), straight-line depreciation over {months} months",
-    recommendation: "Recommendation",
-    buySaves: "Buying saves {amount}",
-    rentSaves: "Renting saves {amount}",
-    breakEven: " · buying pays off from {months} months of use",
-    neverBreakEven: " · buying never pays off",
-    liquidityOnBuy: "Liquidity when buying",
-    headroom: "Headroom in the tightest month {amount}",
-    headroomTight:
-      " – rather rent or finance, even if buying is cheaper on paper.",
-    verdicts: {
-      ja: "yes",
-      knapp: "tight",
-      nein: "no",
-    },
-    choices: {
-      kaufen: "buy",
-      mieten: "rent",
-      egal: "either",
-    },
-    cost: "Purchase (€)",
-    gain: "Extra income / savings per year (€)",
-    years: "Term (years)",
-    residual: "Residual value (€)",
-    npv: "Net present value (NPV)",
-    irr: "Internal rate of return",
-    payback: "Payback",
-    never: "never",
-    yearsShort: "{n} yrs",
-    roi: "Return p. a.",
-    annuity: "Annuity",
-    perYearShort: "{amount}/yr",
-    investYes:
-      "Worth it: the net present value is positive, the investment yields more than the discount rate.",
-    investNo:
-      "Not worth it: the net present value is negative, the money earns more at the discount rate.",
-    aiTitle: "AI advisor",
-    aiSetupLead: "For questions in plain language, set up an AI provider under",
-    aiSetupLink: "Settings → AI",
-    aiSetupRest:
-      "first. The key figures and calculators above work without it.",
-    question: "Question",
-    questionPlaceholder: "e.g. Can I hire an employee for 3,500 € next month?",
-    thinking: "Thinking…",
-    ask: "Ask",
-    followUp: "Follow-up",
-    followUpPlaceholder: "Keep asking, e.g. And if I hire in June instead?",
-    newChat: "New conversation",
-    you: "You",
-    advisorName: "Advisor",
-    chatFailed: "The answer failed. Your question is back in the field; send it again.",
-    aiSent:
-      "Sent along: key figures, liquidity plan, open items and the current calculator. No receipts, no addresses.",
-  },
   bootDiagnostics: {
     title: "Bookie cannot start",
     intro:
@@ -909,7 +759,7 @@ export default {
     intro:
       "When you upload an incoming invoice (PDF or image), the AI reads supplier, invoice number, date, net and VAT and prefills the form. Nothing is saved until you have checked it.",
     cloudNote:
-      "With bookie Cloud the server reads your receipts (Mistral OCR, EU), no API key of your own needed. The settings here apply to receipt capture in local mode and to the financial advisor in both modes.",
+      "With bookie Cloud the server reads your receipts (Mistral OCR, EU), no API key of your own needed. The settings here apply to receipt capture in local mode.",
     enable: "Enable AI capture",
     provider: "Provider",
     model: "Model",
@@ -1311,12 +1161,6 @@ export default {
   },
   cloudImport: {
     skippedS3: "S3 backup settings",
-  },
-  advisorQuick: {
-    q1: "How does my liquidity look over the next 6 months?",
-    q2: "Which three financial things should I do first this month?",
-    q3: "Am I putting enough aside for taxes?",
-    q4: "How can I get paid faster?",
   },
   timeTracking: {
     title: "Time Tracking",
