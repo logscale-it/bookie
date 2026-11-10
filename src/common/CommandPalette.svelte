@@ -7,6 +7,7 @@
 	import { onMount, tick } from 'svelte';
 	import { t } from '$lib/i18n';
 	import { commandPalette } from '$lib/ui/command.svelte';
+	import { chat } from '$lib/chat/chat.svelte';
 	import { can, isSub } from '$lib/session.svelte';
 	import { listCompanies } from '$lib/db/companies';
 	import { listCustomers } from '$lib/db/customers';
@@ -112,6 +113,7 @@
 	const staticCommands = $derived<Command[]>(([
 		can('reports') && { id: 'nav-overview', label: t('nav.overview'), group: t('command.pages'), keywords: 'übersicht overview dashboard start', icon: ICONS.home, run: () => navTo('/uebersicht') },
 		can('invoices') && { id: 'nav-invoices', label: t('nav.invoices'), group: t('command.pages'), keywords: 'rechnungen invoices', icon: ICONS.invoice, run: () => navTo('/rechnungen') },
+		{ id: 'ask-ai', label: t('chat.launcher'), group: t('command.pages'), keywords: 'ki ai assistent assistant chat fragen ask', icon: ICONS.cog, run: () => { close(); chat.mode = 'docked'; } },
 		!isSub() && { id: 'nav-incoming', label: t('nav.incomingInvoices'), group: t('command.pages'), keywords: 'eingehende rechnungen incoming bills lieferant', icon: ICONS.inbox, run: () => navTo('/eingehende-rechnungen') },
 		{ id: 'nav-projects', label: t('nav.projects'), group: t('command.pages'), keywords: 'projekte projects', icon: ICONS.project, run: () => navTo('/projekte') },
 		{ id: 'nav-companies', label: t('nav.companies'), group: t('command.pages'), keywords: 'unternehmen companies kunden lieferanten customers', icon: ICONS.building, run: () => navTo('/unternehmen') },

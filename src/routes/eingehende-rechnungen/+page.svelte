@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { t, tp } from '$lib/i18n';
+	import { publishContext } from '$lib/chat/context.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
@@ -123,6 +124,30 @@
 		}
 
 		return result;
+	});
+
+	$effect(() => {
+		if (loading) return;
+		const eur = (c: number) => Math.round(c) / 100;
+		const sum = (k: 'gross_cents' | 'net_cents') => eur(filteredInvoices.reduce((s, i) => s + i[k], 0));
+		const byStatus: Record<string, number> = {};
+		for (const i of filteredInvoices) byStatus[i.status] = (byStatus[i.status] ?? 0) + 1;
+		return publishContext({
+			page: 'eingehende-rechnungen',
+			title: t('nav.incomingInvoices'),
+			facts: {
+				totalRows: totalCount,
+				pageNumber: pager.page,
+				pageCount,
+				filterStatus: statusFilter || null,
+				searchActive: !!search.trim(),
+				shownRows: filteredInvoices.length,
+				pageGrossEur: sum('gross_cents'),
+				pageNetEur: sum('net_cents'),
+				countByStatus: byStatus,
+				invoices: filteredInvoices.slice(0, 15).map((i) => ({ number: i.invoice_number, supplier: i.supplier_name, date: i.invoice_date, grossEur: eur(i.gross_cents), status: i.status }))
+			}
+		});
 	});
 
 	const supplierNames = $derived(suppliers.map((s) => s.name));

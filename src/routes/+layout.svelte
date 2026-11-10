@@ -22,6 +22,8 @@
 	import CommandPalette from '../common/CommandPalette.svelte';
 	import Toaster from '../common/Toaster.svelte';
 	import UpdatePrompt from '../common/UpdatePrompt.svelte';
+	import ChatPanel from '../common/ChatPanel.svelte';
+	import { chat, toggleChat } from '$lib/chat/chat.svelte';
 	import { commandPalette } from '$lib/ui/command.svelte';
 	import { theme } from '$lib/ui/theme.svelte';
 	import {
@@ -453,6 +455,18 @@
 			<div class="mt-auto flex flex-col gap-1 pt-4">
 				<TimerWidget />
 
+				<button
+					type="button"
+					onclick={toggleChat}
+					aria-pressed={chat.mode !== 'closed'}
+					class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-zinc-500 transition-colors duration-200 hover:bg-zinc-900/[0.04] hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+					data-testid="chat-launcher"
+				>
+					<svg class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" /></svg>
+					<span class="truncate">{t('chat.launcher')}</span>
+					<kbd class="kbd ml-auto">{MOD}J</kbd>
+				</button>
+
 				{#if statusChip}
 					<a
 						href={statusChip.href}
@@ -541,6 +555,8 @@
 				{/key}
 			</div>
 		</main>
+
+		<ChatPanel />
 
 		<!-- Mobile bottom navigation: frosted, fixed over content. -->
 		<nav

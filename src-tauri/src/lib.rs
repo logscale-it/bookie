@@ -2786,6 +2786,36 @@ async fn ai_extract_invoice(request: tauri::ipc::Request<'_>) -> Result<String, 
     .await
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AiCompleteArgs {
+    provider: String,
+    model: String,
+    base_url: String,
+    system: String,
+    messages: Vec<ai::ChatMessage>,
+}
+
+/// Text-only completion for the chat panel: same provider config and key
+/// as receipt extraction, no file. Returns the model's answer text.
+#[tauri::command]
+async fn ai_complete(args: AiCompleteArgs) -> Result<String, BookieError> {
+    run_blocking(move || {
+        let key = ai_key_for(&args.provider)?;
+        let req = ai::build_text_request(
+            &args.provider,
+            &args.model,
+            &args.base_url,
+            &args.system,
+            &args.messages,
+            key.as_deref(),
+        )
+        .map_err(ai_error)?;
+        ai_send(&args.provider, req)
+    })
+    .await
+}
+
 /// The keyring key; every provider but Ollama needs one.
 fn ai_key_for(provider: &str) -> Result<Option<String>, BookieError> {
     let key = ai_key()?;
@@ -4057,6 +4087,7 @@ pub fn run() {
             set_ai_key,
             has_ai_key,
             ai_extract_invoice,
+            ai_complete,
             append_frontend_log,
             read_log_tail,
             schema_version_check,

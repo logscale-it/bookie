@@ -13,6 +13,7 @@
 	import { sumMinutesByProject } from '$lib/db/time-entries';
 	import type { Customer, Project } from '$lib/db/types';
 	import { t } from '$lib/i18n';
+	import { publishContext } from '$lib/chat/context.svelte';
 	import { cloud, CloudError } from '$lib/cloud';
 	import { can, initials, isSub, session } from '$lib/session.svelte';
 	import { toasts } from '$lib/ui/toasts.svelte';
@@ -84,6 +85,27 @@
 	const parseRate = (v: string) => (v.trim() ? Number(v.replace(',', '.')) || 0 : null);
 	const formatRate = (p: Project) =>
 		p.hourly_rate_hidden ? 'verborgen' : p.hourly_rate == null ? '—' : `${p.hourly_rate.toFixed(2).replace('.', ',')} €/h`;
+
+	$effect(() => {
+		if (loading) return;
+		const h = (min: number) => Math.round((min / 60) * 100) / 100;
+		return publishContext({
+			page: 'projekte',
+			title: t('nav.projects'),
+			facts: {
+				totalRows: projects.length,
+				shownRows: Math.min(projects.length, 15),
+				projects: projects.slice(0, 15).map((p) => ({
+					name: p.name,
+					number: p.project_number,
+					customer: p.customerName,
+					status: p.status,
+					...(hoursAvailable && { trackedHours: h(hoursOf(p)) }),
+					...(!ratesHidden && { hourlyRateEur: p.hourly_rate })
+				}))
+			}
+		});
+	});
 
 	const customerOptions = $derived.by(() => [
 		{ value: '', label: t('projects.noCustomer') },

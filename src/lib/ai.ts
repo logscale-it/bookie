@@ -126,6 +126,17 @@ export async function extractInvoice(
   return parseExtraction(text);
 }
 
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+
+/** Text-only completion (chat panel) over the conversation so far; same key, same Rust path. */
+export function complete(
+  system: string,
+  messages: ChatMessage[],
+  c: AiConfig,
+): Promise<string> {
+  return invoke<string>("ai_complete", { args: { ...c, system, messages } });
+}
+
 /** Cloud mode: bookie-server reads the receipt (Mistral OCR), no own key or config needed. */
 export async function extractInvoiceCloud(file: File): Promise<Extracted> {
   const x = await api<Record<string, unknown>>(

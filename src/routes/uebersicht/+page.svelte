@@ -17,6 +17,7 @@
 	import { saveCsvFile, saveDatevFile, savePdfFile } from '$lib/csv/csv-writer';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { t, tp, translations } from '$lib/i18n';
+	import { publishContext } from '$lib/chat/context.svelte';
 	import { cloud } from '$lib/cloud';
 	import { can, initials, session } from '$lib/session.svelte';
 	import ActivityFeed from '../../common/ActivityFeed.svelte';
@@ -179,6 +180,35 @@
 		const _y = year;
 		const _g = groupBy;
 		loadData();
+	});
+
+	$effect(() => {
+		if (loading) return;
+		const eur = (v: number) => Math.round(v * 100) / 100;
+		return publishContext({
+			page: 'uebersicht',
+			title: `${t('nav.overview')} ${year}`,
+			facts: {
+				year,
+				groupBy,
+				revenueNetEur: eur(totals.revenue),
+				costsNetEur: eur(totals.costs),
+				profitEur: eur(totals.profit),
+				vatOutEur: eur(totals.vatOut),
+				vatInEur: eur(totals.vatIn),
+				vatPayableEur: eur(totals.vatPayable),
+				periods: periods.map((p) => ({ period: p.period, revenueEur: eur(p.revenue), costsEur: eur(p.costs), profitEur: eur(p.profit) })),
+				...(actions && {
+					overdueCount: actions.overdue.count,
+					overdueEur: actions.overdue.totalCents / 100,
+					overdueTop: actions.overdue.items.slice(0, 5).map((i) => ({ number: i.invoice_number, customer: i.customer_name, dueDate: i.due_date, grossEur: i.gross_cents / 100 })),
+					draftCount: actions.drafts.count,
+					openIncomingCount: actions.openIncoming.count,
+					openIncomingEur: actions.openIncoming.totalCents / 100
+				}),
+				nextDeadlineDate: nextDeadline.date.toLocaleDateString('sv')
+			}
+		});
 	});
 
 	// Action items and backup status don't depend on year/grouping: load once.

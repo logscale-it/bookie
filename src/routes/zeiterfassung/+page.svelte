@@ -16,6 +16,7 @@
 	import { spanMinutes } from '$lib/timespan';
 	import type { Customer, Project, TimeEntry } from '$lib/db/types';
 	import { t, tp } from '$lib/i18n';
+	import { publishContext } from '$lib/chat/context.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
@@ -167,6 +168,30 @@
 		totalCount = timeEntriesResult.totalCount;
 		loading = false;
 	}
+
+	$effect(() => {
+		if (loading && rows.length === 0) return;
+		const h = (min: number) => Math.round((min / 60) * 100) / 100;
+		const byProject: Record<string, number> = {};
+		for (const r of visibleRows) byProject[r.projectName] = (byProject[r.projectName] ?? 0) + (r.duration_minutes ?? 0);
+		return publishContext({
+			page: 'zeiterfassung',
+			title: t('nav.timeTracking'),
+			facts: {
+				totalRows: totalCount,
+				pageNumber: pager.page,
+				pageCount,
+				shownRows: Math.min(visibleRows.length, 15),
+				filter: {
+					customer: customers.find((c) => String(c.id) === filterCustomerId)?.name ?? null,
+					project: projects.find((p) => String(p.id) === filterProjectId)?.name ?? null
+				},
+				pageHours: h(visibleRows.reduce((s, r) => s + (r.duration_minutes ?? 0), 0)),
+				pageHoursByProject: Object.fromEntries(Object.entries(byProject).map(([k, v]) => [k, h(v)])),
+				entries: visibleRows.slice(0, 15).map((r) => ({ date: r.entry_date, hours: h(r.duration_minutes ?? 0), project: r.projectName, customer: r.customerName, billable: !!r.billable }))
+			}
+		});
+	});
 
 	function gotoPage(target: number) {
 		const params = new URLSearchParams(page.url.searchParams);

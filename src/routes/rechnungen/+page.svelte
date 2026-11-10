@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { listAllInvoices, type InvoiceWithCustomer } from '$lib/db/invoices';
 	import { t, tp } from '$lib/i18n';
+	import { publishContext } from '$lib/chat/context.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { parsePager, totalPages, type PagerState } from '$lib/pager';
@@ -35,6 +36,28 @@
 		totalCount = result.totalCount;
 		loading = false;
 	}
+
+	$effect(() => {
+		if (loading) return;
+		const eur = (c: number) => Math.round(c) / 100;
+		const byStatus: Record<string, number> = {};
+		for (const i of visible) byStatus[i.status] = (byStatus[i.status] ?? 0) + 1;
+		return publishContext({
+			page: 'rechnungen',
+			title: t('nav.invoices'),
+			facts: {
+				totalRows: totalCount,
+				pageNumber: pager.page,
+				pageCount,
+				pageSize: pager.size,
+				shownRows: visible.length,
+				pageGrossEur: eur(visible.reduce((s, i) => s + i.gross_cents, 0)),
+				pageNetEur: eur(visible.reduce((s, i) => s + i.net_cents, 0)),
+				countByStatus: byStatus,
+				invoices: visible.slice(0, 15).map((i) => ({ number: i.invoice_number, customer: i.customer_name, issueDate: i.issue_date, dueDate: i.due_date, grossEur: eur(i.gross_cents), currency: i.currency, status: i.status }))
+			}
+		});
+	});
 
 	function gotoPage(target: number) {
 		const params = new URLSearchParams(page.url.searchParams);
