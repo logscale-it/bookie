@@ -214,6 +214,12 @@ export default {
     importBank: "Kontoauszug importieren (CSV)",
     importBankDone:
       "{imported} Buchungen importiert, {duplicates} bereits vorhandene übersprungen.",
+    bankClassifyTitle: "Private Konten festlegen",
+    bankClassifyHint:
+      "Diese Überweisungen haben keine IBAN. Markiere, was auf ein privates Konto geht (Privatentnahme/-einlage im DATEV-Export). Nicht markierte gelten als Umbuchung zwischen Spaces desselben Kontos und werden nicht gebucht.",
+    bankClassifyRow: "{count}× · {sum}",
+    bankClassifySave: "Speichern",
+    bankClassifyLater: "Später",
     euerPeriodFrom: "Von",
     euerPeriodTo: "Bis",
     exportEuerPeriod: "EÜR als PDF erstellen",

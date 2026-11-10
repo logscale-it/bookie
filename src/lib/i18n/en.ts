@@ -212,6 +212,12 @@ export default {
     importBank: "Import bank statement (CSV)",
     importBankDone:
       "{imported} transactions imported, {duplicates} already imported skipped.",
+    bankClassifyTitle: "Set private accounts",
+    bankClassifyHint:
+      "These transfers have no IBAN. Tick what goes to a private account (booked as owner's drawing/contribution in the DATEV export). Unticked ones count as a move between Spaces of the same account and are not booked.",
+    bankClassifyRow: "{count}× · {sum}",
+    bankClassifySave: "Save",
+    bankClassifyLater: "Later",
     euerPeriodFrom: "From",
     euerPeriodTo: "To",
     exportEuerPeriod: "Create EÜR as PDF",

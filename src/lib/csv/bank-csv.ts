@@ -101,3 +101,61 @@ export function parseBankCsv(text: string): BankTransaction[] {
     return { ...t, import_key: `${base}#${k}` };
   });
 }
+
+/** Names of the owner's private accounts as stored in the setting datev_private_accounts (comma-separated). */
+export const privateNames = (setting: string): string[] =>
+  setting.split(",").map((n) => n.trim().toLowerCase()).filter(Boolean);
+
+/** A transfer without partner IBAN: either a move between Spaces of the same account or a line to the owner's own other account. */
+export const isIbanlessTransfer = (b: { partner_iban: string | null; type: string }) =>
+  !b.partner_iban && /transfer/i.test(b.type);
+
+export interface UndecidedPartner {
+  name: string;
+  count: number;
+  sumCents: number;
+}
+
+/**
+ * Partners of IBAN-less transfers nobody has classified yet: not a private account
+ * (setting) and not confirmed as a Space (`spaces`, lower-case). Until classified they
+ * are left out of the DATEV export as internal moves, so the import asks about them.
+ * Names with a comma cannot be stored in the comma-separated setting and are left out.
+ */
+export function undecidedPartners(
+  rows: Pick<BankTransaction, "partner_name" | "partner_iban" | "type" | "amount_cents">[],
+  privateAccounts: string,
+  spaces: string[],
+): UndecidedPartner[] {
+  const known = new Set([...privateNames(privateAccounts), ...spaces]);
+  const by = new Map<string, UndecidedPartner>();
+  for (const r of rows) {
+    const name = r.partner_name.trim();
+    if (!name || name.includes(",") || !isIbanlessTransfer(r) || known.has(name.toLowerCase())) continue;
+    const p = by.get(name.toLowerCase()) ?? { name, count: 0, sumCents: 0 };
+    p.count++;
+    p.sumCents += r.amount_cents;
+    by.set(name.toLowerCase(), p);
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count);
+}
+
+const SPACES_KEY = "bookie.datevSpaces";
+
+/** Partner names the user confirmed as Spaces (internal moves), lower-case; per device. */
+export function loadSpaces(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(SPACES_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveSpaces(names: string[]): void {
+  try {
+    localStorage.setItem(SPACES_KEY, JSON.stringify([...new Set([...loadSpaces(), ...names.map((n) => n.toLowerCase())])]));
+  } catch {
+    /* private mode: asked again next import */
+  }
+}

@@ -3,6 +3,7 @@ import { getDb } from "./connection";
 import { yearBounds } from "./dashboard";
 import { createLogger } from "$lib/logger";
 import type { DatevBooking } from "$lib/csv/datev-csv";
+import { isIbanlessTransfer, privateNames } from "$lib/csv/bank-csv";
 
 const log = createLogger("datev");
 
@@ -40,12 +41,10 @@ export function bankBooking(
   b: BankRow,
   privateAccounts: string,
 ): DatevBooking | null {
-  const names = privateAccounts
-    .split(",")
-    .map((n) => n.trim().toLowerCase())
-    .filter(Boolean);
-  const isPrivate = names.includes(b.partner_name.trim().toLowerCase());
-  if (!isPrivate && !b.partner_iban && /transfer/i.test(b.type)) return null;
+  const isPrivate = privateNames(privateAccounts).includes(
+    b.partner_name.trim().toLowerCase(),
+  );
+  if (!isPrivate && isIbanlessTransfer(b)) return null;
   return {
     grossCents: b.amount_cents,
     taxRate: 0,

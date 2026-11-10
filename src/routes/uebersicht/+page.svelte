@@ -6,11 +6,12 @@
 	import { cubicOut } from 'svelte/easing';
 	import AreaChart from '../../common/AreaChart.svelte';
 	import { toasts } from '$lib/ui/toasts.svelte';
-	import { getOrganizationSettings, getS3Settings } from '$lib/db/settings';
+	import { getOrganizationSettings, getS3Settings, saveOrganizationSettings } from '$lib/db/settings';
+	import Dialog from '../../common/Dialog.svelte';
 	import { getUstvaData, getEuerData, getEuerReport } from '$lib/db/tax-reports';
 	import { getDatevBookingRows } from '$lib/db/datev';
 	import { importBankTransactions } from '$lib/db/bank-transactions';
-	import { parseBankCsv } from '$lib/csv/bank-csv';
+	import { loadSpaces, parseBankCsv, saveSpaces, undecidedPartners, type UndecidedPartner } from '$lib/csv/bank-csv';
 	import { generateUstvaCsv } from '$lib/csv/ustva-csv';
 	import { generateEuerCsv } from '$lib/csv/euer-csv';
 	import { generateDatevBuchungsstapel } from '$lib/csv/datev-csv';
@@ -403,6 +404,30 @@
 	}
 
 	let importingBank = $state(false);
+	// IBAN-less transfers nobody classified yet: private account or Space? Asked after the import.
+	let undecided = $state<UndecidedPartner[]>([]);
+	let privateChecked = $state<Record<string, boolean>>({});
+	let classifyOpen = $state(false);
+	let savingClassify = $state(false);
+
+	async function saveClassification() {
+		savingClassify = true;
+		try {
+			const chosen = undecided.filter((p) => privateChecked[p.name]);
+			const rest = undecided.filter((p) => !privateChecked[p.name]);
+			if (chosen.length) {
+				const org = await getOrganizationSettings();
+				const names = [...(org.datev_private_accounts ? [org.datev_private_accounts] : []), ...chosen.map((p) => p.name)];
+				await saveOrganizationSettings({ ...org, datev_private_accounts: names.join(', ') });
+			}
+			saveSpaces(rest.map((p) => p.name));
+			classifyOpen = false;
+		} catch (err) {
+			toasts.error(messageForUnknown(err));
+		} finally {
+			savingClassify = false;
+		}
+	}
 
 	async function importBank(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
@@ -410,8 +435,12 @@
 		if (!file) return;
 		importingBank = true;
 		try {
-			const r = await importBankTransactions(await ensureCompanyId(), parseBankCsv(await file.text()));
+			const rows = parseBankCsv(await file.text());
+			const r = await importBankTransactions(await ensureCompanyId(), rows);
 			toasts.success(tp('overview.importBankDone', { imported: r.imported, duplicates: r.duplicates }));
+			undecided = undecidedPartners(rows, (await getOrganizationSettings()).datev_private_accounts, loadSpaces());
+			privateChecked = Object.fromEntries(undecided.map((p) => [p.name, /haupt|privat/i.test(p.name)]));
+			classifyOpen = undecided.length > 0;
 		} catch (err) {
 			toasts.error(messageForUnknown(err));
 		} finally {
@@ -731,3 +760,22 @@
 
 	<ActivityFeed />
 </section>
+
+<Dialog bind:open={classifyOpen} title={t('overview.bankClassifyTitle')} size="md">
+	<p class="mb-4 text-sm text-zinc-600 dark:text-zinc-300">{t('overview.bankClassifyHint')}</p>
+	<ul class="space-y-2" data-testid="bank-classify-list">
+		{#each undecided as p (p.name)}
+			<li>
+				<label class="flex cursor-pointer items-center gap-3 text-sm">
+					<input type="checkbox" bind:checked={privateChecked[p.name]} class="h-4 w-4 rounded" aria-label={p.name} />
+					<span class="min-w-0 flex-1 truncate text-zinc-900 dark:text-zinc-100">{p.name}</span>
+					<span class="shrink-0 tabular-nums text-xs text-zinc-500 dark:text-zinc-400">{tp('overview.bankClassifyRow', { count: p.count, sum: formatCurrency(p.sumCents / 100) })}</span>
+				</label>
+			</li>
+		{/each}
+	</ul>
+	{#snippet footer()}
+		<button type="button" class="btn-secondary" onclick={() => (classifyOpen = false)}>{t('overview.bankClassifyLater')}</button>
+		<button type="button" class="btn-primary" disabled={savingClassify} onclick={saveClassification} data-testid="bank-classify-save">{t('overview.bankClassifySave')}</button>
+	{/snippet}
+</Dialog>
