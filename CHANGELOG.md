@@ -5,6 +5,23 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-11-10
+
+- Assistant in bookie Cloud: the panel now asks the server (Mistral, EU) instead of needing your own API key.
+  Each company has a monthly quota (100 requests per seat), shown at the top of the panel. It stays off until the
+  server enables it; local mode keeps using your own key. Subcontractors have no assistant.
+- DATEV export: after a bank statement import the app asks which transfers without IBAN go to a private account
+  (booked as Privatentnahme/-einlage). Everything else counts as a move between Spaces and is not booked. Before,
+  lines like "Hauptkonto", "Steuer Rücklage" and "Mehrwertsteuer" were left out of the export without a word.
+- Assistant answers appear token by token.
+
+## [0.1.16] - 2026-11-10
+
+- The Finanzberater page is replaced by an assistant panel next to every page (⌘J / Ctrl+J, or the sidebar).
+  It sees the figures of the open page and shows exactly what is sent before you ask. It reads only; it changes
+  nothing. Set up your provider under Einstellungen → KI.
+- macOS: the downloadable DMG is notarized too, so opening it no longer raises a Gatekeeper warning.
+
 ## [0.1.15] - 2026-11-09
 
 - Faster start: the app no longer waits for an S3 test upload before showing the window (it took up to ~30 s on
