@@ -17,6 +17,8 @@ export type Turn = {
   text: string;
   sent: string;
   ctx?: string;
+  /** Assistant turns: still being revealed token by token (visual only). */
+  stream?: boolean;
 };
 
 export const contextJson = (c: PageContext): string =>

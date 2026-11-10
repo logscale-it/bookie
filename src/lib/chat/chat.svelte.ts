@@ -41,7 +41,7 @@ export async function sendChat(question: string): Promise<boolean> {
   try {
     const text = await complete(SYSTEM_PROMPT, toMessages(chat.turns), cfg);
     if (mine !== gen) return false;
-    chat.turns.push({ role: "assistant", text, sent: text });
+    chat.turns.push({ role: "assistant", text, sent: text, stream: true });
     return true;
   } catch (e) {
     if (mine !== gen) return false;

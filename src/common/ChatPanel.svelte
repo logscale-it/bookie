@@ -10,6 +10,7 @@
 	import { pageContext } from '$lib/chat/context.svelte';
 	import { valueCount } from '$lib/chat/prompt';
 	import { session } from '$lib/session.svelte';
+	import StreamText from './StreamText.svelte';
 
 	let draft = $state('');
 	let configured = $state(false);
@@ -40,10 +41,13 @@
 		lastCompany = id;
 	});
 
+	function scrollEnd(smooth = false) {
+		list?.scrollTo({ top: list.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+	}
 	$effect(() => {
 		chat.turns.length;
 		chat.busy;
-		tick().then(() => list?.scrollTo({ top: list.scrollHeight, behavior: 'smooth' }));
+		tick().then(() => scrollEnd(true));
 	});
 
 	function grow() {
@@ -152,7 +156,7 @@
 					{#if turn.role === 'user'}
 						<p data-testid="chat-row" data-role="user" class="ml-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">{turn.text}</p>
 					{:else}
-						<p data-testid="chat-row" data-role="assistant" class="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">{turn.text}</p>
+						<p data-testid="chat-row" data-role="assistant" class="text-sm leading-relaxed text-zinc-800 dark:text-zinc-200"><StreamText text={turn.text} animate={turn.stream} ongrow={() => scrollEnd()} ondone={() => (turn.stream = false)} /></p>
 					{/if}
 				{/each}
 				{#if chat.busy}
