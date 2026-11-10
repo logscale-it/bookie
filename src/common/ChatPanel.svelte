@@ -24,10 +24,12 @@
 
 	// localStorage is not reactive: re-read the config whenever the panel opens.
 	$effect(() => {
-		if (open) {
-			configured = aiConfig() !== null;
-			tick().then(() => input?.focus());
-		}
+		if (open) configured = aiConfig() !== null;
+	});
+
+	// The textarea exists only once configured; focus it whenever it appears while open.
+	$effect(() => {
+		if (open && input) input.focus();
 	});
 
 	// Another company is another set of books: start a fresh conversation.
@@ -75,9 +77,9 @@
 	data-testid="chat-panel"
 	aria-label={t('chat.title')}
 	inert={!open}
-	class="shrink-0 overflow-hidden bg-white transition-[width] duration-300 ease-out-expo dark:bg-zinc-900
+	class="shrink-0 overflow-hidden bg-white dark:bg-zinc-900
 		max-md:fixed max-md:inset-x-0 max-md:bottom-16 max-md:z-40 max-md:h-[65vh] max-md:rounded-t-2xl max-md:border-t max-md:border-zinc-900/10 max-md:dark:border-white/10
-		{open ? '' : 'max-md:hidden'}
+		{open ? '[transition:width_300ms_var(--ease-out-expo)]' : 'invisible max-md:hidden [transition:width_300ms_var(--ease-out-expo),visibility_0s_linear_300ms]'}
 		{chat.mode === 'closed' ? 'md:w-0' : chat.mode === 'wide' ? 'md:w-[560px]' : 'md:w-[380px]'}
 		md:border-l md:border-zinc-900/5 md:dark:border-white/10 {open ? '' : 'md:border-l-0'}"
 >
@@ -85,7 +87,7 @@
 		<header class="flex items-center gap-1 px-4 pb-2 pt-4">
 			<h2 class="mr-auto text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t('chat.title')}</h2>
 			{#if chat.turns.length}
-				<button type="button" class="icon-btn" title={t('chat.clear')} aria-label={t('chat.clear')} onclick={resetChat}>
+				<button type="button" class="icon-btn" title={t('chat.clear')} aria-label={t('chat.clear')} onclick={resetChat} data-testid="chat-new">
 					<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992V4.356M2.985 19.644v-4.992h4.992m10.5-4.304A8.25 8.25 0 005.4 8.4M3.523 14.652A8.25 8.25 0 0018.6 15.6" /></svg>
 				</button>
 			{/if}
@@ -148,19 +150,19 @@
 				{/if}
 				{#each chat.turns as turn, i (i)}
 					{#if turn.role === 'user'}
-						<p class="ml-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">{turn.text}</p>
+						<p data-testid="chat-row" data-role="user" class="ml-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">{turn.text}</p>
 					{:else}
-						<p class="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">{turn.text}</p>
+						<p data-testid="chat-row" data-role="assistant" class="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">{turn.text}</p>
 					{/if}
 				{/each}
 				{#if chat.busy}
-					<div class="space-y-2" role="status" aria-label={t('chat.thinking')}>
+					<div class="space-y-2" data-testid="chat-pending" role="status" aria-label={t('chat.thinking')}>
 						<div class="skeleton h-3 w-11/12"></div>
 						<div class="skeleton h-3 w-7/12"></div>
 					</div>
 				{/if}
 				{#if chat.error}
-					<p class="rounded-md bg-red-50 px-3 py-2 text-xs text-red-800 dark:bg-red-900/20 dark:text-red-200" role="alert">
+					<p class="rounded-md bg-red-50 px-3 py-2 text-xs text-red-800 dark:bg-red-900/20 dark:text-red-200" role="alert" data-testid="chat-error">
 						<span class="font-medium">{t('chat.error')}.</span> {chat.error}
 					</p>
 				{/if}
@@ -183,7 +185,7 @@
 					class="input-base input-valid max-h-40 resize-none"
 					data-testid="chat-input"
 				></textarea>
-				<button type="submit" class="btn-primary shrink-0" disabled={!draft.trim() || chat.busy}>{t('chat.send')}</button>
+				<button type="submit" data-testid="chat-send" class="btn-primary shrink-0" disabled={!draft.trim() || chat.busy}>{t('chat.send')}</button>
 			</form>
 		{/if}
 	</div>
