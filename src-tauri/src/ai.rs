@@ -190,12 +190,25 @@ pub fn build_text_request(
 
 /// The model's answer text, or `None` when the response has an unexpected shape.
 pub fn response_text(provider: &str, v: &Value) -> Option<String> {
-    let text = match provider {
-        "anthropic" => v["content"][0]["text"].as_str(),
-        "gemini" => v["candidates"][0]["content"]["parts"][0]["text"].as_str(),
-        _ => v["choices"][0]["message"]["content"].as_str(),
+    // Typed blocks: keep the text ones (Claude may lead with a thinking block, Gemini
+    // splits long answers into parts, newer Mistral models answer in chunks).
+    let blocks = |v: &Value| {
+        let text: String = v
+            .as_array()?
+            .iter()
+            .filter(|b| b["thought"] != true)
+            .filter_map(|b| b["text"].as_str())
+            .collect();
+        (!text.is_empty()).then_some(text)
     };
-    text.map(str::to_string)
+    match provider {
+        "anthropic" => blocks(&v["content"]),
+        "gemini" => blocks(&v["candidates"][0]["content"]["parts"]),
+        _ => {
+            let c = &v["choices"][0]["message"]["content"];
+            c.as_str().map(str::to_string).or_else(|| blocks(c))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -347,5 +360,13 @@ mod tests {
         assert_eq!(response_text("gemini", &g).as_deref(), Some("G"));
         assert_eq!(response_text("mistral", &o).as_deref(), Some("O"));
         assert_eq!(response_text("openai", &a), None);
+
+        let thinking = json!({"content": [{"type": "thinking", "thinking": "hm"}, {"type": "text", "text": "A"}]});
+        assert_eq!(response_text("anthropic", &thinking).as_deref(), Some("A"));
+        let parts = json!({"candidates": [{"content": {"parts": [{"text": "x", "thought": true}, {"text": "G"}, {"text": "2"}]}}]});
+        assert_eq!(response_text("gemini", &parts).as_deref(), Some("G2"));
+        let chunks =
+            json!({"choices": [{"message": {"content": [{"type": "text", "text": "O"}]}}]});
+        assert_eq!(response_text("mistral", &chunks).as_deref(), Some("O"));
     }
 }

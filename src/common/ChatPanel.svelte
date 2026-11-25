@@ -9,7 +9,7 @@
 	import { cloud } from '$lib/cloud';
 	import { chat, sendChat, resetChat, toggleChat } from '$lib/chat/chat.svelte';
 	import { pageContext } from '$lib/chat/context.svelte';
-	import { valueCount } from '$lib/chat/prompt';
+	import { contextText, valueCount } from '$lib/chat/prompt';
 	import { isSub, session } from '$lib/session.svelte';
 	import StreamText from './StreamText.svelte';
 
@@ -21,21 +21,26 @@
 
 	const ctx = $derived(pageContext.current);
 	const open = $derived(chat.mode !== 'closed');
-	const provider = () => (cloud() ? 'Mistral (EU)' : PROVIDERS[aiConfig()?.provider ?? 'anthropic'].label);
+	const provider = () => (cloud() && chat.server ? 'Mistral (EU)' : PROVIDERS[aiConfig()?.provider ?? 'anthropic'].label);
 	const quick = ['chat.quick1', 'chat.quick2', 'chat.quick3'] as const;
 
 	// localStorage is not reactive: re-check whenever the panel opens. Cloud: the server says
-	// whether the assistant is on and how much of the month's quota is used.
+	// whether the assistant is on and how much of the month's quota is used; when it is off
+	// (AI_CHAT_ENABLED unset), an own key from Einstellungen → KI still works.
 	$effect(() => {
 		if (!open) return;
 		if (cloud()) {
 			aiUsage()
 				.then((u) => {
-					configured = u.enabled;
-					chat.quota = { used: u.used, limit: u.limit };
+					chat.server = u.enabled;
+					configured = u.enabled || aiConfig() !== null;
+					chat.quota = u.enabled ? { used: u.used, limit: u.limit } : null;
 				})
 				.catch(() => (configured = false));
-		} else configured = aiConfig() !== null;
+		} else {
+			chat.server = false;
+			configured = aiConfig() !== null;
+		}
 	});
 
 	// The textarea exists only once configured; focus it whenever it appears while open.
@@ -137,7 +142,7 @@
 			</button>
 			{#if showData && ctx}
 				<div class="mt-2 animate-pop rounded-md bg-zinc-50 p-2.5 dark:bg-zinc-800/60">
-					<pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-300">{JSON.stringify(ctx.facts, null, 1)}</pre>
+					<pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-zinc-700 dark:text-zinc-300">{contextText(ctx)}</pre>
 					<p class="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{tp('chat.sentNote', { provider: provider() })}</p>
 				</div>
 			{/if}
@@ -148,6 +153,7 @@
 				{#if cloud()}
 					<p class="text-sm font-medium text-zinc-800 dark:text-zinc-100">{t('chat.unavailableTitle')}</p>
 					<p class="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{t('chat.unavailableHint')}</p>
+					<a href="/einstellungen/ki" class="btn-primary self-start" onclick={() => (chat.mode = 'closed')}>{t('chat.setupAction')}</a>
 				{:else}
 					<p class="text-sm font-medium text-zinc-800 dark:text-zinc-100">{t('chat.setupTitle')}</p>
 					<p class="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">{t('chat.setupHint')}</p>

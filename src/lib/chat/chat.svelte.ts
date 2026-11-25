@@ -5,6 +5,7 @@
 import { aiConfig, aiUsage, complete, completeCloud } from "$lib/ai";
 import { cloud, CloudError } from "$lib/cloud";
 import { isSub } from "$lib/session.svelte";
+import { messageForUnknown } from "$lib/shared/errors";
 import { pageContext } from "./context.svelte";
 import { SYSTEM_PROMPT, toMessages, userTurn, type Turn } from "./prompt";
 
@@ -17,6 +18,8 @@ export const chat = $state({
   error: "",
   /** Cloud only: this month's requests used and allowed for the company. */
   quota: null as { used: number; limit: number } | null,
+  /** Cloud only: the server's assistant is on (set by the panel from /api/ai/usage). Off: the own key from Einstellungen → KI is used. */
+  server: false,
 });
 
 let gen = 0;
@@ -37,7 +40,7 @@ export function resetChat(): void {
 /** True when the question was answered; false leaves the thread as it was so the draft can be restored. */
 export async function sendChat(question: string): Promise<boolean> {
   const cfg = aiConfig();
-  const inCloud = cloud() !== null; // cloud wins, like receipt OCR: the server key and quota apply
+  const inCloud = cloud() !== null && chat.server; // server assistant wins, like receipt OCR: its key and quota apply
   if (!question.trim() || chat.busy || (!inCloud && !cfg)) return false;
   const mine = gen;
   const turn = userTurn(pageContext.current, question, chat.turns);
@@ -58,8 +61,11 @@ export async function sendChat(question: string): Promise<boolean> {
     if (mine !== gen) return false;
     chat.turns.pop();
     if (inCloud && e instanceof CloudError && e.code === "quota_exceeded")
-      aiUsage().then((u) => (chat.quota = { used: u.used, limit: u.limit })).catch(() => {});
-    chat.error = e instanceof Error ? e.message : String(e);
+      aiUsage()
+        .then((u) => (chat.quota = { used: u.used, limit: u.limit }))
+        .catch(() => {});
+    // Rust rejects with a BookieError object, not an Error: String(e) would show "[object Object]".
+    chat.error = e instanceof Error ? e.message : messageForUnknown(e);
     return false;
   } finally {
     if (mine === gen) chat.busy = false;
