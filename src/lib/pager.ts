@@ -24,7 +24,7 @@ function parsePositiveInt(raw: string | null, fallback: number): number {
   return n;
 }
 
-export function parsePager(searchParams: URLSearchParams): PagerState {
+export function parsePager(searchParams: Pick<URLSearchParams, "get">): PagerState {
   const page = parsePositiveInt(searchParams.get("page"), DEFAULT_PAGE);
   const rawSize = parsePositiveInt(searchParams.get("size"), DEFAULT_SIZE);
   const size = Math.min(rawSize, MAX_SIZE);

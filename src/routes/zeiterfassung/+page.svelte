@@ -194,10 +194,10 @@
 	});
 
 	function gotoPage(target: number) {
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new URLSearchParams(page.url.search);
 		params.set('page', String(target));
 		params.set('size', String(pager.size));
-		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
+		goto(`?${params.toString()}`, { reset: false });
 	}
 
 	function resetToFirstPage() {
@@ -256,9 +256,9 @@
 		if (!stopped || loading || !page.url.searchParams.has('fromTimer')) return;
 		timer.lastStopped = null;
 		openFromTimer(stopped);
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new URLSearchParams(page.url.search);
 		params.delete('fromTimer');
-		goto(`?${params.toString()}`, { replaceState: true, keepFocus: true, noScroll: true });
+		goto(`?${params.toString()}`, { replace: true, reset: false });
 	});
 
 	function onKeydown(e: KeyboardEvent) {

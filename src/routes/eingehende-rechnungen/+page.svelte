@@ -221,10 +221,10 @@
 	}
 
 	function gotoPage(target: number) {
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new URLSearchParams(page.url.search);
 		params.set('page', String(target));
 		params.set('size', String(pager.size));
-		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
+		goto(`?${params.toString()}`, { reset: false });
 	}
 
 	// DAT-5.b: helper to land a PDF on disk under <appdata>/incoming_invoices/

@@ -6,7 +6,7 @@
 
 	onMount(() => {
 		// Without reports access the dashboard is empty: start at the time sheet.
-		goto(can('reports') ? '/uebersicht' : '/zeiterfassung', { replaceState: true });
+		goto(can('reports') ? '/uebersicht' : '/zeiterfassung', { replace: true });
 	});
 </script>
 

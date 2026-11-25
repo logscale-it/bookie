@@ -60,10 +60,10 @@
 	});
 
 	function gotoPage(target: number) {
-		const params = new URLSearchParams(page.url.searchParams);
+		const params = new URLSearchParams(page.url.search);
 		params.set('page', String(target));
 		params.set('size', String(pager.size));
-		goto(`?${params.toString()}`, { keepFocus: true, noScroll: true });
+		goto(`?${params.toString()}`, { reset: false });
 	}
 
 	function formatDate(dateStr: string | null): string {

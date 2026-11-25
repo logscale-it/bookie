@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import InvoiceForm, { type SaveData } from '../../../common/InvoiceForm.svelte';
 	import InvoiceHistory from '../../../common/InvoiceHistory.svelte';
@@ -47,7 +47,7 @@
 	let payMethod = $state('Überweisung');
 	let busy = $state(false);
 
-	const invoiceId = $derived(Number($page.params.id));
+	const invoiceId = $derived(Number(page.params.id));
 
 	$effect(() => {
 		const id = invoiceId;

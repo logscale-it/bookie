@@ -16,8 +16,7 @@
   },
   "license": "MIT",
   "overrides": {
-    "source-map-js": "^1.2.2",
-    "cookie": "^0.7.2"
+    "source-map-js": "^1.2.2"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
@@ -32,8 +31,8 @@
     "uqr": "^0.1.2"
   },
   "devDependencies": {
-    "@sveltejs/adapter-static": "^3.0.10",
-    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/adapter-static": "^4.0.1",
+    "@sveltejs/kit": "^3.4.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.12.1",

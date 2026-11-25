@@ -1,5 +1,6 @@
 {
-  "extends": "./.svelte-kit/tsconfig.json",
+  "extends": "$app/tsconfig",
+  "include": ["src", "tests", "*"],
   "compilerOptions": {
     "allowJs": true,
     "checkJs": true,
@@ -10,7 +11,9 @@
     "sourceMap": true,
     "strict": true,
     "moduleResolution": "bundler",
-    "types": ["bun"]
+    "types": ["bun", "$app/types"],
+    // Also set by SvelteKit in $app/tsconfig; repeated because bun test does not follow that extends.
+    "paths": { "$lib": ["./src/lib"], "$lib/*": ["./src/lib/*"] }
   }
   // Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
   // except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
