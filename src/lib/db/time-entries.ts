@@ -72,7 +72,14 @@ export async function listTimeEntries(
 /** Unpaginated, filtered in SQL. entry_date is ISO `YYYY-MM-DD`, so string compare is a date compare. */
 export async function listTimesheetEntries(
   companyId: number,
-  filter: { from?: string; to?: string; customerId?: number | null; projectId?: number | null } = {},
+  filter: {
+    from?: string;
+    to?: string;
+    customerId?: number | null;
+    projectId?: number | null;
+    /** Cloud only: entries of one member (local entries carry no author). */
+    userId?: number | null;
+  } = {},
 ): Promise<TimeEntry[]> {
   if (cloud()) {
     return (await remote.list()).filter(
@@ -80,7 +87,8 @@ export async function listTimesheetEntries(
         (!filter.from || e.entry_date >= filter.from) &&
         (!filter.to || e.entry_date <= filter.to) &&
         (filter.customerId == null || e.customer_id === filter.customerId) &&
-        (filter.projectId == null || e.project_id === filter.projectId),
+        (filter.projectId == null || e.project_id === filter.projectId) &&
+        (filter.userId == null || e.user_id === filter.userId),
     );
   }
   const db = await getDb();

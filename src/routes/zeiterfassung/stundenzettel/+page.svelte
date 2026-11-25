@@ -12,15 +12,19 @@
 	import { writeBinaryFile } from '$lib/fs';
 	import { messageForUnknown } from '$lib/shared/errors';
 	import { save } from '@tauri-apps/plugin-dialog';
+	import { cloud } from '$lib/cloud';
+	import { can, memberName, session } from '$lib/session.svelte';
+	import Avatar from '../../../common/Avatar.svelte';
+	import { fly } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 
-	type GroupingMode = 'customer-date' | 'customer-week';
-	type TimeSheetRow = TimeEntry & { customerName: string };
-	type GroupedTimeSheet = {
-		groupKey: string;
+	// One card per project (entries without a project: per customer), entries oldest first.
+	type ProjectGroup = {
+		key: string;
+		projectName: string;
 		customerName: string;
-		periodLabel: string;
 		totalMinutes: number;
-		entries: TimeSheetRow[];
+		entries: TimeEntry[];
 	};
 
 	let loading = $state(true);
@@ -33,7 +37,15 @@
 	let periodEnd = $state('');
 	let selectedCustomerId = $state('all');
 	let selectedProjectId = $state('all');
-	let grouping = $state<GroupingMode>('customer-date');
+	let selectedUserId = $state('all');
+
+	// Cloud with the team_time grant: other members' entries are listed too (same rule as the entry list).
+	const members = session.me?.active?.members ?? [];
+	const teamView = !!cloud() && can('team_time') && members.length > 1;
+	const userOptions = [
+		{ value: 'all', label: t('timeUi.allStaff') },
+		...members.map((m) => ({ value: String(m.id), label: m.name }))
+	];
 
 	const customerOptions = $derived.by(() => [
 		{ value: 'all', label: t('timeTracking.allCustomers') },
@@ -52,53 +64,40 @@
 		if (!projectOptions.some((option) => option.value === selectedProjectId)) selectedProjectId = 'all';
 	});
 
-	const groupingOptions = $derived([
-		{ value: 'customer-date', label: t('timeTracking.groupByDate') },
-		{ value: 'customer-week', label: t('timeTracking.groupByWeek') }
-	]);
+	const groups = $derived.by(() => {
+		const customerName = new Map(customers.map((c) => [c.id, c.name]));
+		const projectName = new Map(projects.map((p) => [p.id, p.name]));
+		const grouped = new Map<string, ProjectGroup>();
 
-	const filteredRows = $derived.by(() => {
-		const customerMap = new Map(customers.map((customer) => [customer.id, customer.name]));
-		return rows.map((entry) => ({
-			...entry,
-			customerName: entry.customer_id ? (customerMap.get(entry.customer_id) ?? '—') : '—'
-		}));
-	});
-
-	const groupedRows = $derived.by(() => {
-		const grouped = new Map<string, GroupedTimeSheet>();
-
-		for (const entry of filteredRows) {
-			const periodLabel =
-				grouping === 'customer-week'
-					? formatWeekLabel(entry.entry_date)
-					: formatDate(entry.entry_date);
-			const periodKey = grouping === 'customer-week' ? getIsoWeekKey(entry.entry_date) : entry.entry_date;
-			const groupKey = `${entry.customer_id ?? 0}-${periodKey}`;
-			const existing = grouped.get(groupKey);
-
-			if (existing) {
-				existing.entries.push(entry);
-				existing.totalMinutes += entry.duration_minutes ?? 0;
-				continue;
+		for (const entry of rows) {
+			const key = entry.project_id != null ? `p${entry.project_id}` : `c${entry.customer_id ?? 0}`;
+			let group = grouped.get(key);
+			if (!group) {
+				group = {
+					key,
+					projectName: (entry.project_id != null && projectName.get(entry.project_id)) || t('timeTracking.noProject'),
+					customerName: (entry.customer_id != null && customerName.get(entry.customer_id)) || '—',
+					totalMinutes: 0,
+					entries: []
+				};
+				grouped.set(key, group);
 			}
-
-			grouped.set(groupKey, {
-				groupKey,
-				customerName: entry.customerName,
-				periodLabel,
-				totalMinutes: entry.duration_minutes ?? 0,
-				entries: [entry]
-			});
+			group.entries.push(entry);
+			group.totalMinutes += entry.duration_minutes ?? 0;
 		}
 
-		return Array.from(grouped.values()).sort((a, b) => a.periodLabel.localeCompare(b.periodLabel));
+		const sorted = [...grouped.values()].sort(
+			(a, b) => a.customerName.localeCompare(b.customerName) || a.projectName.localeCompare(b.projectName)
+		);
+		for (const g of sorted)
+			g.entries.sort((a, b) => a.entry_date.localeCompare(b.entry_date) || (a.started_at ?? '').localeCompare(b.started_at ?? ''));
+		return sorted;
 	});
 
-	const totalHoursLabel = $derived.by(() => {
-		const totalMinutes = filteredRows.reduce((sum, entry) => sum + (entry.duration_minutes ?? 0), 0);
-		return formatHours(totalMinutes);
-	});
+	const totalMinutes = $derived(rows.reduce((sum, entry) => sum + (entry.duration_minutes ?? 0), 0));
+	const totalHoursLabel = $derived(formatHours(totalMinutes));
+
+	const enter = (i: number) => ({ y: 12, duration: 520, delay: Math.min(i, 8) * 40, easing: cubicOut });
 
 	$effect(() => {
 		loadData();
@@ -109,7 +108,8 @@
 			from: periodStart,
 			to: periodEnd,
 			customerId: selectedCustomerId !== 'all' ? Number(selectedCustomerId) : null,
-			projectId: selectedProjectId !== 'all' ? Number(selectedProjectId) : null
+			projectId: selectedProjectId !== 'all' ? Number(selectedProjectId) : null,
+			userId: selectedUserId !== 'all' ? Number(selectedUserId) : null
 		};
 		if (companyId !== null) loadEntries(companyId, filter);
 	});
@@ -155,24 +155,11 @@
 		return date.toLocaleDateString('de-DE', { dateStyle: 'medium' });
 	}
 
-	function formatWeekLabel(dateString: string): string {
-		const [year, week] = getIsoWeekKey(dateString).split('-W');
-		return `${t('timeTracking.weekLabel')} ${week}/${year}`;
-	}
-
-	function getIsoWeekKey(dateString: string): string {
+	/** "Mo., 03. Nov." for the entry rows. */
+	function formatDay(dateString: string): string {
 		const date = new Date(`${dateString}T00:00:00`);
-		if (Number.isNaN(date.getTime())) return '0000-W00';
-
-		const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-		const dayNr = (target.getUTCDay() + 6) % 7;
-		target.setUTCDate(target.getUTCDate() - dayNr + 3);
-		const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
-		const firstDayNr = (firstThursday.getUTCDay() + 6) % 7;
-		firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNr + 3);
-		const week = 1 + Math.round((target.getTime() - firstThursday.getTime()) / 604800000);
-
-		return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+		if (Number.isNaN(date.getTime())) return t('timeTracking.invalidDate');
+		return date.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: 'short' });
 	}
 
 	let pdfLoading = $state(false);
@@ -190,7 +177,7 @@
 			selectedProjectId === 'all'
 				? 'Projekt: alle'
 				: `Projekt: ${projects.find((project) => project.id === Number(selectedProjectId))?.name ?? '—'}`,
-			grouping === 'customer-week' ? 'Gruppierung: Woche' : 'Gruppierung: Datum'
+			...(selectedUserId === 'all' ? [] : [`${t('timeUi.staff')}: ${memberName(Number(selectedUserId))}`])
 		].join(' · ');
 
 		const filePath = await save({
@@ -206,13 +193,14 @@
 				createdAtLabel: new Date().toLocaleString('de-DE'),
 				filtersLabel: filters,
 				totalHoursLabel,
-				groups: groupedRows.map((group) => ({
-					customerName: group.customerName,
-					periodLabel: group.periodLabel,
+				groups: groups.map((group) => ({
+					customerName: group.projectName,
+					periodLabel: `${group.customerName} · ${formatDate(group.entries[0].entry_date)} – ${formatDate(group.entries.at(-1)!.entry_date)}`,
 					totalLabel: formatHours(group.totalMinutes),
 					entries: group.entries.map((entry) => ({
 						entryDate: formatDate(entry.entry_date),
-						description: entry.description || '—',
+						// Team sheet over several people: say who booked the line.
+						description: [teamView && selectedUserId === 'all' && memberName(entry.user_id), entry.description || '—'].filter(Boolean).join(': '),
 						durationLabel: formatHours(entry.duration_minutes ?? 0)
 					}))
 				}))
@@ -236,7 +224,7 @@
 			<h2 class="text-lg font-semibold tracking-tight">{t('timeTracking.timesheetTitle')}</h2>
 			<p class="text-sm text-zinc-500 dark:text-zinc-400">{t('timeTracking.timesheetSubtitle')}</p>
 		</div>
-		<button type="button" onclick={exportPdf} disabled={pdfLoading || groupedRows.length === 0} class="btn-secondary">
+		<button type="button" onclick={exportPdf} disabled={pdfLoading || groups.length === 0} class="btn-secondary">
 			<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
 			{pdfLoading ? 'Exportiere…' : t('timeTracking.printPdf')}
 		</button>
@@ -246,60 +234,72 @@
 		<div class="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-600/15 dark:bg-red-900/20 dark:text-red-300 dark:ring-red-400/20">{pdfError}</div>
 	{/if}
 
-	<div class="card grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+	<div class="card grid gap-3 md:grid-cols-2 {teamView ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}">
 		<DateInput bind:value={periodStart} label={t('timeTracking.periodFrom')} max={periodEnd || ''} />
 		<DateInput bind:value={periodEnd} label={t('timeTracking.periodTo')} min={periodStart || ''} />
 		<Select bind:value={selectedCustomerId} label={t('timeTracking.customer')} options={customerOptions} />
 		<Select bind:value={selectedProjectId} label={t('timeTracking.project')} options={projectOptions} />
-		<Select bind:value={grouping} label={t('timeTracking.grouping')} options={groupingOptions} />
+		{#if teamView}
+			<Select bind:value={selectedUserId} label={t('timeUi.staff')} options={userOptions} />
+		{/if}
 	</div>
 
-	<div class="grid gap-3 md:grid-cols-3">
-		{#each [{ label: t('timeTracking.hits'), value: String(filteredRows.length) }, { label: t('timeTracking.groups'), value: String(groupedRows.length) }, { label: t('timeTracking.totalDuration'), value: totalHoursLabel }] as stat (stat.label)}
-			<div class="card">
-				<div class="text-xs font-medium text-zinc-500 dark:text-zinc-400">{stat.label}</div>
-				<div class="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-100">{stat.value}</div>
+	<div class="grid gap-3 sm:grid-cols-3">
+		{#each [{ label: t('timeTracking.totalDuration'), value: totalHoursLabel }, { label: t('nav.projects'), value: String(groups.length) }, { label: t('timeTracking.timeEntries'), value: String(rows.length) }] as stat, i (stat.label)}
+			<div class="bezel" in:fly={enter(i)}>
+				<div class="bezel-core">
+					<p class="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">{stat.label}</p>
+					<p class="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">{stat.value}</p>
+				</div>
 			</div>
 		{/each}
 	</div>
 
-	<div class="table-card">
-		{#if loading}
-			<SkeletonRows rows={5} cols={3} />
-		{:else if groupedRows.length === 0}
-			<EmptyState
-				icon="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-				title={t('timeTracking.emptyTimesheet')}
-			/>
-		{:else}
-			<div class="divide-y divide-zinc-100 dark:divide-zinc-700/70">
-				{#each groupedRows as group (group.groupKey)}
-					<div class="space-y-3 p-4">
-						<div class="flex flex-wrap items-baseline justify-between gap-2">
-							<div>
-								<h3 class="font-medium text-zinc-900 dark:text-zinc-100">{group.customerName}</h3>
-								<p class="text-xs text-zinc-500 dark:text-zinc-400">{group.periodLabel}</p>
-							</div>
-							<div class="text-sm font-semibold tabular-nums">{formatHours(group.totalMinutes)}</div>
+	{#if loading}
+		<div class="table-card"><SkeletonRows rows={5} cols={3} /></div>
+	{:else if groups.length === 0}
+		<div class="table-card">
+			<EmptyState icon="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" title={t('timeTracking.emptyTimesheet')} />
+		</div>
+	{:else}
+		<div class="space-y-4">
+			{#each groups as group, i (group.key)}
+				{@const share = totalMinutes > 0 ? group.totalMinutes / totalMinutes : 0}
+				<article class="table-card" in:fly={enter(i)}>
+					<header class="flex items-end justify-between gap-4 px-5 pb-3 pt-4">
+						<div class="min-w-0">
+							<p class="truncate text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">{group.customerName}</p>
+							<h3 class="mt-0.5 truncate text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{group.projectName}</h3>
 						</div>
+						<div class="shrink-0 text-right">
+							<p class="text-xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">{formatHours(group.totalMinutes)}</p>
+							<p class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400">{group.entries.length} {t('timeTracking.timeEntries')} · {Math.round(share * 100)} %</p>
+						</div>
+					</header>
 
-						<div class="overflow-hidden rounded-lg ring-1 ring-zinc-900/5 dark:ring-white/10">
-							<div class="grid grid-cols-[140px_1fr_90px] bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
-								<div>{t('common.date')}</div>
-								<div>{t('common.description')}</div>
-								<div class="text-right">{t('timeTracking.duration')}</div>
-							</div>
-							{#each group.entries as entry (entry.id)}
-								<div class="grid grid-cols-[140px_1fr_90px] border-t border-zinc-100 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700/70 dark:text-zinc-200">
-									<div class="text-xs tabular-nums leading-5 text-zinc-500 dark:text-zinc-400">{formatDate(entry.entry_date)}</div>
-									<div class="truncate">{entry.description || '—'}</div>
-									<div class="text-right tabular-nums">{formatHours(entry.duration_minutes ?? 0)}</div>
-								</div>
-							{/each}
-						</div>
+					<!-- Share of the sheet's total -->
+					<div class="mx-5 h-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-700/60" aria-hidden="true">
+						<div class="h-full origin-left rounded-full bg-accent-500 transition-transform duration-700 ease-spring" style="transform: scaleX({share})"></div>
 					</div>
-				{/each}
-			</div>
-		{/if}
-	</div>
+
+					<ul class="p-2">
+						{#each group.entries as entry, j (entry.id)}
+							{@const newDay = j === 0 || group.entries[j - 1].entry_date !== entry.entry_date}
+							<li data-testid="timesheet-row" class="grid grid-cols-[1fr_auto] items-baseline gap-x-4 gap-y-0.5 rounded-lg px-3 py-2 text-sm transition-colors duration-200 ease-spring hover:bg-zinc-50 sm:grid-cols-[7.5rem_1fr_auto] dark:hover:bg-zinc-700/30">
+								<!-- The day is printed once; further entries of the same day line up under it. -->
+								<span class="text-xs tabular-nums text-zinc-500 dark:text-zinc-400 {newDay ? 'max-sm:col-span-2' : 'max-sm:hidden'}">{newDay ? formatDay(entry.entry_date) : ''}</span>
+								<span class="flex min-w-0 items-baseline gap-2 text-zinc-700 dark:text-zinc-200">
+									{#if teamView}
+										<span class="self-center"><Avatar id={entry.user_id} name={memberName(entry.user_id) || '?'} size="sm" /></span>
+									{/if}
+									<span class="min-w-0 break-words">{entry.description || '—'}</span>
+								</span>
+								<span class="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">{formatHours(entry.duration_minutes ?? 0)}</span>
+							</li>
+						{/each}
+					</ul>
+				</article>
+			{/each}
+		</div>
+	{/if}
 </section>
