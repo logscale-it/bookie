@@ -37,7 +37,6 @@ const CW = PW - ML - MR;
 
 // -- Colors --
 const C = {
-	accent: rgb(37 / 255, 99 / 255, 235 / 255),
 	text: rgb(26 / 255, 26 / 255, 26 / 255),
 	gray: rgb(85 / 255, 85 / 255, 85 / 255),
 	light: rgb(136 / 255, 136 / 255, 136 / 255),
@@ -59,6 +58,8 @@ const COL_DUR_X = ML + COL_DATE_W + COL_DESC_W;
 const FS = { title: 16.5, groupName: 8.25, groupPeriod: 6.4, metaLabel: 5.25, metaValue: 6.4, thSize: 5.6, tdSize: 6.75, sumSize: 7 };
 const ROW_LINE_H = 3.2;
 const ROW_PAD = 2;
+// y is a row's top edge; text is drawn on a baseline this far below it.
+const ROW_BASE = 3.2;
 
 function mm2pt(mm: number): number { return mm * 2.83465; }
 function yPt(yMm: number): number { return mm2pt(PH - yMm); }
@@ -108,8 +109,6 @@ export async function createTimesheetPdf(data: TimeSheetPdfData): Promise<Uint8A
 	function addNewPage() {
 		page = pdfDoc.addPage([mm2pt(PW), mm2pt(PH)]);
 		y = MT;
-		drawRect(page, 0, 0, PW, 1, C.accent);
-		y += 4;
 	}
 
 	function drawTableHeader() {
@@ -118,11 +117,8 @@ export async function createTimesheetPdf(data: TimeSheetPdfData): Promise<Uint8A
 		drawTextRight(page, tr.timesheetDuration.toUpperCase(), COL_DUR_X + COL_DUR_W, y, fontBold, FS.thSize, C.gray);
 		y += 2;
 		drawLine(page, ML, y, ML + CW, C.text, 0.75);
-		y += 2;
 	}
 
-	// -- Accent bar --
-	drawRect(page, 0, 0, PW, 1, C.accent);
 	y += 2;
 
 	// -- Title --
@@ -140,7 +136,7 @@ export async function createTimesheetPdf(data: TimeSheetPdfData): Promise<Uint8A
 		{ label: tr.timesheetTotalDuration.toUpperCase(), value: data.totalHoursLabel }
 	];
 
-	let my = y + 1;
+	let my = y + 3.8;
 	for (const item of metaItems) {
 		drawText(page, item.label, ML + 4, my, fontBold, FS.metaLabel, C.light);
 		drawText(page, item.value, ML + 30, my, font, FS.metaValue, C.text);
@@ -171,28 +167,27 @@ export async function createTimesheetPdf(data: TimeSheetPdfData): Promise<Uint8A
 		// Table rows
 		for (const entry of group.entries) {
 			const descLines = splitText(entry.description || '—', font, FS.tdSize, COL_DESC_W - 3);
-			const rowH = Math.max(descLines.length * ROW_LINE_H, 4) + ROW_PAD;
+			const rowH = descLines.length * ROW_LINE_H + ROW_PAD;
 
 			if (needsNewPage(rowH + 2)) {
 				addNewPage();
 				drawTableHeader();
 			}
 
-			drawText(page, entry.entryDate, COL_DATE_X, y, font, FS.tdSize, C.text);
+			drawText(page, entry.entryDate, COL_DATE_X, y + ROW_BASE, font, FS.tdSize, C.text);
 			for (let i = 0; i < descLines.length; i++) {
-				drawText(page, descLines[i], COL_DESC_X, y + i * ROW_LINE_H, font, FS.tdSize, C.text);
+				drawText(page, descLines[i], COL_DESC_X, y + ROW_BASE + i * ROW_LINE_H, font, FS.tdSize, C.text);
 			}
-			drawTextRight(page, entry.durationLabel, COL_DUR_X + COL_DUR_W, y, font, FS.tdSize, C.text);
+			drawTextRight(page, entry.durationLabel, COL_DUR_X + COL_DUR_W, y + ROW_BASE, font, FS.tdSize, C.text);
 
 			y += rowH;
 			drawLine(page, ML, y, ML + CW, C.border, 0.35);
-			y += 1;
 		}
 
 		// Group total
 		if (needsNewPage(6)) addNewPage();
 		drawLine(page, ML, y, ML + CW, C.headerBorder, 0.75);
-		y += 2.5;
+		y += 4.5;
 		const sumLabel = `${tr.timesheetSum}: ${group.totalLabel}`;
 		drawTextRight(page, sumLabel, ML + CW, y, fontBold, FS.sumSize, C.text);
 		y += 6;

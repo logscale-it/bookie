@@ -137,16 +137,6 @@ async function buildSummaryPdf(
   const page = pdf.addPage([595, 842]);
   const black = rgb(0, 0, 0);
   const gray = rgb(0.4, 0.4, 0.4);
-  const accent = rgb(37 / 255, 99 / 255, 235 / 255);
-
-  // Accent strip
-  page.drawRectangle({
-    x: 0,
-    y: 838,
-    width: 595,
-    height: 4,
-    color: accent,
-  });
 
   const left = 50;
   let y = 780;

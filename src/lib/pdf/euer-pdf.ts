@@ -23,7 +23,6 @@ const CW = PW - ML - MR;
 
 // -- Colors --
 const C = {
-  accent: rgb(37 / 255, 99 / 255, 235 / 255),
   text: rgb(26 / 255, 26 / 255, 26 / 255),
   gray: rgb(85 / 255, 85 / 255, 85 / 255),
   light: rgb(136 / 255, 136 / 255, 136 / 255),
@@ -144,8 +143,6 @@ export async function createEuerPdf(
 
   let y = MT;
 
-  // -- Accent bar --
-  drawRect(0, 0, PW, 1.2, C.accent);
   y += 4;
 
   // -- Title --
@@ -238,7 +235,6 @@ export async function createEuerPdf(
   // -- Result box --
   const resultH = 13;
   drawRect(ML, y - 1, CW, resultH, C.bgLight);
-  drawRect(ML, y - 1, 1.2, resultH, C.accent);
   const resultY = y + 5;
   drawText(
     "Gewinn / Verlust (Einnahmenüberschuss)",

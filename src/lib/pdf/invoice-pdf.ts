@@ -206,7 +206,6 @@ body {
 }
 
 .page { width: 210mm; min-height: 297mm; padding: 20mm 25mm 28mm 25mm; position: relative; page-break-after: always; }
-.accent-line { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: #2563eb; }
 .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8mm; }
 .header-left { flex: 1; }
 .logo { max-width: 160px; max-height: 55px; object-fit: contain; }
@@ -260,7 +259,6 @@ th.qty, th.price, th.tax, th.total { text-align: right; }
 </head>
 <body>
 <div class="page">
-	<div class="accent-line"></div>
 
 	<div class="header">
 		<div class="header-left"></div>

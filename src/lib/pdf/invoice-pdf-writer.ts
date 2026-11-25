@@ -22,7 +22,6 @@ const CW = PW - ML - MR;
 
 // -- Colors --
 const C = {
-	accent: rgb(37 / 255, 99 / 255, 235 / 255),
 	text: rgb(26 / 255, 26 / 255, 26 / 255),
 	dark: rgb(34 / 255, 34 / 255, 34 / 255),
 	gray: rgb(85 / 255, 85 / 255, 85 / 255),
@@ -114,8 +113,6 @@ export async function createInvoicePdf(data: InvoicePdfData, opts: CreateInvoice
 
 	let y = MT;
 
-	// Accent line
-	drawRect(page, 0, 0, PW, 1, C.accent);
 	y += 2;
 
 	// Sender line
