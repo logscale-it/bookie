@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-11-25
+
+- Stundenzettel: entries are grouped by project, each with its hours and share of the sheet. In bookie Cloud a
+  team sheet can be filtered by Mitarbeiter. The PDF export uses the same project groups.
+- PDFs (invoice, Stundenzettel, EÜR, DSGVO export) no longer carry the blue bar at the top. In the Stundenzettel
+  PDF the separator lines sit below each entry instead of running through it.
+- Invoice preview: the installed app showed the preview without styling. Fixed.
+- Assistant: in bookie Cloud with the server assistant switched off, your own key from Einstellungen → KI is used.
+  Provider errors are shown in plain text instead of "[object Object]", answers that arrive in several parts are
+  read correctly, and the page figures are sent in a more compact format (fewer tokens).
+- Updated to SvelteKit 3 (clears a security advisory in the previous version).
+
 ## [0.1.17] - 2026-11-10
 
 - Assistant in bookie Cloud: the panel now asks the server (Mistral, EU) instead of needing your own API key.

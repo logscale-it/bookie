@@ -87,6 +87,11 @@ ignore = [
   # on it). Never in the shipped binary. Remove once testcontainers moves to
   # tar-codec or another maintained tar crate.
   "RUSTSEC-2026-0440",
+  # chrono unmaintained (no patched version). Only in Cargo.lock as an optional
+  # dependency of serde_with; `cargo tree -i chrono --all-features --target all`
+  # prints nothing, so it is never compiled into the app. Triaged 2026-11-25;
+  # remove once serde_with drops chrono or the lock entry disappears.
+  "RUSTSEC-2026-0543",
 
   # --- Unsound (no upstream fix on the pulled-in versions) ---
   # glib VariantStrIter unsoundness. Pulled in via the GTK3 stack (same
